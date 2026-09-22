@@ -389,6 +389,18 @@ enum EventsCmd {
     },
     /// Stream live events from the daemon.
     Subscribe,
+    /// Verify sequence integrity and continuity of the event store (Phase 8).
+    Verify {
+        /// Optional path to SQLite database (defaults to daemon config path).
+        #[arg(long)]
+        db: Option<PathBuf>,
+    },
+    /// Replay and validate event log against the state machine (Phase 8).
+    Replay {
+        /// Optional path to SQLite database (defaults to daemon config path).
+        #[arg(long)]
+        db: Option<PathBuf>,
+    },
 }
 
 // ── Entry point ───────────────────────────────────────────────────────────────
@@ -399,6 +411,63 @@ async fn main() -> Result<()> {
 
     if matches!(cli.command, Commands::Tui | Commands::Dashboard) {
         return ac_tui::run_tui(cli.socket).await;
+    }
+
+    if let Commands::Events(EventsCmd::Verify { ref db }) = cli.command {
+        let db_path = match db {
+            Some(p) => p.clone(),
+            None => ac_core::config::Config::default().db_path,
+        };
+        let store = ac_core::event_store::EventStore::open(&db_path)?;
+        let report = store.verify_integrity()?;
+        if cli.json {
+            println!("{}", serde_json::to_string(&report)?);
+        } else {
+            println!("Event Store Integrity Report:");
+            println!("  Database:        {}", db_path.display());
+            println!("  Schema Version:  {}", report.schema_version);
+            println!("  Total Events:    {}", report.total_events);
+            println!("  Max Sequence:    {}", report.max_seq);
+            println!("  Gaps Detected:   {}", report.gap_count);
+            println!("  Status:          {}", if report.is_valid { "VALID" } else { "CORRUPTED" });
+        }
+        if !report.is_valid {
+            std::process::exit(1);
+        }
+        return Ok(());
+    }
+
+    if let Commands::Events(EventsCmd::Replay { ref db }) = cli.command {
+        let db_path = match db {
+            Some(p) => p.clone(),
+            None => ac_core::config::Config::default().db_path,
+        };
+        let start = std::time::Instant::now();
+        let store = ac_core::event_store::EventStore::open(&db_path)?;
+        let total_events = store.max_seq()?;
+        let (event_tx, _) = tokio::sync::broadcast::channel(16);
+        let (_cmd_tx, cmd_rx) = tokio::sync::mpsc::channel(16);
+        let adapter_factory = Box::new(ac_core::adapter::CompositeAdapterFactory::new());
+        let mut mgr = ac_core::session::manager::SessionManager::new(store, cmd_rx, event_tx, 3, adapter_factory);
+        mgr.recover_from_store()?;
+        let elapsed = start.elapsed();
+        let sessions = mgr.sessions();
+        if cli.json {
+            println!("{}", serde_json::to_string(&json!({
+                "events_replayed": total_events,
+                "sessions_reconstructed": sessions.len(),
+                "duration_ms": elapsed.as_millis(),
+                "success": true
+            }))?);
+        } else {
+            println!("Event Store Replay Report:");
+            println!("  Database:               {}", db_path.display());
+            println!("  Events Replayed:        {}", total_events);
+            println!("  Sessions Reconstructed: {}", sessions.len());
+            println!("  Duration:               {:?}", elapsed);
+            println!("  Status:                 SUCCESS");
+        }
+        return Ok(());
     }
 
     let (cmd, params) = build_request(&cli.command)?;
@@ -688,6 +757,7 @@ fn build_request(commands: &Commands) -> Result<(String, serde_json::Value)> {
                 json!({ "session_id": session_id, "limit": limit }),
             ),
             EventsCmd::Subscribe => ("events.subscribe".to_owned(), json!({})),
+            EventsCmd::Verify { .. } | EventsCmd::Replay { .. } => unreachable!(),
         },
     };
     Ok((cmd, params))

@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "ac-cli"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "ac-core",
  "ac-tui",
@@ -22,7 +22,7 @@ dependencies = [
 
 [[package]]
 name = "ac-core"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -47,7 +47,7 @@ dependencies = [
 
 [[package]]
 name = "ac-tui"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "ac-core",
  "anyhow",

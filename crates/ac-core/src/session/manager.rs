@@ -233,6 +233,11 @@ impl SessionManager {
         Ok(())
     }
 
+    /// Return references to all in-memory sessions (for inspection & testing).
+    pub fn sessions(&self) -> Vec<&AgentSession> {
+        self.sessions.values().collect()
+    }
+
     /// Apply a single event to in-memory state (used during recovery replay).
     fn apply_event_to_state(&mut self, event: &AgentEvent) {
         match &event.kind {

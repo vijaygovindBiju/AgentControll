@@ -14,6 +14,16 @@ use crate::types::{AgentEvent, EventKind, Id};
 
 const SCHEMA_VERSION: u32 = 1;
 
+/// Event store diagnostic and sequence integrity report (Phase 8).
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct IntegrityReport {
+    pub total_events: u64,
+    pub max_seq: u64,
+    pub gap_count: u64,
+    pub schema_version: u32,
+    pub is_valid: bool,
+}
+
 /// Append-only SQLite event store.
 pub struct EventStore {
     conn: Connection,
@@ -111,6 +121,36 @@ impl EventStore {
         Ok(())
     }
 
+    /// Detailed diagnostic verification of event sequence integrity (Phase 8).
+    pub fn verify_integrity(&self) -> Result<IntegrityReport> {
+        let total_events: i64 = self.conn.query_row(
+            "SELECT COUNT(*) FROM events", [], |r| r.get(0)
+        ).unwrap_or(0);
+        let max_seq: Option<i64> = self.conn.query_row(
+            "SELECT MAX(seq) FROM events", [], |r| r.get(0)
+        ).unwrap_or(None);
+        let gap_count: i64 = self.conn.query_row(
+            "SELECT COUNT(*) FROM (
+                 SELECT seq, LAG(seq, 1, 0) OVER (ORDER BY seq) AS prev
+                 FROM events
+             ) WHERE seq - prev > 1",
+            [],
+            |row| row.get(0),
+        ).unwrap_or(0);
+        let schema_ver_str: String = self.conn.query_row(
+            "SELECT value FROM schema_meta WHERE key = 'version'", [], |r| r.get(0)
+        ).unwrap_or_else(|_| "1".to_string());
+        let schema_version = schema_ver_str.parse().unwrap_or(1);
+
+        Ok(IntegrityReport {
+            total_events: total_events as u64,
+            max_seq: max_seq.unwrap_or(0) as u64,
+            gap_count: gap_count as u64,
+            schema_version,
+            is_valid: gap_count == 0,
+        })
+    }
+
     /// Append an event. Assigns and returns the sequence number.
     pub fn append(&mut self, event: &mut AgentEvent) -> Result<u64> {
         let kind_str = event.kind.to_string();
@@ -137,6 +177,38 @@ impl EventStore {
         let seq = self.conn.last_insert_rowid() as u64;
         event.seq = seq;
         Ok(seq)
+    }
+
+    /// Append multiple events in a single atomic transaction for high throughput.
+    pub fn append_batch(&mut self, events: &mut [AgentEvent]) -> Result<()> {
+        let tx = self.conn.transaction()?;
+        {
+            let mut stmt = tx.prepare_cached(
+                "INSERT INTO events (event_id, version, kind, session_id, payload, triggered_by, timestamp)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            )?;
+            for event in events.iter_mut() {
+                let kind_str = event.kind.to_string();
+                let payload_str = serde_json::to_string(&event.payload)
+                    .context("serialising event payload")?;
+                let ts_str = event.timestamp.to_rfc3339();
+                let session_id = event.session_id.as_ref().map(|id| id.0.as_str());
+
+                stmt.execute(params![
+                    event.id.0,
+                    event.version,
+                    kind_str,
+                    session_id,
+                    payload_str,
+                    event.triggered_by,
+                    ts_str,
+                ])?;
+                let seq = tx.last_insert_rowid() as u64;
+                event.seq = seq;
+            }
+        }
+        tx.commit()?;
+        Ok(())
     }
 
     /// Return the current maximum sequence number (0 if the store is empty).

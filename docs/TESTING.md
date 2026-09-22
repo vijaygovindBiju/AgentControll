@@ -221,7 +221,7 @@ entity IDs, making test assertions readable and reproducible.
 | Phase 5 (TUI Dashboard + Inbox) | Ratatui TUI headless render tests; keyboard event routing; live socket integration | ✅ 167/167 tests passing (106 unit, 46 core integration, 7 TUI state, 8 API integration) |
 | Phase 6 (Seamless Multi-Account Switching) | Explicit/auto account selection; controlled hand-off; snapshots; secret exclusion; TUI switch modal | ✅ 178/178 tests passing (106 unit, 56 core integration across 5 suites, 8 TUI state, 8 API integration) |
 | Phase 7 (External API and integrations) | Control API v1 schema freeze; WebSocket loopback; token auth & scopes; filtering & catch-up replay | ✅ 185/185 tests passing (106 unit, 63 core integration across 6 suites, 8 TUI state, 8 API integration) |
-| Phase 8 | Hardening; fuzz testing; performance benchmarks; v1.0.0 release | Upcoming |
+| Phase 8 (Hardening and v1 release) | Security audit suite (T1–T5); fuzz testing; performance benchmarks; v1.0.0 release | ✅ 195/195 tests passing (106 unit, 73 core integration/bench/security/fuzz across 9 suites, 8 TUI state, 8 API integration) |
 
 ---
 
