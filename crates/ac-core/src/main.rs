@@ -100,12 +100,6 @@ async fn main() -> Result<()> {
     let (event_tx, _) = broadcast::channel::<AgentEvent>(1024);
     let (cmd_tx, cmd_rx) = mpsc::channel(256);
 
-    // Rebuild account and project managers from their DBs for the session manager
-    let account_store2 = AccountStore::open(&accounts_db)?;
-    let account_mgr2 = AccountManager::new(account_store2)?;
-    let project_store2 = ProjectStore::open(&projects_db)?;
-    let project_reg2 = ProjectRegistry::new(project_store2)?;
-
     let adapter_factory = Box::new(CompositeAdapterFactory::new());
 
     let mut manager = SessionManager::new(
@@ -115,8 +109,8 @@ async fn main() -> Result<()> {
         cfg.max_restarts,
         adapter_factory,
     )
-    .with_account_manager(account_mgr2)
-    .with_project_registry(project_reg2)
+    .with_account_manager_handle(acct_handle.clone())
+    .with_project_registry_handle(proj_handle.clone())
     .with_interaction_hub(hub_handle.clone());
 
     manager.recover_from_store()?;

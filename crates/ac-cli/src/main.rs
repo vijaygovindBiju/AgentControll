@@ -28,7 +28,7 @@ struct Cli {
     #[arg(
         long,
         env = "AC_SOCKET",
-        default_value = "/tmp/agentcontrol.sock"
+        default_value_os_t = ac_core::config::Config::default().socket_path
     )]
     socket: PathBuf,
 
@@ -858,7 +858,7 @@ fn print_response(resp: &ApiResponse) {
                 for a in accounts {
                     println!(
                         "{:<26}  {:<12}  {:<14}  {:<4}  {}",
-                        a["id"].as_str().unwrap_or("?"),
+                        a["id"].as_str().or_else(|| a["account_id"].as_str()).unwrap_or("?"),
                         a["state"].as_str().unwrap_or("?"),
                         a["provider"].as_str().unwrap_or("?"),
                         a["concurrency_cap"].as_u64().unwrap_or(0),

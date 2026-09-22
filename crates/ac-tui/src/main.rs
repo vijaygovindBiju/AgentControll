@@ -15,7 +15,7 @@ struct Args {
     #[arg(
         long,
         env = "AC_SOCKET",
-        default_value = "/tmp/agentcontrol.sock"
+        default_value_os_t = ac_core::config::Config::default().socket_path
     )]
     socket: PathBuf,
 }
