@@ -1,0 +1,34 @@
+[package]
+name = "ac-tui"
+version.workspace = true
+edition.workspace = true
+description = "Agent Control TUI — Interactive dashboard and inbox"
+
+[[bin]]
+name = "ac-tui"
+path = "src/main.rs"
+
+[lib]
+name = "ac_tui"
+path = "src/lib.rs"
+
+[dependencies]
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+clap = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+ulid = { workspace = true }
+chrono = { workspace = true }
+ratatui = { workspace = true }
+crossterm = { workspace = true }
+tokio-stream = { workspace = true }
+
+# Core types and IPC client shared with the daemon
+ac-core = { path = "../ac-core" }
+
+[dev-dependencies]
+tempfile = { workspace = true }

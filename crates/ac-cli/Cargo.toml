@@ -1,0 +1,25 @@
+[package]
+name = "ac-cli"
+version.workspace = true
+edition.workspace = true
+description = "Agent Control CLI — session.* and events.* commands"
+
+[[bin]]
+name = "ac"
+path = "src/main.rs"
+
+[dependencies]
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+clap = { version = "4.5", features = ["derive", "cargo", "env"] }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+ulid = { workspace = true }
+chrono = { workspace = true }
+
+# Core types shared with the daemon
+ac-core = { path = "../ac-core" }
+ac-tui = { path = "../ac-tui" }
