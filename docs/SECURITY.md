@@ -67,6 +67,19 @@ to the provider account.
   - Predecessor and successor sessions are permanently distinct entities linked by ULIDs (`predecessor_id`, `successor_id`).
   - Switching events (`AccountSelected`, `AccountSwitchRequested`, `SessionHandOffStarted`, `SessionHandOffCompleted`) audit who requested the switch and which accounts were involved without ever including credential values.
 
+### Phase 7: External API Surface & Token Scopes Security
+
+- **Strict Loopback Binding Guarantee:**
+  - The WebSocket Control API binds exclusively to `127.0.0.1` (loopback). It is never exposed on external IP interfaces (`0.0.0.0`), preventing remote network access.
+- **Granular Token Scopes (`read`, `write`, `admin`):**
+  - Read-only consumers (e.g. AgentDesk in observation mode) are strictly prevented from issuing mutating commands (`session.create`, `session.start`, `session.stop`, `account.remove`, `interaction.reply`, etc.).
+  - Mutating commands attempted by `read`-scoped tokens are blocked immediately by `dispatch_request` with a structured `PermissionDenied` error before reaching managers or adapters.
+- **Authentication Handshake Flexibility with Zero Credential Leakage:**
+  - Supports HTTP `Authorization: Bearer`, URL query string `?token=...`, or in-band `auth` message.
+  - Invalid tokens return HTTP 401 Unauthorized or structured `Unauthorized` error without leaking timing or internal system information.
+- **Zero Raw Secrets in WebSocket Frames:**
+  - Broadcast event streams (`events.subscribe`) and query results contain only sanitized metadata, event sequences, and interaction records. No child process credentials or auth secrets are serialized.
+
 ---
 
 ### T2 — Unauthorised command issuance

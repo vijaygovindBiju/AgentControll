@@ -17,13 +17,13 @@ For security controls on the API, see [`SECURITY.md`](SECURITY.md).
 
 | Transport | When available | Authentication |
 |---|---|---|
-| Unix domain socket `$XDG_RUNTIME_DIR/agentcontrol.sock` (mode 0600) | Always (v1 default) | File system permissions (owner only) |
-| Loopback WebSocket `ws://127.0.0.1:<port>` | Optional, config-enabled | Bearer token in `Authorization` header |
+| Unix domain socket `$XDG_RUNTIME_DIR/agentcontrol/agentcontrol.sock` (mode 0600) | Always (v1 default) | File system permissions (owner only) |
+| Loopback WebSocket `ws://127.0.0.1:4242` (ADR-009) | Config-enabled (`ws_enabled = true`) | Bearer token (`Authorization`), query string (`?token=`), or in-band `auth` command |
 
-- Unix socket is the primary and mandatory transport. No configuration required.
-- WebSocket transport enables external consumers (AgentDesk, AgentMesh, scripts)
-  to subscribe to the event stream from a separate process.
-- Both transports use the same JSON message schema and versioning.
+- Unix socket is the primary and mandatory transport for CLI and TUI. Strict filesystem permissions `0600` enforce local isolation.
+- WebSocket transport enables external consumers (AgentDesk, AgentMesh, scripts) to issue commands and stream events over loopback.
+- Scope enforcement: tokens are assigned `read`, `write`, or `admin` scopes. Mutating commands require `write` or `admin` authorization.
+- Both transports share the identical request dispatcher (`dispatch_request`), JSON message schema, and versioning guarantee (`v: 1`). See [`API_CHANGELOG.md`](API_CHANGELOG.md) for full details.
 
 ### Schema versioning
 

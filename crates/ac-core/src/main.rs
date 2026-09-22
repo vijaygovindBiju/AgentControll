@@ -125,17 +125,62 @@ async fn main() -> Result<()> {
     tokio::spawn(async move { manager.run().await });
 
     // ── 7. IPC server ─────────────────────────────────────────────────────
-    let server = IpcServer::bind(&cfg.socket_path, mgr_handle, event_tx.clone())
+    let server = IpcServer::bind(&cfg.socket_path, mgr_handle.clone(), event_tx.clone())
         .context("binding IPC socket")?
+        .with_account_manager(acct_handle.clone())
+        .with_project_registry(proj_handle.clone())
+        .with_interaction_hub(hub_handle.clone());
+
+    tokio::spawn(async move { server.run().await });
+
+    // ── 8. WebSocket server (Phase 7 / ADR-009) ───────────────────────────
+    if cfg.ws_enabled {
+        let token_registry = ac_core::ws::TokenRegistry::new();
+        if let Ok(env_token) = std::env::var("AC_WS_TOKEN") {
+            token_registry.insert(env_token, ac_core::types::TokenScope::Admin);
+        }
+        if let Some(ref path) = cfg.ws_auth_token_path {
+            if path.exists() {
+                if let Ok(content) = std::fs::read_to_string(path) {
+                    for line in content.lines() {
+                        let line = line.trim();
+                        if line.is_empty() || line.starts_with('#') {
+                            continue;
+                        }
+                        if let Some((tok, scope_str)) = line.split_once(':') {
+                            let scope = match scope_str.trim().to_lowercase().as_str() {
+                                "read" => ac_core::types::TokenScope::Read,
+                                "write" => ac_core::types::TokenScope::Write,
+                                _ => ac_core::types::TokenScope::Admin,
+                            };
+                            token_registry.insert(tok.trim(), scope);
+                        } else {
+                            token_registry.insert(line, ac_core::types::TokenScope::Admin);
+                        }
+                    }
+                }
+            }
+        }
+
+        let ws_server = ac_core::ws::WsServer::bind(
+            &cfg.ws_bind_addr,
+            mgr_handle,
+            event_tx.clone(),
+            token_registry,
+        )
+        .await
+        .context("binding WebSocket server")?
         .with_account_manager(acct_handle)
         .with_project_registry(proj_handle)
         .with_interaction_hub(hub_handle);
 
-    tokio::spawn(async move { server.run().await });
+        tokio::spawn(async move { ws_server.run().await });
+        info!("WebSocket Control API v1 listening on ws://{}", cfg.ws_bind_addr);
+    }
 
     info!("Daemon ready. Listening on {}", cfg.socket_path.display());
 
-    // ── 8. Shutdown signal ────────────────────────────────────────────────
+    // ── 9. Shutdown signal ────────────────────────────────────────────────
     match tokio::signal::ctrl_c().await {
         Ok(()) => info!("Received SIGINT, shutting down"),
         Err(e) => warn!("Signal error: {e}"),

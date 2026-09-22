@@ -1,7 +1,7 @@
 //! Control API IPC server — Unix domain socket, JSON request/response.
 //!
-//! Phase 2 additions: `account.*` and `project.*` command families,
-//! served via shared `AccountManagerHandle` and `ProjectRegistryHandle`.
+//! Phase 7 additions: shared `dispatch_request`, `is_mutating_cmd`,
+//! `SubscriptionFilter` filtering, and `since_seq` catch-up replay.
 
 use anyhow::Result;
 use serde_json::json;
@@ -21,7 +21,8 @@ use crate::{
     session::manager::SessionManagerHandle,
     types::{
         Account, AgentEvent, ApiRequest, ApiResponse, Id, InteractionState, Policy,
-        PolicyCondition, PolicyDecision, PolicyScope, Project, WorkspacePolicy,
+        PolicyCondition, PolicyDecision, PolicyScope, Project, SubscriptionFilter,
+        TokenScope, WorkspacePolicy,
     },
 };
 
@@ -113,6 +114,96 @@ impl IpcServer {
     }
 }
 
+/// Returns true if `cmd` mutates daemon state and requires write authorization.
+pub fn is_mutating_cmd(cmd: &str) -> bool {
+    matches!(
+        cmd,
+        "session.create"
+            | "session.start"
+            | "session.create_and_start"
+            | "session.pause"
+            | "session.resume"
+            | "session.stop"
+            | "session.steer"
+            | "session.select_account"
+            | "session.switch_account"
+            | "session.handoff"
+            | "account.register"
+            | "account.disable"
+            | "account.enable"
+            | "account.remove"
+            | "account.switch"
+            | "project.register"
+            | "project.remove"
+            | "interaction.reply"
+            | "interaction.resolve"
+            | "interaction.dismiss"
+            | "policy.upsert"
+            | "policy.create"
+            | "policy.update"
+            | "policy.remove"
+            | "policy.delete"
+    )
+}
+
+/// Unified command dispatcher shared between Unix socket IPC and WebSocket servers.
+pub async fn dispatch_request(
+    req: &ApiRequest,
+    session_mgr: &SessionManagerHandle,
+    account_mgr: &Option<AccountManagerHandle>,
+    project_registry: &Option<ProjectRegistryHandle>,
+    interaction_hub: &Option<InteractionHubHandle>,
+    policy_engine: &Option<PolicyEngineHandle>,
+    token_scope: Option<TokenScope>,
+) -> ApiResponse {
+    if req.v != 1 {
+        return ApiResponse::err(
+            &req.id,
+            "VersionMismatch",
+            format!("Unsupported schema version: {}", req.v),
+        );
+    }
+
+    if let Some(scope) = token_scope {
+        if !scope.can_write() && is_mutating_cmd(&req.cmd) {
+            return ApiResponse::err(
+                &req.id,
+                "PermissionDenied",
+                format!("Token scope 'read' does not allow mutating command '{}'", req.cmd),
+            );
+        }
+    }
+
+    let family = req.cmd.split('.').next().unwrap_or("");
+    match family {
+        "session" => handle_session_cmd(req, session_mgr).await,
+        "account" => handle_account_cmd(req, account_mgr, session_mgr).await,
+        "project" => handle_project_cmd(req, project_registry).await,
+        "interaction" => handle_interaction_cmd(req, session_mgr, interaction_hub).await,
+        "policy" => handle_policy_cmd(req, policy_engine, interaction_hub).await,
+        "audit" => handle_audit_cmd(req, policy_engine, interaction_hub).await,
+        "events" => {
+            if req.cmd == "events.query" {
+                let sid = req.params["session_id"].as_str().map(Id::from);
+                let limit = req.params["limit"].as_u64();
+                match session_mgr.query_events(sid, limit).await {
+                    Ok(events) => ApiResponse::ok(&req.id, json!({ "events": events })),
+                    Err(e) => ApiResponse::err(&req.id, "InternalError", e.to_string()),
+                }
+            } else if req.cmd == "events.subscribe" {
+                ApiResponse::ok(&req.id, json!({}))
+            } else {
+                ApiResponse::err(&req.id, "NotFound", format!("Unknown command: {}", req.cmd))
+            }
+        }
+        "daemon" => ApiResponse::ok(
+            &req.id,
+            json!({ "version": env!("CARGO_PKG_VERSION"), "status": "running" }),
+        ),
+        _ => ApiResponse::err(&req.id, "NotFound", format!("Unknown command: {}", req.cmd)),
+    }
+}
+
 async fn handle_connection(
     stream: UnixStream,
     session_mgr: SessionManagerHandle,
@@ -150,99 +241,73 @@ async fn handle_connection(
             continue;
         }
 
-        let family = req.cmd.split('.').next().unwrap_or("");
+        if req.cmd == "events.subscribe" {
+            let filter: SubscriptionFilter = if let Some(f) = req.params.get("filter") {
+                serde_json::from_value(f.clone()).unwrap_or_default()
+            } else {
+                serde_json::from_value(req.params.clone()).unwrap_or_default()
+            };
 
-        match family {
-            "session" => {
-                handle_session_cmd(&req, &mut write_half, &session_mgr).await?
-            }
-            "account" => {
-                handle_account_cmd(&req, &mut write_half, &account_mgr, &session_mgr).await?
-            }
-            "project" => {
-                handle_project_cmd(&req, &mut write_half, &project_registry).await?
-            }
-            "interaction" => {
-                handle_interaction_cmd(&req, &mut write_half, &session_mgr, &interaction_hub).await?
-            }
-            "policy" => {
-                handle_policy_cmd(&req, &mut write_half, &policy_engine, &interaction_hub).await?
-            }
-            "audit" => {
-                handle_audit_cmd(&req, &mut write_half, &policy_engine, &interaction_hub).await?
-            }
-            "events" => {
-                if req.cmd == "events.subscribe" {
-                    let mut rx = event_tx.subscribe();
-                    send_line(&mut write_half, &ApiResponse::ok(&req.id, json!({}))).await?;
-                    loop {
-                        match rx.recv().await {
-                            Ok(event) => {
-                                let line =
-                                    serde_json::to_string(&json!({"v": 1, "event": event}))?;
-                                if write_half.write_all(format!("{line}\n").as_bytes()).await.is_err() {
-                                    break;
-                                }
+            // Acknowledge subscription
+            send_line(&mut write_half, &ApiResponse::ok(&req.id, json!({}))).await?;
+
+            // Historical catch-up replay if since_seq is provided
+            if let Some(since) = filter.since_seq {
+                if let Ok(historical) = session_mgr.query_events_since(since, filter.session_id.clone(), None).await {
+                    for event in historical {
+                        if filter.matches(&event) {
+                            let line = serde_json::to_string(&json!({"v": 1, "event": event}))?;
+                            if write_half.write_all(format!("{line}\n").as_bytes()).await.is_err() {
+                                return Ok(());
                             }
-                            Err(broadcast::error::RecvError::Lagged(n)) => {
-                                warn!("IPC subscriber lagged by {n} events");
-                            }
-                            Err(broadcast::error::RecvError::Closed) => break,
                         }
                     }
-                    return Ok(());
-                } else if req.cmd == "events.query" {
-                    let sid = req.params["session_id"].as_str().map(Id::from);
-                    let limit = req.params["limit"].as_u64();
-                    match session_mgr.query_events(sid, limit).await {
-                        Ok(events) => {
-                            send_line(
-                                &mut write_half,
-                                &ApiResponse::ok(&req.id, json!({ "events": events })),
-                            ).await?
-                        }
-                        Err(e) => {
-                            send_line(
-                                &mut write_half,
-                                &ApiResponse::err(&req.id, "InternalError", e.to_string()),
-                            ).await?
-                        }
-                    }
-                } else {
-                    send_line(
-                        &mut write_half,
-                        &ApiResponse::err(&req.id, "NotFound", format!("Unknown command: {}", req.cmd)),
-                    ).await?
                 }
             }
-            "daemon" => {
-                send_line(
-                    &mut write_half,
-                    &ApiResponse::ok(
-                        &req.id,
-                        json!({ "version": env!("CARGO_PKG_VERSION"), "status": "running" }),
-                    ),
-                ).await?
+
+            // Live event streaming loop
+            let mut rx = event_tx.subscribe();
+            loop {
+                match rx.recv().await {
+                    Ok(event) => {
+                        if filter.matches(&event) {
+                            let line = serde_json::to_string(&json!({"v": 1, "event": event}))?;
+                            if write_half.write_all(format!("{line}\n").as_bytes()).await.is_err() {
+                                break;
+                            }
+                        }
+                    }
+                    Err(broadcast::error::RecvError::Lagged(n)) => {
+                        warn!("IPC subscriber lagged by {n} events");
+                    }
+                    Err(broadcast::error::RecvError::Closed) => break,
+                }
             }
-            _ => {
-                warn!("IPC: unknown command family: {}", req.cmd);
-                send_line(
-                    &mut write_half,
-                    &ApiResponse::err(&req.id, "NotFound", format!("Unknown command: {}", req.cmd)),
-                ).await?
-            }
+            return Ok(());
         }
+
+        let resp = dispatch_request(
+            &req,
+            &session_mgr,
+            &account_mgr,
+            &project_registry,
+            &interaction_hub,
+            &policy_engine,
+            None,
+        )
+        .await;
+
+        send_line(&mut write_half, &resp).await?;
     }
     Ok(())
 }
 
 // ── Session commands ──────────────────────────────────────────────────────────
 
-async fn handle_session_cmd(
+pub async fn handle_session_cmd(
     req: &ApiRequest,
-    write: &mut tokio::net::unix::OwnedWriteHalf,
     mgr: &SessionManagerHandle,
-) -> Result<()> {
+) -> ApiResponse {
     match req.cmd.as_str() {
         "session.create" => {
             let task = req.params["task_description"].as_str().unwrap_or("").to_owned();
@@ -250,15 +315,18 @@ async fn handle_session_cmd(
             let project_id = req.params["project_id"].as_str().map(Id::from);
             let account_id = req.params["account_id"].as_str().map(Id::from);
             match mgr.create_with_context(task, agent_type, project_id, account_id).await {
-                Ok(id) => send_line(write, &ApiResponse::ok(&req.id, json!({"session_id": id}))).await?,
-                Err(e) => send_line(write, &ApiResponse::err(&req.id, classify_error(&e), e.to_string())).await?,
+                Ok(id) => ApiResponse::ok(&req.id, json!({"session_id": id})),
+                Err(e) => ApiResponse::err(&req.id, classify_error(&e), e.to_string()),
             }
         }
         "session.start" => {
-            let sid = get_id(&req.params, "session_id")?;
+            let sid = match get_id(&req.params, "session_id") {
+                Ok(id) => id,
+                Err(e) => return ApiResponse::err(&req.id, "ValidationError", e.to_string()),
+            };
             match mgr.start(sid).await {
-                Ok(()) => send_line(write, &ApiResponse::ok(&req.id, json!({}))).await?,
-                Err(e) => send_line(write, &ApiResponse::err(&req.id, "InvalidState", e.to_string())).await?,
+                Ok(()) => ApiResponse::ok(&req.id, json!({})),
+                Err(e) => ApiResponse::err(&req.id, "InvalidState", e.to_string()),
             }
         }
         "session.create_and_start" => {
@@ -268,152 +336,167 @@ async fn handle_session_cmd(
             let account_id = req.params["account_id"].as_str().map(Id::from);
             let id = match mgr.create_with_context(task, agent_type, project_id, account_id).await {
                 Ok(id) => id,
-                Err(e) => {
-                    send_line(write, &ApiResponse::err(&req.id, classify_error(&e), e.to_string())).await?;
-                    return Ok(());
-                }
+                Err(e) => return ApiResponse::err(&req.id, classify_error(&e), e.to_string()),
             };
             match mgr.start(id.clone()).await {
-                Ok(()) => send_line(write, &ApiResponse::ok(&req.id, json!({"session_id": id}))).await?,
-                Err(e) => send_line(write, &ApiResponse::err(&req.id, "InvalidState", e.to_string())).await?,
+                Ok(()) => ApiResponse::ok(&req.id, json!({"session_id": id})),
+                Err(e) => ApiResponse::err(&req.id, "InvalidState", e.to_string()),
             }
         }
         "session.pause" => {
-            let sid = get_id(&req.params, "session_id")?;
+            let sid = match get_id(&req.params, "session_id") {
+                Ok(id) => id,
+                Err(e) => return ApiResponse::err(&req.id, "ValidationError", e.to_string()),
+            };
             match mgr.pause(sid).await {
-                Ok(()) => send_line(write, &ApiResponse::ok(&req.id, json!({}))).await?,
-                Err(e) => send_line(write, &ApiResponse::err(&req.id, "InvalidState", e.to_string())).await?,
+                Ok(()) => ApiResponse::ok(&req.id, json!({})),
+                Err(e) => ApiResponse::err(&req.id, "InvalidState", e.to_string()),
             }
         }
         "session.resume" => {
-            let sid = get_id(&req.params, "session_id")?;
+            let sid = match get_id(&req.params, "session_id") {
+                Ok(id) => id,
+                Err(e) => return ApiResponse::err(&req.id, "ValidationError", e.to_string()),
+            };
             match mgr.resume(sid).await {
-                Ok(()) => send_line(write, &ApiResponse::ok(&req.id, json!({}))).await?,
-                Err(e) => send_line(write, &ApiResponse::err(&req.id, "InvalidState", e.to_string())).await?,
+                Ok(()) => ApiResponse::ok(&req.id, json!({})),
+                Err(e) => ApiResponse::err(&req.id, "InvalidState", e.to_string()),
             }
         }
         "session.stop" => {
-            let sid = get_id(&req.params, "session_id")?;
+            let sid = match get_id(&req.params, "session_id") {
+                Ok(id) => id,
+                Err(e) => return ApiResponse::err(&req.id, "ValidationError", e.to_string()),
+            };
             let reason = req.params["reason"].as_str().map(|s| s.to_owned());
             match mgr.stop(sid, reason).await {
-                Ok(()) => send_line(write, &ApiResponse::ok(&req.id, json!({}))).await?,
-                Err(e) => send_line(write, &ApiResponse::err(&req.id, "InvalidState", e.to_string())).await?,
+                Ok(()) => ApiResponse::ok(&req.id, json!({})),
+                Err(e) => ApiResponse::err(&req.id, "InvalidState", e.to_string()),
             }
         }
         "session.list" => {
             match mgr.list().await {
-                Ok(sessions) => {
-                    send_line(write, &ApiResponse::ok(&req.id, json!({"sessions": sessions}))).await?
-                }
-                Err(e) => send_line(write, &ApiResponse::err(&req.id, "InternalError", e.to_string())).await?,
+                Ok(sessions) => ApiResponse::ok(&req.id, json!({"sessions": sessions})),
+                Err(e) => ApiResponse::err(&req.id, "InternalError", e.to_string()),
             }
         }
         "session.get" => {
-            let sid = get_id(&req.params, "session_id")?;
+            let sid = match get_id(&req.params, "session_id") {
+                Ok(id) => id,
+                Err(e) => return ApiResponse::err(&req.id, "ValidationError", e.to_string()),
+            };
             match mgr.get(sid).await {
-                Ok(Some(s)) => send_line(write, &ApiResponse::ok(&req.id, serde_json::to_value(&s)?)).await?,
-                Ok(None) => send_line(write, &ApiResponse::err(&req.id, "NotFound", "Session not found")).await?,
-                Err(e) => send_line(write, &ApiResponse::err(&req.id, "InternalError", e.to_string())).await?,
+                Ok(Some(s)) => match serde_json::to_value(&s) {
+                    Ok(v) => ApiResponse::ok(&req.id, v),
+                    Err(e) => ApiResponse::err(&req.id, "InternalError", e.to_string()),
+                },
+                Ok(None) => ApiResponse::err(&req.id, "NotFound", "Session not found"),
+                Err(e) => ApiResponse::err(&req.id, "InternalError", e.to_string()),
             }
         }
         "session.steer" => {
-            let sid = get_id(&req.params, "session_id")?;
+            let sid = match get_id(&req.params, "session_id") {
+                Ok(id) => id,
+                Err(e) => return ApiResponse::err(&req.id, "ValidationError", e.to_string()),
+            };
             let message = req.params["message"].as_str().unwrap_or("").to_owned();
             match mgr.steer(sid, message).await {
-                Ok(()) => send_line(write, &ApiResponse::ok(&req.id, json!({}))).await?,
-                Err(e) => send_line(write, &ApiResponse::err(&req.id, "InvalidState", e.to_string())).await?,
+                Ok(()) => ApiResponse::ok(&req.id, json!({})),
+                Err(e) => ApiResponse::err(&req.id, "InvalidState", e.to_string()),
             }
         }
         "session.select_account" => {
-            let sid = get_id(&req.params, "session_id")?;
-            let aid = get_id(&req.params, "account_id")?;
+            let sid = match get_id(&req.params, "session_id") {
+                Ok(id) => id,
+                Err(e) => return ApiResponse::err(&req.id, "ValidationError", e.to_string()),
+            };
+            let aid = match get_id(&req.params, "account_id") {
+                Ok(id) => id,
+                Err(e) => return ApiResponse::err(&req.id, "ValidationError", e.to_string()),
+            };
             match mgr.select_account(sid, aid).await {
-                Ok(()) => send_line(write, &ApiResponse::ok(&req.id, json!({}))).await?,
-                Err(e) => send_line(write, &ApiResponse::err(&req.id, classify_error(&e), e.to_string())).await?,
+                Ok(()) => ApiResponse::ok(&req.id, json!({})),
+                Err(e) => ApiResponse::err(&req.id, classify_error(&e), e.to_string()),
             }
         }
         "session.switch_account" => {
-            let sid = get_id(&req.params, "session_id")?;
-            let target_aid = get_id(&req.params, "target_account_id")
-                .or_else(|_| get_id(&req.params, "account_id"))?;
+            let sid = match get_id(&req.params, "session_id") {
+                Ok(id) => id,
+                Err(e) => return ApiResponse::err(&req.id, "ValidationError", e.to_string()),
+            };
+            let target_aid = match get_id(&req.params, "target_account_id")
+                .or_else(|_| get_id(&req.params, "account_id")) {
+                Ok(id) => id,
+                Err(e) => return ApiResponse::err(&req.id, "ValidationError", e.to_string()),
+            };
             match mgr.switch_account(sid, target_aid).await {
-                Ok(active_id) => send_line(write, &ApiResponse::ok(&req.id, json!({
+                Ok(active_id) => ApiResponse::ok(&req.id, json!({
                     "active_session_id": active_id,
                     "session_id": active_id,
-                }))).await?,
-                Err(e) => send_line(write, &ApiResponse::err(&req.id, classify_error(&e), e.to_string())).await?,
+                })),
+                Err(e) => ApiResponse::err(&req.id, classify_error(&e), e.to_string()),
             }
         }
         "session.snapshot" => {
-            let sid = get_id(&req.params, "session_id")?;
+            let sid = match get_id(&req.params, "session_id") {
+                Ok(id) => id,
+                Err(e) => return ApiResponse::err(&req.id, "ValidationError", e.to_string()),
+            };
             match mgr.snapshot(sid).await {
-                Ok(snapshot) => send_line(write, &ApiResponse::ok(&req.id, json!({
+                Ok(snapshot) => ApiResponse::ok(&req.id, json!({
                     "snapshot": snapshot,
-                }))).await?,
-                Err(e) => send_line(write, &ApiResponse::err(&req.id, classify_error(&e), e.to_string())).await?,
+                })),
+                Err(e) => ApiResponse::err(&req.id, classify_error(&e), e.to_string()),
             }
         }
         "session.handoff" => {
-            let sid = get_id(&req.params, "session_id")?;
+            let sid = match get_id(&req.params, "session_id") {
+                Ok(id) => id,
+                Err(e) => return ApiResponse::err(&req.id, "ValidationError", e.to_string()),
+            };
             let target_aid = req.params["target_account_id"].as_str().map(Id::from)
                 .or_else(|| req.params["account_id"].as_str().map(Id::from));
             match mgr.handoff(sid, target_aid).await {
-                Ok(successor_id) => send_line(write, &ApiResponse::ok(&req.id, json!({
+                Ok(successor_id) => ApiResponse::ok(&req.id, json!({
                     "successor_session_id": successor_id,
                     "session_id": successor_id,
-                }))).await?,
-                Err(e) => send_line(write, &ApiResponse::err(&req.id, classify_error(&e), e.to_string())).await?,
+                })),
+                Err(e) => ApiResponse::err(&req.id, classify_error(&e), e.to_string()),
             }
         }
-        other => {
-            send_line(write, &ApiResponse::err(&req.id, "NotFound", format!("Unknown command: {other}"))).await?
-        }
+        other => ApiResponse::err(&req.id, "NotFound", format!("Unknown command: {other}")),
     }
-    Ok(())
 }
 
 // ── Account commands ──────────────────────────────────────────────────────────
 
-async fn handle_account_cmd(
+pub async fn handle_account_cmd(
     req: &ApiRequest,
-    write: &mut tokio::net::unix::OwnedWriteHalf,
     mgr_opt: &Option<AccountManagerHandle>,
     session_mgr: &SessionManagerHandle,
-) -> Result<()> {
+) -> ApiResponse {
     let mgr_handle = match mgr_opt {
         Some(h) => h,
-        None => {
-            send_line(write, &ApiResponse::err(&req.id, "InternalError", "Account manager not available")).await?;
-            return Ok(());
-        }
+        None => return ApiResponse::err(&req.id, "InternalError", "Account manager not available"),
     };
 
     if req.cmd == "account.switch" {
         let sid = match get_id(&req.params, "session_id") {
             Ok(id) => id,
-            Err(e) => {
-                send_line(write, &ApiResponse::err(&req.id, "InvalidState", e.to_string())).await?;
-                return Ok(());
-            }
+            Err(e) => return ApiResponse::err(&req.id, "ValidationError", e.to_string()),
         };
-        let target_aid = match get_id(&req.params, "target_account_id").or_else(|_| get_id(&req.params, "account_id")) {
+        let target_aid = match get_id(&req.params, "target_account_id")
+            .or_else(|_| get_id(&req.params, "account_id")) {
             Ok(id) => id,
-            Err(e) => {
-                send_line(write, &ApiResponse::err(&req.id, "InvalidState", e.to_string())).await?;
-                return Ok(());
-            }
+            Err(e) => return ApiResponse::err(&req.id, "ValidationError", e.to_string()),
         };
-        let resp = match session_mgr.switch_account(sid, target_aid).await {
+        return match session_mgr.switch_account(sid, target_aid).await {
             Ok(active_id) => ApiResponse::ok(&req.id, json!({"active_session_id": active_id, "session_id": active_id})),
             Err(e) => ApiResponse::err(&req.id, classify_error(&e), e.to_string()),
         };
-        send_line(write, &resp).await?;
-        return Ok(());
     }
 
-    // Pattern: compute the ApiResponse inside a non-async block (guard is dropped
-    // at the end of that block), then send the response with .await outside.
-    let resp: ApiResponse = match req.cmd.as_str() {
+    match req.cmd.as_str() {
         "account.register" => {
             let label = req.params["label"].as_str().unwrap_or("").to_owned();
             let provider = req.params["provider"].as_str().unwrap_or("").to_owned();
@@ -428,7 +511,6 @@ async fn handle_account_cmd(
                 .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
                 .unwrap_or_default();
             let account = Account::new(label, provider, agent_types, credential_ref, concurrency_cap, tags);
-            // Guard acquired and released inside this block — not held across any await.
             match mgr_handle.0.lock().unwrap().register(account) {
                 Ok(id) => ApiResponse::ok(&req.id, json!({"account_id": id})),
                 Err(e) => ApiResponse::err(&req.id, "InternalError", e.to_string()),
@@ -438,7 +520,7 @@ async fn handle_account_cmd(
             let list: Vec<_> = {
                 let mgr = mgr_handle.0.lock().unwrap();
                 mgr.list(None, &[]).into_iter().cloned().collect()
-            }; // guard dropped here
+            };
             ApiResponse::ok(&req.id, json!({"accounts": list}))
         }
         "account.availability" | "account.query_availability" => {
@@ -454,18 +536,24 @@ async fn handle_account_cmd(
             ApiResponse::ok(&req.id, json!({"accounts": list}))
         }
         "account.get" => {
-            let aid = get_id(&req.params, "account_id")?;
+            let aid = match get_id(&req.params, "account_id") {
+                Ok(id) => id,
+                Err(e) => return ApiResponse::err(&req.id, "ValidationError", e.to_string()),
+            };
             let result = {
                 let mgr = mgr_handle.0.lock().unwrap();
                 mgr.get(&aid).and_then(|a| serde_json::to_value(a).ok())
-            }; // guard dropped here
+            };
             match result {
                 Some(v) => ApiResponse::ok(&req.id, v),
                 None => ApiResponse::err(&req.id, "NotFound", "Account not found"),
             }
         }
         "account.disable" => {
-            let aid = get_id(&req.params, "account_id")?;
+            let aid = match get_id(&req.params, "account_id") {
+                Ok(id) => id,
+                Err(e) => return ApiResponse::err(&req.id, "ValidationError", e.to_string()),
+            };
             let result = mgr_handle.0.lock().unwrap().disable(&aid);
             match result {
                 Ok(()) => ApiResponse::ok(&req.id, json!({})),
@@ -473,7 +561,10 @@ async fn handle_account_cmd(
             }
         }
         "account.enable" => {
-            let aid = get_id(&req.params, "account_id")?;
+            let aid = match get_id(&req.params, "account_id") {
+                Ok(id) => id,
+                Err(e) => return ApiResponse::err(&req.id, "ValidationError", e.to_string()),
+            };
             let result = mgr_handle.0.lock().unwrap().enable(&aid);
             match result {
                 Ok(()) => ApiResponse::ok(&req.id, json!({})),
@@ -481,7 +572,10 @@ async fn handle_account_cmd(
             }
         }
         "account.remove" => {
-            let aid = get_id(&req.params, "account_id")?;
+            let aid = match get_id(&req.params, "account_id") {
+                Ok(id) => id,
+                Err(e) => return ApiResponse::err(&req.id, "ValidationError", e.to_string()),
+            };
             let result = mgr_handle.0.lock().unwrap().remove(&aid);
             match result {
                 Ok(()) => ApiResponse::ok(&req.id, json!({})),
@@ -489,30 +583,21 @@ async fn handle_account_cmd(
             }
         }
         other => ApiResponse::err(&req.id, "NotFound", format!("Unknown command: {other}")),
-    };
-
-    send_line(write, &resp).await?;
-    Ok(())
+    }
 }
 
 // ── Project commands ──────────────────────────────────────────────────────────
 
-async fn handle_project_cmd(
+pub async fn handle_project_cmd(
     req: &ApiRequest,
-    write: &mut tokio::net::unix::OwnedWriteHalf,
     reg_opt: &Option<ProjectRegistryHandle>,
-) -> Result<()> {
+) -> ApiResponse {
     let reg_handle = match reg_opt {
         Some(h) => h,
-        None => {
-            send_line(write, &ApiResponse::err(&req.id, "InternalError", "Project registry not available")).await?;
-            return Ok(());
-        }
+        None => return ApiResponse::err(&req.id, "InternalError", "Project registry not available"),
     };
 
-    // Same pattern as account commands: build the response with the guard held,
-    // then drop the guard before the single .await at the end.
-    let resp: ApiResponse = match req.cmd.as_str() {
+    match req.cmd.as_str() {
         "project.register" => {
             let name = req.params["name"].as_str().unwrap_or("").to_owned();
             let repo_path = req.params["repo_path"].as_str().unwrap_or("").to_owned();
@@ -535,22 +620,28 @@ async fn handle_project_cmd(
             let list: Vec<_> = {
                 let reg = reg_handle.0.lock().unwrap();
                 reg.list().into_iter().cloned().collect()
-            }; // guard dropped here
+            };
             ApiResponse::ok(&req.id, json!({"projects": list}))
         }
         "project.get" => {
-            let pid = get_id(&req.params, "project_id")?;
+            let pid = match get_id(&req.params, "project_id") {
+                Ok(id) => id,
+                Err(e) => return ApiResponse::err(&req.id, "ValidationError", e.to_string()),
+            };
             let result = {
                 let reg = reg_handle.0.lock().unwrap();
                 reg.get(&pid).and_then(|p| serde_json::to_value(p).ok())
-            }; // guard dropped here
+            };
             match result {
                 Some(v) => ApiResponse::ok(&req.id, v),
                 None => ApiResponse::err(&req.id, "NotFound", "Project not found"),
             }
         }
         "project.remove" => {
-            let pid = get_id(&req.params, "project_id")?;
+            let pid = match get_id(&req.params, "project_id") {
+                Ok(id) => id,
+                Err(e) => return ApiResponse::err(&req.id, "ValidationError", e.to_string()),
+            };
             let result = reg_handle.0.lock().unwrap().remove(&pid);
             match result {
                 Ok(()) => ApiResponse::ok(&req.id, json!({})),
@@ -558,38 +649,30 @@ async fn handle_project_cmd(
             }
         }
         "project.workspaces" => {
-            let pid = get_id(&req.params, "project_id")?;
+            let pid = match get_id(&req.params, "project_id") {
+                Ok(id) => id,
+                Err(e) => return ApiResponse::err(&req.id, "ValidationError", e.to_string()),
+            };
             let list: Vec<_> = {
                 let reg = reg_handle.0.lock().unwrap();
                 reg.workspaces_for(&pid).into_iter().cloned().collect()
-            }; // guard dropped here
+            };
             ApiResponse::ok(&req.id, json!({"workspaces": list}))
         }
         other => ApiResponse::err(&req.id, "NotFound", format!("Unknown command: {other}")),
-    };
-
-    send_line(write, &resp).await?;
-    Ok(())
+    }
 }
 
 // ── Interaction commands ────────────────────────────────────────────────────
 
-async fn handle_interaction_cmd(
+pub async fn handle_interaction_cmd(
     req: &ApiRequest,
-    write: &mut tokio::net::unix::OwnedWriteHalf,
     session_mgr: &SessionManagerHandle,
     hub_opt: &Option<InteractionHubHandle>,
-) -> Result<()> {
+) -> ApiResponse {
     let hub_handle = match hub_opt {
         Some(h) => h,
-        None => {
-            send_line(
-                write,
-                &ApiResponse::err(&req.id, "InternalError", "Interaction hub not available"),
-            )
-            .await?;
-            return Ok(());
-        }
+        None => return ApiResponse::err(&req.id, "InternalError", "Interaction hub not available"),
     };
 
     match req.cmd.as_str() {
@@ -598,9 +681,9 @@ async fn handle_interaction_cmd(
             let list = {
                 let hub = hub_handle.0.lock().unwrap();
                 let pending = hub.list_pending(session_id.as_ref());
-                serde_json::to_value(&pending)?
+                serde_json::to_value(&pending).unwrap_or(json!([]))
             };
-            send_line(write, &ApiResponse::ok(&req.id, json!({ "interactions": list }))).await?;
+            ApiResponse::ok(&req.id, json!({ "interactions": list }))
         }
         "interaction.list" => {
             let session_id = req.params["session_id"].as_str().map(Id::from);
@@ -610,23 +693,32 @@ async fn handle_interaction_cmd(
             let list = {
                 let hub = hub_handle.0.lock().unwrap();
                 let items = hub.list(session_id.as_ref(), state_filter.as_ref());
-                serde_json::to_value(&items)?
+                serde_json::to_value(&items).unwrap_or(json!([]))
             };
-            send_line(write, &ApiResponse::ok(&req.id, json!({ "interactions": list }))).await?;
+            ApiResponse::ok(&req.id, json!({ "interactions": list }))
         }
         "interaction.get" => {
-            let iid = get_id(&req.params, "interaction_id")?;
+            let iid = match get_id(&req.params, "interaction_id") {
+                Ok(id) => id,
+                Err(e) => return ApiResponse::err(&req.id, "ValidationError", e.to_string()),
+            };
             let found = {
                 let hub = hub_handle.0.lock().unwrap();
                 hub.get(&iid).cloned()
             };
             match found {
-                Some(i) => send_line(write, &ApiResponse::ok(&req.id, serde_json::to_value(i)?)).await?,
-                None => send_line(write, &ApiResponse::err(&req.id, "NotFound", "Interaction not found")).await?,
+                Some(i) => match serde_json::to_value(i) {
+                    Ok(v) => ApiResponse::ok(&req.id, v),
+                    Err(e) => ApiResponse::err(&req.id, "InternalError", e.to_string()),
+                },
+                None => ApiResponse::err(&req.id, "NotFound", "Interaction not found"),
             }
         }
         "interaction.reply" | "interaction.resolve" => {
-            let iid = get_id(&req.params, "interaction_id")?;
+            let iid = match get_id(&req.params, "interaction_id") {
+                Ok(id) => id,
+                Err(e) => return ApiResponse::err(&req.id, "ValidationError", e.to_string()),
+            };
             let decision: Option<PolicyDecision> = req.params["decision"]
                 .as_str()
                 .and_then(|d| match d {
@@ -639,32 +731,30 @@ async fn handle_interaction_cmd(
             let actor = req.params["actor"].as_str().map(|s| s.to_owned());
 
             match session_mgr.respond_interaction(iid, decision, response, actor).await {
-                Ok(interaction) => {
-                    send_line(write, &ApiResponse::ok(&req.id, serde_json::to_value(interaction)?)).await?;
-                }
-                Err(e) => {
-                    send_line(write, &ApiResponse::err(&req.id, classify_error(&e), e.to_string())).await?;
-                }
+                Ok(interaction) => match serde_json::to_value(interaction) {
+                    Ok(v) => ApiResponse::ok(&req.id, v),
+                    Err(e) => ApiResponse::err(&req.id, "InternalError", e.to_string()),
+                },
+                Err(e) => ApiResponse::err(&req.id, classify_error(&e), e.to_string()),
             }
         }
         "interaction.dismiss" => {
-            let iid = get_id(&req.params, "interaction_id")?;
+            let iid = match get_id(&req.params, "interaction_id") {
+                Ok(id) => id,
+                Err(e) => return ApiResponse::err(&req.id, "ValidationError", e.to_string()),
+            };
             let actor = req.params["actor"].as_str().map(|s| s.to_owned());
 
             match session_mgr.dismiss_interaction(iid, actor).await {
-                Ok(interaction) => {
-                    send_line(write, &ApiResponse::ok(&req.id, serde_json::to_value(interaction)?)).await?;
-                }
-                Err(e) => {
-                    send_line(write, &ApiResponse::err(&req.id, classify_error(&e), e.to_string())).await?;
-                }
+                Ok(interaction) => match serde_json::to_value(interaction) {
+                    Ok(v) => ApiResponse::ok(&req.id, v),
+                    Err(e) => ApiResponse::err(&req.id, "InternalError", e.to_string()),
+                },
+                Err(e) => ApiResponse::err(&req.id, classify_error(&e), e.to_string()),
             }
         }
-        other => {
-            send_line(write, &ApiResponse::err(&req.id, "NotFound", format!("Unknown command: {other}"))).await?;
-        }
+        other => ApiResponse::err(&req.id, "NotFound", format!("Unknown command: {other}")),
     }
-    Ok(())
 }
 
 // ── Policy & Audit helpers ──────────────────────────────────────────────────
@@ -703,13 +793,12 @@ fn with_engine<R>(
 
 // ── Policy commands ─────────────────────────────────────────────────────────
 
-async fn handle_policy_cmd(
+pub async fn handle_policy_cmd(
     req: &ApiRequest,
-    write: &mut tokio::net::unix::OwnedWriteHalf,
     engine_opt: &Option<PolicyEngineHandle>,
     hub_opt: &Option<InteractionHubHandle>,
-) -> Result<()> {
-    let resp = match req.cmd.as_str() {
+) -> ApiResponse {
+    match req.cmd.as_str() {
         "policy.list" => {
             let scope_filter: Option<PolicyScope> = req.params["scope"].as_str().and_then(|s| {
                 if s == "global" {
@@ -733,12 +822,18 @@ async fn handle_policy_cmd(
             }
         }
         "policy.get" => {
-            let pid = get_id(&req.params, "policy_id")?;
+            let pid = match get_id(&req.params, "policy_id") {
+                Ok(id) => id,
+                Err(e) => return ApiResponse::err(&req.id, "ValidationError", e.to_string()),
+            };
             let result = with_engine(engine_opt, hub_opt, |engine| {
                 engine.get_policy(&pid).cloned()
             });
             match result {
-                Some(Some(p)) => ApiResponse::ok(&req.id, serde_json::to_value(p)?),
+                Some(Some(p)) => match serde_json::to_value(p) {
+                    Ok(v) => ApiResponse::ok(&req.id, v),
+                    Err(e) => ApiResponse::err(&req.id, "InternalError", e.to_string()),
+                },
                 Some(None) => ApiResponse::err(&req.id, "NotFound", "Policy not found"),
                 None => ApiResponse::err(&req.id, "InternalError", "Policy engine not available"),
             }
@@ -883,7 +978,10 @@ async fn handle_policy_cmd(
             }
         }
         "policy.remove" | "policy.delete" => {
-            let pid = get_id(&req.params, "policy_id")?;
+            let pid = match get_id(&req.params, "policy_id") {
+                Ok(id) => id,
+                Err(e) => return ApiResponse::err(&req.id, "ValidationError", e.to_string()),
+            };
             let result = with_engine_mut(engine_opt, hub_opt, |engine| engine.remove_policy(&pid));
             match result {
                 Some(Ok(())) => ApiResponse::ok(&req.id, json!({})),
@@ -912,21 +1010,17 @@ async fn handle_policy_cmd(
             }
         }
         other => ApiResponse::err(&req.id, "NotFound", format!("Unknown command: {other}")),
-    };
-
-    send_line(write, &resp).await?;
-    Ok(())
+    }
 }
 
 // ── Audit commands ──────────────────────────────────────────────────────────
 
-async fn handle_audit_cmd(
+pub async fn handle_audit_cmd(
     req: &ApiRequest,
-    write: &mut tokio::net::unix::OwnedWriteHalf,
     engine_opt: &Option<PolicyEngineHandle>,
     hub_opt: &Option<InteractionHubHandle>,
-) -> Result<()> {
-    let resp = match req.cmd.as_str() {
+) -> ApiResponse {
+    match req.cmd.as_str() {
         "audit.list" | "audit.query" => {
             let session_id = req.params["session_id"].as_str().map(Id::from);
             let limit = req.params["limit"].as_u64();
@@ -940,10 +1034,7 @@ async fn handle_audit_cmd(
             }
         }
         other => ApiResponse::err(&req.id, "NotFound", format!("Unknown command: {other}")),
-    };
-
-    send_line(write, &resp).await?;
-    Ok(())
+    }
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────

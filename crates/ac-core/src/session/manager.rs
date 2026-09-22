@@ -84,6 +84,13 @@ pub enum SessionCmd {
         limit: Option<u64>,
         reply: tokio::sync::oneshot::Sender<Result<Vec<AgentEvent>>>,
     },
+    /// Query historical events starting from a specific sequence number (Phase 7 replay).
+    QueryEventsSince {
+        since_seq: u64,
+        session_id: Option<Id>,
+        limit: Option<u64>,
+        reply: tokio::sync::oneshot::Sender<Result<Vec<AgentEvent>>>,
+    },
     /// Phase 6: Explicitly select an account for an Idle session.
     SelectAccount {
         session_id: Id,
@@ -382,6 +389,15 @@ impl SessionManager {
                 reply,
             } => {
                 let result = self.cmd_query_events(session_id, limit);
+                let _ = reply.send(result);
+            }
+            SessionCmd::QueryEventsSince {
+                since_seq,
+                session_id,
+                limit,
+                reply,
+            } => {
+                let result = self.store.query(since_seq, session_id.as_ref(), limit);
                 let _ = reply.send(result);
             }
             SessionCmd::SelectAccount {
@@ -1896,6 +1912,22 @@ impl SessionManagerHandle {
         limit: Option<u64>,
     ) -> Result<Vec<AgentEvent>> {
         self.send_and_wait(|reply| SessionCmd::QueryEvents {
+            session_id,
+            limit,
+            reply,
+        })
+        .await?
+    }
+
+    /// Query historical events starting from a specific sequence number (Phase 7 replay).
+    pub async fn query_events_since(
+        &self,
+        since_seq: u64,
+        session_id: Option<Id>,
+        limit: Option<u64>,
+    ) -> Result<Vec<AgentEvent>> {
+        self.send_and_wait(|reply| SessionCmd::QueryEventsSince {
+            since_seq,
             session_id,
             limit,
             reply,

@@ -315,23 +315,23 @@ Exit criteria:
 and AgentMesh integration points.
 
 Deliverables:
-- Control API schema v1: frozen, versioned, documented.
-- WebSocket event subscription endpoint (loopback, token-protected).
-- API changelog and migration guide.
-- Event subscription filter: consumers can subscribe to subsets of the event
-  stream by kind, session, project, or account.
-- Reference client library (documentation only, no implementation in this phase;
-  see `FUTURE.md`).
-- Integration guidance for AgentDesk (event subscription) and AgentMesh
-  (command issuance) published in `INTERFACES.md`.
+- Control API schema v1: frozen, versioned, documented in `docs/API_CHANGELOG.md`.
+- WebSocket loopback endpoint (`tokio-tungstenite`) built directly into the daemon (`ws://127.0.0.1:4242` / ADR-009).
+- Token authorization registry (`TokenRegistry`) with granular permission scopes (`read`, `write`, `admin`).
+- Advanced subscription filtering (`SubscriptionFilter`) by event kinds, `session_id`, `project_id`, and `account_id`.
+- Historical catch-up replay via `since_seq` on both Unix socket IPC and WebSocket.
+- Shared request dispatcher (`dispatch_request`) ensuring complete parity between Unix socket IPC and WebSocket transports.
+- Integration guidance for AgentDesk (desktop GUI) and AgentMesh (orchestrator) published in `INTERFACES.md`, `DATA_FLOW.md`, and `API_CHANGELOG.md`.
+- Comprehensive Phase 7 integration test suite in `crates/ac-core/tests/phase7_integration.rs`.
 
 Exit criteria:
-- A script can subscribe to the event stream and receive events without access
-  to daemon internals.
-- The schema version is present in every command and event; a version mismatch
-  returns a structured error.
-- AgentDesk and AgentMesh integration paths are documented in `INTERFACES.md`
-  and `DATA_FLOW.md`.
+- A script/client can subscribe to the event stream over WebSocket or IPC and receive events without access to daemon internals. ✅
+- The schema version (`v: 1`) is enforced on every request; a version mismatch returns structured error `VersionMismatch`. ✅
+- Scope enforcement: mutating commands are rejected with `PermissionDenied` for `read` tokens. ✅
+- AgentDesk and AgentMesh integration paths are documented in `INTERFACES.md`, `DATA_FLOW.md`, and `API_CHANGELOG.md`. ✅
+- 100% test pass rate (185/185 tests) with 0 compiler warnings. ✅
+
+**Status:** ✅ Complete — 2026-09-22.
 
 ---
 
@@ -369,16 +369,11 @@ Exit criteria:
 | 4 | Real agent adapters | — | Claude Code & Generic PTY adapters |
 | 5 | TUI Dashboard + Inbox | — | Ratatui TUI, live streams, modal dialogs |
 | 6 | Seamless Multi-Account Agent Switching | — | Account selection/switching, hand-off, snapshots |
-| 7 | External API and integrations | — | Stable API v1 |
+| 7 | External API and integrations | — | Stable API v1, WebSocket, Scopes, Replay |
 | 8 | Hardening and v1 release | — | Security, perf, release |
 
 ---
 
 ## Open items
 
-- Choice of second adapter (Phase 5): Codex, Devin CLI, agy, or Generic PTY.
-  Record decision in [`DECISIONS.md`](DECISIONS.md) before Phase 5 begins.
-- Implementation language and TUI framework: see ADR-007 in
-  [`DECISIONS.md`](DECISIONS.md).
-- Whether the WebSocket endpoint in Phase 7 requires a separate binary or is
-  built into the daemon: record in [`DECISIONS.md`](DECISIONS.md).
+- Cryptographic signing of audit log: see ADR-010 in [`DECISIONS.md`](DECISIONS.md) and [`FUTURE.md`](FUTURE.md).

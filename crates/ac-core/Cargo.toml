@@ -29,6 +29,8 @@ tokio-stream = { workspace = true }
 portable-pty = { workspace = true }
 regex = { workspace = true }
 libc = { workspace = true }
+tokio-tungstenite = { workspace = true }
+futures-util = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }

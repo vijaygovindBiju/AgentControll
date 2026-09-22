@@ -14,3 +14,4 @@ pub mod policy_engine;
 pub mod project_registry;
 pub mod session;
 pub mod types;
+pub mod ws;

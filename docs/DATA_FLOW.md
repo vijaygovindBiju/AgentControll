@@ -344,41 +344,47 @@ Daemon starts
 
 ---
 
-## 8. External event consumers
+## 8. External event consumers & WebSocket Control API (Phase 7)
 
-**Trigger:** External process (AgentDesk, AgentMesh, script) subscribes to the
-Control API event stream.
+**Trigger:** External process (AgentDesk, AgentMesh, script) connects via WebSocket to `ws://127.0.0.1:4242`.
 
 ```
-External consumer
-  │ WebSocket connect to loopback:PORT with bearer token
-  │ sends: events.subscribe { kinds?: [...], session_id?, project_id?, account_id? }
+External consumer (AgentDesk, AgentMesh, automation scripts)
+  │ WebSocket connect: ws://127.0.0.1:4242 (with Authorization: Bearer <token> or ?token=<token>)
   ▼
-Control API
-  ├─ authenticates token
-  ├─ registers subscription filter on the Event Bus
-  └─ streams matching AgentEvent objects as newline-delimited JSON
-
-Event Bus (when any event is published)
-  ├─ applies subscription filter
-  ├─ serializes event to versioned JSON
-  └─ writes to subscriber's WebSocket stream
-
-External consumer
-  ├─ processes events independently
-  ├─ may send commands back via the same API (if permitted by token scope)
-  └─ never has direct access to daemon internals or the SQLite file
+WsServer (tokio-tungstenite)
+  ├─ validates token against TokenRegistry → resolves TokenScope (Read, Write, Admin)
+  ├─ on invalid token: returns HTTP 401 Unauthorized
+  ├─ on missing token: completes handshake in unauthenticated state; awaits in-band 'auth' command
+  │
+  ├─ client sends: events.subscribe { filter: { kinds?, session_id?, project_id?, account_id?, since_seq? } }
+  ├─ returns acknowledgement: { v: 1, id: "...", ok: true, result: {} }
+  │
+  ├─ [Historical Catch-Up Replay]
+  │     if since_seq is provided:
+  │       queries SQLite event store for events with seq >= since_seq
+  │       filters and streams matching events immediately: { v: 1, event: { ... } }
+  │
+  ├─ [Live Event Streaming]
+  │     subscribes to Event Bus broadcast channel
+  │     filters live events against SubscriptionFilter
+  │     streams matching events concurrently: { v: 1, event: { ... } }
+  │
+  └─ [Bidirectional Command Execution]
+        client sends: { v: 1, id: "...", cmd: "...", params: { ... } }
+        validates TokenScope:
+          if TokenScope::Read and is_mutating_cmd(cmd) → returns structured PermissionDenied error
+          otherwise → dispatches to dispatch_request(...)
+        returns response frame: { v: 1, id: "...", ok: true/false, result/error: { ... } }
 ```
 
-**AgentDesk** subscribes to session state events and interaction events to
-build attention scores and send notifications. It never needs to control
-sessions directly.
+**AgentDesk (Desktop GUI)**:
+Connects using `read` or `write` scope, subscribes to interaction and state events with `since_seq` catch-up, displays user prompts for approval requests, and replies with human decisions.
 
-**AgentMesh** may subscribe to session events and issue `session.steer` or
-`session.start` commands to coordinate task handoffs across sessions. It is a
-client, not a dependency.
+**AgentMesh (Multi-Agent Fabric)**:
+Connects using `admin` or `write` scope to orchestrate multi-agent sessions, monitor pool load, and dynamically steer agent workflows without storing provider credentials.
 
-Both integrations are documented in [`INTERFACES.md`](INTERFACES.md#external-consumer-integration).
+Both integrations are documented in [`API_CHANGELOG.md`](API_CHANGELOG.md) and [`INTERFACES.md`](INTERFACES.md).
 
 ---
 

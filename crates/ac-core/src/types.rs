@@ -289,6 +289,7 @@ pub struct ApiRequest {
     /// Command name, e.g. `"session.start"`.
     pub cmd: String,
     /// Command-specific parameters.
+    #[serde(default)]
     pub params: serde_json::Value,
 }
 
@@ -333,6 +334,77 @@ impl ApiResponse {
 pub struct ApiError {
     pub code: String,
     pub message: String,
+}
+
+// ── Control API v1 Auth & Subscription types (Phase 7) ────────────────────────
+
+/// Token authorization scope for WebSocket / external Control API consumers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum TokenScope {
+    /// Read-only access: queries, event subscriptions, status.
+    Read,
+    /// Write access: session creation, commands, approvals, account/project management.
+    Write,
+    /// Full administrator access.
+    Admin,
+}
+
+impl TokenScope {
+    /// Returns true if this scope permits mutating actions.
+    pub fn can_write(&self) -> bool {
+        matches!(self, TokenScope::Write | TokenScope::Admin)
+    }
+}
+
+/// Advanced subscription filter for events.subscribe (Phase 7).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SubscriptionFilter {
+    /// Event kinds to receive (if empty or None, receives all event kinds).
+    #[serde(default)]
+    pub kinds: Option<Vec<EventKind>>,
+    /// Filter events specific to a session.
+    #[serde(default)]
+    pub session_id: Option<Id>,
+    /// Filter events specific to a project.
+    #[serde(default)]
+    pub project_id: Option<Id>,
+    /// Filter events specific to an account.
+    #[serde(default)]
+    pub account_id: Option<Id>,
+    /// Catch-up replay: start replaying from this event sequence number.
+    #[serde(default)]
+    pub since_seq: Option<u64>,
+}
+
+impl SubscriptionFilter {
+    /// Checks whether an event satisfies this subscription filter.
+    pub fn matches(&self, event: &AgentEvent) -> bool {
+        if let Some(kinds) = &self.kinds {
+            if !kinds.is_empty() && !kinds.contains(&event.kind) {
+                return false;
+            }
+        }
+        if let Some(expected_sid) = &self.session_id {
+            if event.session_id.as_ref() != Some(expected_sid) {
+                return false;
+            }
+        }
+        if let Some(expected_pid) = &self.project_id {
+            let pid_in_payload = event.payload.get("project_id").and_then(|v| v.as_str());
+            if pid_in_payload != Some(&expected_pid.0) {
+                return false;
+            }
+        }
+        if let Some(expected_aid) = &self.account_id {
+            let aid_in_payload = event.payload.get("account_id").and_then(|v| v.as_str())
+                .or_else(|| event.payload.get("target_account_id").and_then(|v| v.as_str()));
+            if aid_in_payload != Some(&expected_aid.0) {
+                return false;
+            }
+        }
+        true
+    }
 }
 
 // ── Adapter contract types ────────────────────────────────────────────────────

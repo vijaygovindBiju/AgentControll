@@ -201,22 +201,20 @@ state.
 
 ## ADR-009 — WebSocket loopback transport for external consumers
 
-**Status:** Open — must be resolved before Phase 7
+**Status:** Accepted — resolved during Phase 7 implementation (2026-09-22)
 
-**Decision pending:** Is the WebSocket endpoint a separate port in the main
-daemon or a separate proxy/gateway binary?
+**Decision:** Built directly into the daemon (`agentcontrold`) on a configurable loopback address (default `127.0.0.1:4242`), using `tokio-tungstenite`.
 
-**Options:**
+**Rationale:**
+- A single unified daemon binary avoids operational overhead, inter-process connection management, and synchronization latency.
+- Strict loopback binding (`127.0.0.1`) guarantees no remote exposure on host interfaces.
+- Token authentication (`TokenRegistry`) enforces scoped authorization (`read`, `write`, `admin`) for local consumers (AgentDesk GUI, AgentMesh multi-agent fabric).
+- Shared request dispatching (`dispatch_request`) ensures complete functional and validation parity between Unix domain socket IPC and WebSocket transports.
 
-| Option | Pros | Cons |
-|---|---|---|
-| Built into daemon on loopback port | Single binary; no deployment complexity | Daemon handles both socket and WebSocket connections |
-| Separate gateway process | Daemon stays minimal; gateway handles TLS, auth | Two binaries to manage; IPC between gateway and daemon |
-
-**Recommendation (unconfirmed):** Built into daemon on a configurable loopback
-port, disabled by default, enabled via config.
-
-**Blocking phase:** Phase 7 (external API stabilisation).
+**Consequences:**
+- External consumers connect via `ws://127.0.0.1:4242` with bearer token or query string `?token=...`.
+- Replay catch-up and granular subscription filtering are supported on both transports.
+- No separate gateway binary required.
 
 ---
 

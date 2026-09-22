@@ -59,3 +59,7 @@ libc = { version = "0.2" }
 ratatui = "0.28"
 crossterm = { version = "0.28", features = ["event-stream"] }
 
+# WebSocket and Async Streams (Phase 7)
+tokio-tungstenite = "0.24"
+futures-util = "0.3"
+
