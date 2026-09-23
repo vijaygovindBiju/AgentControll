@@ -317,13 +317,14 @@ pub fn render_footer(f: &mut Frame, app: &App, area: Rect) {
     // Line 1: Tag pills for shortcuts
     let shortcut_pills: Vec<Span> = match (&app.current_tab, app.session_detail_id.is_some()) {
         (_, true) => vec![
-            tag_pill("Esc", "Back"),
             tag_pill("s", "Steer"),
             tag_pill("p", "Pause"),
-            tag_pill("Space", "Run"),
-            tag_pill("w", "Switch Acct"),
+            tag_pill("r", "Resume"),
             tag_pill("x", "Stop"),
-            tag_pill("q", "Quit"),
+            tag_pill("a", "Switch Account"),
+            tag_pill("Esc", "Back"),
+            tag_pill("↑↓", "Scroll"),
+            tag_pill("End", "Follow"),
         ],
         (Tab::Dashboard, false) => vec![
             tag_pill("↑↓", "Select"),

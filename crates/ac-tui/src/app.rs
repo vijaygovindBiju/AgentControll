@@ -10,6 +10,8 @@ use ac_core::types::{
     Project, SessionState,
 };
 
+use crate::terminal_buffer::TerminalBuffer;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Tab {
     Dashboard = 0,
@@ -138,6 +140,8 @@ pub struct App {
 
     // Live session transcripts (session_id -> lines of transcript)
     pub session_transcripts: HashMap<String, Vec<String>>,
+    // Live bounded virtual terminal buffers for session screens
+    pub session_terminal_buffers: HashMap<String, TerminalBuffer>,
 
     // Activity filter
     pub activity_filter: Option<String>,
@@ -182,6 +186,7 @@ impl App {
             events: Vec::new(),
             selected_event: 0,
             session_transcripts: HashMap::new(),
+            session_terminal_buffers: HashMap::new(),
             activity_filter: None,
             active_modal: None,
             status_message: None,
@@ -421,14 +426,77 @@ impl App {
     // ── Real-Time Event Processing ──────────────────────────────────────────
 
     pub fn apply_event(&mut self, event: AgentEvent) {
-        // Append to transcript if associated with a session
+        // Append to transcript and terminal buffer if associated with a session
         if let Some(session_id) = &event.session_id {
+            let time_str = event.timestamp.format("%H:%M:%S").to_string();
+
+            // 1. Update live terminal buffer
+            let term_buf = self
+                .session_terminal_buffers
+                .entry(session_id.0.clone())
+                .or_default();
+
+            match event.kind {
+                EventKind::AgentOutputReceived => {
+                    let text = event.payload["text"].as_str().unwrap_or("");
+                    term_buf.push_str(text);
+                }
+                EventKind::StateChanged => {
+                    let from = event.payload["from"].as_str().unwrap_or("?");
+                    let to = event.payload["to"].as_str().unwrap_or("?");
+                    term_buf.push_system_line(
+                        &format!("  {time_str}  ● State changed: {from} -> {to}"),
+                        ratatui::style::Style::default().fg(ratatui::style::Color::Cyan),
+                    );
+                }
+                EventKind::AgentSteeringReceived => {
+                    let msg = event.payload["message"].as_str().unwrap_or("");
+                    term_buf.push_system_line(
+                        &format!("  {time_str}  ➜ User steering: {msg}"),
+                        ratatui::style::Style::default().fg(ratatui::style::Color::Green),
+                    );
+                }
+                EventKind::AgentApprovalRequested => {
+                    let tool = event.payload["tool_name"].as_str().unwrap_or("tool");
+                    term_buf.push_system_line(
+                        &format!("  {time_str}  ⚠ Tool approval requested: {tool}"),
+                        ratatui::style::Style::default().fg(ratatui::style::Color::Yellow),
+                    );
+                }
+                EventKind::AgentQuestion => {
+                    let prompt = event.payload["prompt"].as_str().unwrap_or("");
+                    term_buf.push_system_line(
+                        &format!("  {time_str}  ❓ Agent question: {prompt}"),
+                        ratatui::style::Style::default().fg(ratatui::style::Color::Yellow),
+                    );
+                }
+                EventKind::SessionCrashed => {
+                    term_buf.push_system_line(
+                        &format!("  {time_str}  ✖ Session crashed"),
+                        ratatui::style::Style::default().fg(ratatui::style::Color::Red),
+                    );
+                }
+                EventKind::SessionFailed => {
+                    term_buf.push_system_line(
+                        &format!("  {time_str}  ✖ Session failed"),
+                        ratatui::style::Style::default().fg(ratatui::style::Color::Red),
+                    );
+                }
+                EventKind::SessionStopped => {
+                    term_buf.push_system_line(
+                        &format!("  {time_str}  ■ Session stopped"),
+                        ratatui::style::Style::default().fg(ratatui::style::Color::DarkGray),
+                    );
+                }
+                _ => {}
+            }
+
+            // 2. Also keep legacy transcript for simple queries/tests
             let transcript = self
                 .session_transcripts
                 .entry(session_id.0.clone())
                 .or_default();
 
-            let time_str = event.timestamp.format("%H:%M:%S").to_string();
             match event.kind {
                 EventKind::AgentOutputReceived => {
                     let text = event.payload["text"].as_str().unwrap_or("");
@@ -549,6 +617,30 @@ impl App {
         self.events.insert(0, event);
         if self.events.len() > 1000 {
             self.events.truncate(1000);
+        }
+    }
+
+    pub fn scroll_session_terminal_up(&mut self, session_id: &str, delta: usize) {
+        if let Some(buf) = self.session_terminal_buffers.get_mut(session_id) {
+            buf.scroll_up(delta);
+        }
+    }
+
+    pub fn scroll_session_terminal_down(&mut self, session_id: &str, delta: usize) {
+        if let Some(buf) = self.session_terminal_buffers.get_mut(session_id) {
+            buf.scroll_down(delta);
+        }
+    }
+
+    pub fn scroll_session_terminal_top(&mut self, session_id: &str) {
+        if let Some(buf) = self.session_terminal_buffers.get_mut(session_id) {
+            buf.scroll_to_top();
+        }
+    }
+
+    pub fn scroll_session_terminal_bottom(&mut self, session_id: &str) {
+        if let Some(buf) = self.session_terminal_buffers.get_mut(session_id) {
+            buf.scroll_to_bottom();
         }
     }
 }

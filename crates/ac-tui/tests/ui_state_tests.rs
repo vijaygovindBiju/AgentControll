@@ -260,7 +260,7 @@ fn test_render_all_views_headless() {
     terminal.draw(|f| ui::draw(f, &app)).unwrap();
     let buffer = terminal.backend().buffer().clone();
     let content = format!("{:?}", buffer);
-    assert!(content.contains("Live Transcript & Agent Output"));
+    assert!(content.contains("Agent Terminal"));
     app.close_session_detail();
 
     // 4. Inbox View
@@ -416,5 +416,56 @@ fn test_btop_dashboard_and_sidebar_rendering() {
     assert!(content.contains("System Settings & Environment"));
     assert!(content.contains("Control Socket"));
     assert!(content.contains("events.db"));
+}
+
+#[test]
+fn test_session_detail_terminal_buffer_rendering_and_scrolling() {
+    let mut app = create_sample_app();
+    let backend = TestBackend::new(120, 35);
+    let mut terminal = Terminal::new(backend).unwrap();
+
+    let sid = app.sessions[0].id.clone();
+    app.session_detail_id = Some(sid.clone());
+
+    // 1. Feed raw PTY output with ANSI escapes, colors, carriage returns
+    let pty_chunk = AgentEvent::new(
+        EventKind::AgentOutputReceived,
+        Some(sid.clone()),
+        serde_json::json!({
+            "text": "\x1b[?25l\x1b[1;32mCompiling ac-core\x1b[0m\n\x1b[33mRunning tests...\x1b[0m\r\x1b[1;32mAll 195 tests passed\x1b[0m\n"
+        }),
+        "adapter",
+    );
+    app.apply_event(pty_chunk);
+
+    terminal.draw(|f| ui::draw(f, &app)).unwrap();
+    let buffer = terminal.backend().buffer().clone();
+    let content = format!("{:?}", buffer);
+
+    // Verify target layout elements
+    assert!(content.contains("Agent Terminal"));
+    assert!(content.contains("● LIVE"));
+    assert!(content.contains("Session Info"));
+    assert!(content.contains("Pending Interactions: 0"));
+    assert!(content.contains("All 195 tests passed"));
+    assert!(content.contains("Compiling ac-core"));
+
+    // Verify escape codes never leaked into the buffer text
+    assert!(!content.contains("\\u{1b}[?25l"));
+    assert!(!content.contains("\\u{1b}[1;32m"));
+
+    // 2. Test scrolling
+    app.scroll_session_terminal_up(&sid.0, 1);
+    terminal.draw(|f| ui::draw(f, &app)).unwrap();
+    let buffer_scrolled = terminal.backend().buffer().clone();
+    let content_scrolled = format!("{:?}", buffer_scrolled);
+    assert!(content_scrolled.contains("SCROLL MODE"));
+
+    // 3. Test scrolling to bottom restores follow mode
+    app.scroll_session_terminal_bottom(&sid.0);
+    terminal.draw(|f| ui::draw(f, &app)).unwrap();
+    let buffer_restored = terminal.backend().buffer().clone();
+    let content_restored = format!("{:?}", buffer_restored);
+    assert!(content_restored.contains("● LIVE"));
 }
 

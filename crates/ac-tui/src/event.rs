@@ -708,7 +708,133 @@ pub async fn handle_key(app: &mut App, client: &ApiClient, key: KeyEvent) -> Res
         return Ok(());
     }
 
-    // ── 2. Global Keybindings ───────────────────────────────────────────────
+    // ── 2. Session Detail View Keybindings ──────────────────────────────────
+    if let Some(detail_id) = app.session_detail_id.clone() {
+        match key.code {
+            KeyCode::Esc => {
+                app.close_session_detail();
+                return Ok(());
+            }
+            KeyCode::Char('s') => {
+                app.active_modal = Some(Modal::Steer {
+                    session_id: detail_id,
+                    input: String::new(),
+                });
+                return Ok(());
+            }
+            KeyCode::Char('p') => {
+                let sid = detail_id.clone();
+                match client.pause_session(&sid).await {
+                    Ok(()) => app.set_status(format!("Paused session {}", sid.0), StatusType::Success),
+                    Err(e) => app.set_status(format!("Failed to pause: {e}"), StatusType::Error),
+                }
+                return Ok(());
+            }
+            KeyCode::Char('r') | KeyCode::Char(' ') | KeyCode::Char('u') => {
+                if let Some(s) = app.selected_session_or_detail().cloned() {
+                    handle_session_resume_or_run(app, client, &s).await;
+                }
+                return Ok(());
+            }
+            KeyCode::Char('x') => {
+                app.active_modal = Some(Modal::ConfirmStop {
+                    session_id: detail_id,
+                });
+                return Ok(());
+            }
+            KeyCode::Char('a') | KeyCode::Char('w') => {
+                open_switch_account_modal(app, client).await;
+                return Ok(());
+            }
+            KeyCode::Up | KeyCode::Char('k') => {
+                app.scroll_session_terminal_up(&detail_id.0, 1);
+                return Ok(());
+            }
+            KeyCode::Down | KeyCode::Char('j') => {
+                app.scroll_session_terminal_down(&detail_id.0, 1);
+                return Ok(());
+            }
+            KeyCode::PageUp => {
+                app.scroll_session_terminal_up(&detail_id.0, 10);
+                return Ok(());
+            }
+            KeyCode::PageDown => {
+                app.scroll_session_terminal_down(&detail_id.0, 10);
+                return Ok(());
+            }
+            KeyCode::Home => {
+                app.scroll_session_terminal_top(&detail_id.0);
+                return Ok(());
+            }
+            KeyCode::End => {
+                app.scroll_session_terminal_bottom(&detail_id.0);
+                return Ok(());
+            }
+            KeyCode::Char('q') => {
+                app.should_quit = true;
+                return Ok(());
+            }
+            KeyCode::Char('?') => {
+                app.active_modal = Some(Modal::Help);
+                return Ok(());
+            }
+            KeyCode::Tab => {
+                app.close_session_detail();
+                app.next_tab();
+                return Ok(());
+            }
+            KeyCode::BackTab => {
+                app.close_session_detail();
+                app.prev_tab();
+                return Ok(());
+            }
+            KeyCode::Char('1') => {
+                app.close_session_detail();
+                app.set_tab(Tab::Dashboard);
+                return Ok(());
+            }
+            KeyCode::Char('2') => {
+                app.close_session_detail();
+                app.set_tab(Tab::Sessions);
+                return Ok(());
+            }
+            KeyCode::Char('3') => {
+                app.close_session_detail();
+                app.set_tab(Tab::Inbox);
+                return Ok(());
+            }
+            KeyCode::Char('4') => {
+                app.close_session_detail();
+                app.set_tab(Tab::Accounts);
+                return Ok(());
+            }
+            KeyCode::Char('5') => {
+                app.close_session_detail();
+                app.set_tab(Tab::Projects);
+                return Ok(());
+            }
+            KeyCode::Char('6') => {
+                app.close_session_detail();
+                app.set_tab(Tab::Activity);
+                return Ok(());
+            }
+            KeyCode::Char('7') => {
+                app.close_session_detail();
+                app.set_tab(Tab::Agents);
+                return Ok(());
+            }
+            KeyCode::Char('8') => {
+                app.close_session_detail();
+                app.set_tab(Tab::Settings);
+                return Ok(());
+            }
+            _ => {
+                return Ok(());
+            }
+        }
+    }
+
+    // ── 3. Global Keybindings ───────────────────────────────────────────────
     match key.code {
         KeyCode::Char('q') => {
             app.should_quit = true;
@@ -795,50 +921,7 @@ pub async fn handle_key(app: &mut App, client: &ApiClient, key: KeyEvent) -> Res
         _ => {}
     }
 
-    // ── 3. View-Specific Keybindings ────────────────────────────────────────
-
-    // If currently viewing Session Detail
-    if app.session_detail_id.is_some() {
-        match key.code {
-            KeyCode::Esc => {
-                app.close_session_detail();
-            }
-            KeyCode::Char('s') => {
-                if let Some(s) = app.selected_session_or_detail() {
-                    app.active_modal = Some(Modal::Steer {
-                        session_id: s.id.clone(),
-                        input: String::new(),
-                    });
-                }
-            }
-            KeyCode::Char('p') => {
-                if let Some(s) = app.selected_session_or_detail() {
-                    let sid = s.id.clone();
-                    match client.pause_session(&sid).await {
-                        Ok(()) => app.set_status(format!("Paused session {}", sid.0), StatusType::Success),
-                        Err(e) => app.set_status(format!("Failed to pause: {e}"), StatusType::Error),
-                    }
-                }
-            }
-            KeyCode::Char(' ') | KeyCode::Char('u') => {
-                if let Some(s) = app.selected_session_or_detail().cloned() {
-                    handle_session_resume_or_run(app, client, &s).await;
-                }
-            }
-            KeyCode::Char('x') => {
-                if let Some(s) = app.selected_session_or_detail() {
-                    app.active_modal = Some(Modal::ConfirmStop {
-                        session_id: s.id.clone(),
-                    });
-                }
-            }
-            KeyCode::Char('w') => {
-                open_switch_account_modal(app, client).await;
-            }
-            _ => {}
-        }
-        return Ok(());
-    }
+    // ── 4. View-Specific Keybindings ────────────────────────────────────────
 
     // Otherwise handle by active tab
     match app.current_tab {
