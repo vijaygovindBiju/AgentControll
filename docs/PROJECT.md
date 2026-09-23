@@ -150,5 +150,7 @@ The project is successful when, with at least two real adapters connected:
    restart policy.
 5. A secret placed in an agent's environment never appears in the event store,
    the audit log or the TUI.
-6. All of the above is covered by tests described in
+6. A normal user can launch Antigravity with a single friendly command (`agy "Personal Google"` or `agy`), switch accounts transparently, and authenticate via browser OAuth without manual token management or shell scripting.
+7. All of the above is covered by tests described in
    [`TESTING.md`](TESTING.md).
+

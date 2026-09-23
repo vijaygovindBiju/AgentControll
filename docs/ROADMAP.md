@@ -357,6 +357,29 @@ Exit criteria:
 
 ---
 
+## Phase UX — User-Friendly Agent Launcher & Account UX
+
+**Goal:** Provide normal users with a seamless, zero-friction experience for multi-account agent workflows without exposing low-level identifiers or commands.
+
+Deliverables:
+- `agy "Personal Google"` launcher: Direct launch with friendly account label, availability checks, concurrency limit protection, and interactive TUI session controls.
+- `agy` interactive account selector: Auto-launch if 1 account exists; interactive selector with real-time status and cooldowns if multiple accounts; browser login prompt if zero accounts.
+- `agy account add`: Automated OAuth loopback browser flow with manual code fallback and secure `0600` credential file persistence (`ref:antigravity:<id>`).
+- `agent-control` command: Unified interactive dashboard with `AGENTS`, `ACCOUNTS`, `SESSIONS`, and global action shortcuts (`[Enter] Open`, `[A] Add Account`, `[N] New Agent`, `[S] Sessions`, `[Q] Quit`).
+- Controlled session account switching (`[a]` key) with explicit confirmation for `RequiresRestart` adapters.
+- 100% preservation of low-level `ac` CLI power-user commands.
+- Comprehensive integration test suite in `crates/ac-cli/tests/launcher_and_account_ux_tests.rs`.
+
+Exit criteria:
+- `agy "Account Label"` connects via IPC, starts/attaches session, and prevents silent fallbacks on failure. ✅
+- `agy` auto-launches single account or provides interactive selector. ✅
+- Browser OAuth authentication persists credential tokens without leaking secrets to SQLite or audit logs. ✅
+- All workspace tests pass (204/204 tests) with zero compiler warnings. ✅
+
+**Status:** ✅ Complete — 2026-09-23.
+
+---
+
 ## Summary table
 
 | Phase | Label | MVP? | Key deliverable |
@@ -370,9 +393,11 @@ Exit criteria:
 | 6 | Seamless Multi-Account Agent Switching | — | Account selection/switching, hand-off, snapshots |
 | 7 | External API and integrations | — | Stable API v1, WebSocket, Scopes, Replay |
 | 8 | Hardening and v1 release | — | Security, perf, release |
+| UX | User-Friendly Agent Launcher & Account UX | — | `agent-control`, `agy "Label"`, OAuth, TUI |
 
 ---
 
 ## Open items
 
 - Cryptographic signing of audit log: see ADR-010 in [`DECISIONS.md`](DECISIONS.md) and [`FUTURE.md`](FUTURE.md).
+

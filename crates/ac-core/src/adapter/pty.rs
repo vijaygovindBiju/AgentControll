@@ -171,11 +171,11 @@ impl GenericPtyAdapter {
                 match cmd {
                     AgentCommand::Respond { allow, response } => {
                         let text = if let Some(r) = response {
-                            format!("{}\n", r)
+                            format!("{}\r\n", r)
                         } else if allow {
-                            "y\n".to_string()
+                            "y\r\n".to_string()
                         } else {
-                            "n\n".to_string()
+                            "n\r\n".to_string()
                         };
                         let w = writer_cmd.clone();
                         let _ = tokio::task::spawn_blocking(move || {
@@ -187,7 +187,7 @@ impl GenericPtyAdapter {
                         .await;
                     }
                     AgentCommand::Steer { message } => {
-                        let text = format!("{}\n", message);
+                        let text = format!("{}\r\n", message);
                         let w = writer_cmd.clone();
                         let _ = tokio::task::spawn_blocking(move || {
                             if let Ok(mut lock) = w.lock() {

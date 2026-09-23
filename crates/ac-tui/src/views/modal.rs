@@ -332,5 +332,242 @@ pub fn render(f: &mut Frame, app: &App) {
                 f.render_widget(p, area);
             }
         },
+
+        Modal::AddAccount {
+            label,
+            provider,
+            auth_method,
+            token,
+            active_field,
+        } => {
+            let area = centered_rect(70, 60, f.area());
+            f.render_widget(Clear, area);
+
+            let block = Block::default()
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(Color::Cyan))
+                .title(Span::styled(
+                    " Add New Account ",
+                    Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+                ));
+
+            let normal_style = Style::default().fg(Color::White);
+            let active_border = |active: bool| {
+                if active {
+                    Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default().fg(Color::DarkGray)
+                }
+            };
+
+            let label_display = if label.is_empty() {
+                Span::styled("(e.g. Personal Google, Work Account)", Style::default().fg(Color::DarkGray))
+            } else {
+                Span::styled(label.as_str(), normal_style)
+            };
+
+            let provider_display = Span::styled(
+                format!("{} (press Tab/Space to change: agy, claude, pty)", provider),
+                if *active_field == 1 { Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD) } else { normal_style },
+            );
+
+            // Auth method options
+            let m0_style = if *auth_method == 0 {
+                Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(Color::DarkGray)
+            };
+            let m1_style = if *auth_method == 1 {
+                Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(Color::DarkGray)
+            };
+            let m2_style = if *auth_method == 2 {
+                Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(Color::DarkGray)
+            };
+
+            let mut lines = vec![
+                Line::from(""),
+                Line::from(vec![
+                    Span::styled(if *active_field == 0 { "> " } else { "  " }, active_border(*active_field == 0)),
+                    Span::styled("Account Name: ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                    label_display,
+                ]),
+                Line::from(""),
+                Line::from(vec![
+                    Span::styled(if *active_field == 1 { "> " } else { "  " }, active_border(*active_field == 1)),
+                    Span::styled("Provider:     ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                    provider_display,
+                ]),
+                Line::from(""),
+                Line::from(vec![
+                    Span::styled(if *active_field == 2 { "> " } else { "  " }, active_border(*active_field == 2)),
+                    Span::styled("Auth Method:  ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                    Span::styled(if *auth_method == 0 { "[● 1: OAuth Code] " } else { "[○ 1: OAuth Code] " }, m0_style),
+                    Span::styled(if *auth_method == 1 { "[● 2: Token / Key] " } else { "[○ 2: Token / Key] " }, m1_style),
+                    Span::styled(if *auth_method == 2 { "[● 3: Detected Session]" } else { "[○ 3: Detected Session]" }, m2_style),
+                ]),
+            ];
+
+            if *active_field == 2 {
+                lines.push(Line::from(vec![
+                    Span::styled("                ", Style::default()),
+                    Span::styled("(Press 1/2/3, Left/Right, or Space to toggle method)", Style::default().fg(Color::Yellow)),
+                ]));
+            }
+
+            lines.push(Line::from(""));
+
+            match *auth_method {
+                0 => {
+                    let token_display = if token.is_empty() {
+                        Span::styled("(Paste authorization code here)", Style::default().fg(Color::DarkGray))
+                    } else {
+                        Span::styled(token.as_str(), normal_style)
+                    };
+
+                    lines.push(Line::from(vec![
+                        Span::styled("  Google Sign-in:  ", Style::default().fg(Color::DarkGray)),
+                        Span::styled("Press [O] to open Google sign-in page in browser", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                    ]));
+                    lines.push(Line::from(vec![
+                        Span::styled("                   URL: https://accounts.google.com/o/oauth2/v2/auth?...", Style::default().fg(Color::DarkGray)),
+                    ]));
+                    lines.push(Line::from(""));
+                    lines.push(Line::from(vec![
+                        Span::styled(if *active_field == 3 { "> " } else { "  " }, active_border(*active_field == 3)),
+                        Span::styled("OAuth Code:   ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                        token_display,
+                    ]));
+                }
+                1 => {
+                    let token_display = if token.is_empty() {
+                        Span::styled("(Paste API token or access token here)", Style::default().fg(Color::DarkGray))
+                    } else {
+                        Span::styled(token.as_str(), normal_style)
+                    };
+
+                    lines.push(Line::from(vec![
+                        Span::styled("  API Token:       Enter API token, access token, or service key", Style::default().fg(Color::DarkGray)),
+                    ]));
+                    lines.push(Line::from(""));
+                    lines.push(Line::from(vec![
+                        Span::styled(if *active_field == 3 { "> " } else { "  " }, active_border(*active_field == 3)),
+                        Span::styled("Token / Key:  ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                        token_display,
+                    ]));
+                }
+                _ => {
+                    let detected = ac_core::credentials::detect_existing_antigravity_token();
+                    if let Some((identity, _)) = detected {
+                        lines.push(Line::from(vec![
+                            Span::styled("  Local Session:   ", Style::default().fg(Color::DarkGray)),
+                            Span::styled(format!("Found ~/.gemini/antigravity-cli session ({})", identity), Style::default().fg(Color::Green)),
+                        ]));
+                        lines.push(Line::from(""));
+                        lines.push(Line::from(vec![
+                            Span::styled("                   Press [Enter] to import and link this session.", Style::default().fg(Color::Yellow)),
+                        ]));
+                    } else {
+                        lines.push(Line::from(vec![
+                            Span::styled("  Local Session:   ", Style::default().fg(Color::DarkGray)),
+                            Span::styled("No active local ~/.gemini token found. Use OAuth or Token.", Style::default().fg(Color::Red)),
+                        ]));
+                    }
+                }
+            }
+
+            lines.push(Line::from(""));
+            lines.push(Line::from("────────────────────────────────────────────────────────────────────────"));
+            lines.push(Line::from(Span::styled(
+                " [Enter] Save Account  |  [Tab/↓] Next  |  [O] Open Google Login  |  [Esc] Cancel ",
+                Style::default().fg(Color::DarkGray),
+            )));
+
+            let p = Paragraph::new(lines).block(block);
+            f.render_widget(p, area);
+        }
+
+        Modal::NewSession {
+            account_index,
+            session_name,
+            task,
+            active_field,
+        } => {
+            let area = centered_rect(70, 45, f.area());
+            f.render_widget(Clear, area);
+
+            let block = Block::default()
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(Color::Green))
+                .title(Span::styled(
+                    " Launch New Agent Session ",
+                    Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
+                ));
+
+            let acct_label = if app.accounts.is_empty() {
+                "No accounts available (will use default)".to_string()
+            } else {
+                let idx = *account_index % app.accounts.len();
+                let a = &app.accounts[idx];
+                format!("< {} ({}) >", a.label, a.provider)
+            };
+
+            let f0_style = if *active_field == 0 {
+                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(Color::White)
+            };
+            let f1_style = if *active_field == 1 {
+                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(Color::White)
+            };
+            let f2_style = if *active_field == 2 {
+                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(Color::White)
+            };
+
+            let lines = vec![
+                Line::from(Span::styled(
+                    "Configure agent session parameters and account:",
+                    Style::default().fg(Color::DarkGray),
+                )),
+                Line::from(""),
+                Line::from(vec![
+                    Span::styled(if *active_field == 0 { "> 1. Account:      " } else { "  1. Account:      " }, f0_style),
+                    Span::styled(acct_label, f0_style),
+                    Span::styled(if *active_field == 0 { "  (use ←/→ or Space to switch)" } else { "" }, Style::default().fg(Color::DarkGray)),
+                ]),
+                Line::from(""),
+                Line::from(vec![
+                    Span::styled(if *active_field == 1 { "> 2. Session Name: " } else { "  2. Session Name: " }, f1_style),
+                    Span::styled(session_name, f1_style),
+                    Span::styled(if *active_field == 1 { "█" } else { "" }, Style::default().fg(Color::Yellow)),
+                ]),
+                Line::from(""),
+                Line::from(vec![
+                    Span::styled(if *active_field == 2 { "> 3. Task / Goal:  " } else { "  3. Task / Goal:  " }, f2_style),
+                    Span::styled(task, f2_style),
+                    Span::styled(if *active_field == 2 { "█" } else { "" }, Style::default().fg(Color::Yellow)),
+                ]),
+                Line::from(""),
+                Line::from(Span::styled("───────────────────────────────────────────────────────────────────", Style::default().fg(Color::DarkGray))),
+                Line::from(vec![
+                    Span::styled("[Enter] Launch Session", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+                    Span::raw("    "),
+                    Span::styled("[Tab/↓] Next Field", Style::default().fg(Color::Cyan)),
+                    Span::raw("    "),
+                    Span::styled("[Esc] Cancel", Style::default().fg(Color::DarkGray)),
+                ]),
+            ];
+
+            let p = Paragraph::new(lines).block(block).wrap(Wrap { trim: false });
+            f.render_widget(p, area);
+        }
     }
 }
+

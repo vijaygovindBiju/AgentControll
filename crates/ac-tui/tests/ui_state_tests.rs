@@ -378,3 +378,43 @@ fn test_switch_account_modal_progression_and_render() {
     assert_eq!(app.sessions[0].state, SessionState::HandedOff);
     assert_eq!(app.sessions[0].successor_id, Some(Id::from("01HXYZ00000000000000000004")));
 }
+
+#[test]
+fn test_btop_dashboard_and_sidebar_rendering() {
+    let mut app = create_sample_app();
+    app.daemon_connected = true;
+    let backend = TestBackend::new(140, 45);
+    let mut terminal = Terminal::new(backend).unwrap();
+
+    // 1. Dashboard View with Sidebar & 6-Panel Grid
+    terminal.draw(|f| ui::draw(f, &app)).unwrap();
+    let buffer = terminal.backend().buffer().clone();
+    let content = format!("{:?}", buffer);
+
+    assert!(content.contains("AGENT CONTROL v1.0.0"));
+    assert!(content.contains("Menu"));
+    assert!(content.contains("Quick Launch"));
+    assert!(content.contains("System Status"));
+    assert!(content.contains("Recent Events"));
+    assert!(content.contains("Details"));
+    assert!(content.contains("Antigravity"));
+    assert!(content.contains("Claude Code"));
+
+    // 2. Agents View
+    app.set_tab(Tab::Agents);
+    terminal.draw(|f| ui::draw(f, &app)).unwrap();
+    let buffer = terminal.backend().buffer().clone();
+    let content = format!("{:?}", buffer);
+    assert!(content.contains("AGENTS"));
+    assert!(content.contains("Agent Specifications & Capabilities"));
+
+    // 3. Settings View
+    app.set_tab(Tab::Settings);
+    terminal.draw(|f| ui::draw(f, &app)).unwrap();
+    let buffer = terminal.backend().buffer().clone();
+    let content = format!("{:?}", buffer);
+    assert!(content.contains("System Settings & Environment"));
+    assert!(content.contains("Control Socket"));
+    assert!(content.contains("events.db"));
+}
+

@@ -422,6 +422,45 @@ TUI Client (ApiClient)
 
 ---
 
+## 10. Normal-user Antigravity launch & account setup (`agy`)
+
+**Trigger:** User runs `agy "Personal Google"` or `agy`.
+
+```
+User Terminal
+  │ agy "Personal Google"
+  ▼
+Launcher Client (crates/ac-cli)
+  ├─ checks / starts daemon process (setsid detached)
+  ├─ connects to Control API IPC socket
+  ├─ queries accounts for agent_type "agy" | "antigravity"
+  │
+  ├─ [Explicit Label Path]:
+  │     finds account matching label "Personal Google"
+  │     checks status:
+  │       - if Incompatible: display clear message and exit
+  │       - if Cooldown/Exhausted/Over-limit: explain reason, prompt to pick alternative
+  │       - if Ready: proceed to session start
+  │
+  ├─ [Interactive / Auto Path (agy without argument)]:
+  │     - 0 accounts: prompt to login with browser
+  │     - 1 account: auto-select "Using account: <label>"
+  │     - >1 accounts: render interactive selector menu
+  │
+  ├─ [Account Addition Flow (agy account add)]:
+  │     prompt friendly label
+  │     bind ephemeral loopback listener 127.0.0.1:0
+  │     open system browser to OAuth authorization URL
+  │     await callback or manual authorization code fallback
+  │     save credentials to ~/.config/agentcontrol/credentials/ (mode 0600)
+  │     register account with credential_ref = "ref:antigravity:<id>"
+  │
+  ├─ creates & starts session via session.create & session.start
+  └─ opens Interactive Session Controller (Ratatui transcript & controls)
+```
+
+---
+
 ## Flow summary
 
 | # | Flow | Key state changes |
@@ -436,3 +475,5 @@ TUI Client (ApiClient)
 | 7b | Daemon restart (recovery) | Event log replay → state reconstruction |
 | 8 | External event consumers | Event subscription, no state changes in core |
 | 9 | TUI live updates | Real-time terminal re-rendering driven by `events.subscribe` |
+| 10 | Antigravity Launcher UX | `find_by_label → availability_check → session.start → interactive attach` |
+

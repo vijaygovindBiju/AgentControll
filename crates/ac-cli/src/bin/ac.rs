@@ -65,6 +65,15 @@ enum Commands {
     Events(EventsCmd),
     /// Daemon status.
     Status,
+    /// Log in to an account (e.g. Antigravity / Google).
+    Login {
+        /// Optional friendly label for the account.
+        #[arg(short, long)]
+        name: Option<String>,
+        /// Perform login purely in terminal without browser.
+        #[arg(long)]
+        cli: bool,
+    },
     /// Launch the interactive Ratatui TUI dashboard.
     Tui,
     /// Launch the interactive Ratatui TUI dashboard (alias for tui).
@@ -78,8 +87,8 @@ enum SessionCmd {
         /// Task description for the agent.
         #[arg(short, long)]
         task: String,
-        /// Agent type (default: mock).
-        #[arg(short, long, default_value = "mock")]
+        /// Agent type (default: agy).
+        #[arg(short, long, default_value = "agy")]
         agent_type: String,
         /// Optional project ID.
         #[arg(long)]
@@ -98,8 +107,8 @@ enum SessionCmd {
         /// Task description for the agent.
         #[arg(short, long)]
         task: String,
-        /// Agent type (default: mock).
-        #[arg(short, long, default_value = "mock")]
+        /// Agent type (default: agy).
+        #[arg(short, long, default_value = "agy")]
         agent_type: String,
         /// Optional project ID.
         #[arg(long)]
@@ -180,7 +189,7 @@ enum AccountCmd {
         #[arg(short, long)]
         provider: String,
         /// Comma-separated list of agent types this account supports.
-        #[arg(long, default_value = "mock")]
+        #[arg(long, default_value = "agy")]
         agent_types: String,
         /// Reference key in the credential store (not a raw secret).
         #[arg(long, default_value = "ref:none")]
@@ -196,7 +205,7 @@ enum AccountCmd {
     List,
     /// Query account availability for an agent type and optional tags.
     Availability {
-        /// Agent type (e.g. mock, claude, pty).
+        /// Agent type (e.g. agy, claude, pty).
         #[arg(short, long)]
         agent_type: Option<String>,
         /// Comma-separated tags.
@@ -211,6 +220,24 @@ enum AccountCmd {
     Enable { account_id: String },
     /// Remove an account (only if idle).
     Remove { account_id: String },
+    /// Add a new Antigravity account.
+    Add {
+        /// Optional friendly label for the account.
+        #[arg(short, long)]
+        name: Option<String>,
+        /// Perform login purely in terminal without browser.
+        #[arg(long)]
+        cli: bool,
+    },
+    /// Log in to an account (alias for add).
+    Login {
+        /// Optional friendly label for the account.
+        #[arg(short, long)]
+        name: Option<String>,
+        /// Perform login purely in terminal without browser.
+        #[arg(long)]
+        cli: bool,
+    },
 }
 
 /// Project management subcommands.
@@ -413,6 +440,20 @@ async fn main() -> Result<()> {
         return ac_tui::run_tui(cli.socket).await;
     }
 
+    if let Commands::Login { ref name, cli: cli_mode } = cli.command {
+        let client = ac_cli::client::DaemonClient::new(cli.socket);
+        client.ensure_daemon_running().await?;
+        ac_cli::auth::run_add_account_flow(&client, name.clone(), cli_mode).await?;
+        return Ok(());
+    }
+
+    if let Commands::Account(AccountCmd::Add { ref name, cli: cli_mode } | AccountCmd::Login { ref name, cli: cli_mode }) = cli.command {
+        let client = ac_cli::client::DaemonClient::new(cli.socket);
+        client.ensure_daemon_running().await?;
+        ac_cli::auth::run_add_account_flow(&client, name.clone(), cli_mode).await?;
+        return Ok(());
+    }
+
     if let Commands::Events(EventsCmd::Verify { ref db }) = cli.command {
         let db_path = match db {
             Some(p) => p.clone(),
@@ -496,7 +537,7 @@ async fn main() -> Result<()> {
 fn build_request(commands: &Commands) -> Result<(String, serde_json::Value)> {
     let (cmd, params) = match commands {
         Commands::Status => ("daemon.status".to_owned(), json!({})),
-        Commands::Tui | Commands::Dashboard => unreachable!(),
+        Commands::Tui | Commands::Dashboard | Commands::Login { .. } => unreachable!(),
 
         Commands::Session(s) => match s {
             SessionCmd::Create { task, agent_type, project_id, account_id } => (
@@ -613,6 +654,7 @@ fn build_request(commands: &Commands) -> Result<(String, serde_json::Value)> {
                 "account.remove".to_owned(),
                 json!({ "account_id": account_id }),
             ),
+            AccountCmd::Add { .. } | AccountCmd::Login { .. } => unreachable!(),
         },
 
         Commands::Project(p) => match p {

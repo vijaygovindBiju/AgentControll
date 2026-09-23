@@ -241,6 +241,23 @@ impl AccountManager {
             .collect()
     }
 
+    /// Find all accounts matching a friendly label (case-insensitive).
+    pub fn find_by_label(&self, label: &str) -> Vec<&Account> {
+        let needle = label.trim();
+        self.accounts
+            .values()
+            .filter(|a| a.label.eq_ignore_ascii_case(needle))
+            .collect()
+    }
+
+    /// List all accounts that support a given agent type.
+    pub fn accounts_for_agent_type(&self, agent_type: &str) -> Vec<&Account> {
+        self.accounts
+            .values()
+            .filter(|a| a.supports_agent_type(agent_type))
+            .collect()
+    }
+
     /// Update mutable display fields.
     pub fn update_label(&mut self, id: &Id, label: String) -> Result<()> {
         let account = self
@@ -424,9 +441,13 @@ impl AccountManager {
         account_id: &Id,
         agent_type: &str,
     ) -> Result<&Account> {
-        let account = self.accounts.get(&account_id.0).ok_or_else(|| {
-            anyhow::anyhow!("AccountNotFound: account {} not found", account_id)
-        })?;
+        let account = self
+            .accounts
+            .get(&account_id.0)
+            .or_else(|| self.accounts.values().find(|a| a.label.eq_ignore_ascii_case(&account_id.0)))
+            .ok_or_else(|| {
+                anyhow::anyhow!("AccountNotFound: account {} not found", account_id)
+            })?;
 
         if !account.supports_agent_type(agent_type) {
             bail!(

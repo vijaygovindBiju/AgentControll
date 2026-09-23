@@ -266,16 +266,20 @@ daemon configuration file and restarting.
 Agent Control does not implement its own credential store in v1. It integrates
 with:
 
-- **Linux**: `libsecret` / GNOME Keyring or `kwallet` (KDE), with a plaintext
-  locked file fallback in `$XDG_DATA_HOME/agentcontrol/credentials` (mode
-  0600).
-- The credential store integration is an open decision (see ADR-006 in
-  [`DECISIONS.md`](DECISIONS.md)).
+- **Linux**: `libsecret` / GNOME Keyring or `kwallet` (KDE), with a locked file fallback in `~/.config/agentcontrol/credentials/` or `$XDG_DATA_HOME/agentcontrol/credentials` (mode `0600`, directory mode `0700`).
+- The credential store integration uses ADR-006 indirection (`credential_ref`).
+
+### Antigravity OAuth 2.0 Security
+- **Loopback isolation**: Authentication listens strictly on `127.0.0.1:0` with an ephemeral port, protected by local kernel socket isolation.
+- **Short-lived listener**: The listener is terminated immediately upon token receipt or after a 120-second timeout.
+- **Strict permissions**: Received tokens are persisted directly to `~/.config/agentcontrol/credentials/antigravity_<id>.json` with POSIX `0600` permissions. The parent directory is created with `0700` permissions.
+- **Zero raw credentials in IPC or persistence**: Only the reference string (`ref:antigravity:<id>`) is communicated over Unix domain socket IPC to the daemon and persisted in SQLite `accounts` table.
+- **Zero token logging**: The redaction pipeline and tracing subscribers ensure tokens are never logged or emitted in event streams.
 
 Credentials are:
 - Looked up by `credential_ref` at session-start time.
 - Held in process memory only for the lifetime of the adapter spawn call.
-- Never serialized to disk by Agent Control itself.
+- Never serialized to disk by Agent Control itself into SQLite or event logs.
 - Never transmitted over the Control API.
 
 ---

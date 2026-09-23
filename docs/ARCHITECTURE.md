@@ -200,12 +200,30 @@ agent-specific code.
   - Configurable regex matching for interactive CLI agents (`Ready`, `ApprovalRequested`, `QuestionRaised`, `RateLimitSignal`, `Completed`) marked with `Confidence::Low`.
   - Native POSIX signal handling (`libc::kill`) for pause (`SIGSTOP`), resume (`SIGCONT`), graceful shutdown (`SIGTERM`), and kill (`SIGKILL`).
   - Background process monitor detecting clean exit codes and abnormal crash termination.
+- **Antigravity adapter** (`CompositeAdapterFactory` support for `"agy"` / `"antigravity"`):
+  - Resolves binary via `ANTIGRAVITY_BIN`, `AGY_BIN`, `~/.local/bin/agy`, `~/.gemini/antigravity-cli/bin/agy`, avoiding recursive self-invocation.
+  - Spawns interactive Antigravity agent sessions in dedicated workspace environments with OAuth loopback credentials.
 - **Composite Adapter Factory** (`CompositeAdapterFactory`):
-  - Routes `agent_type` string (`claude-code`/`claude`, `generic-pty`/`pty`, `mock`) to the designated factory implementation.
+  - Routes `agent_type` string (`claude-code`/`claude`, `generic-pty`/`pty`, `mock`, `agy`/`antigravity`) to the designated factory implementation.
   - Passes immutable `SessionContext` (containing `workspace_path`, `credential_ref`, `task_description`) to instantiate adapters with strict workspace isolation.
 - **Mock adapter**: scripted event sequences for deterministic unit and integration tests.
 
-### TUI / human interface (`crates/ac-tui`)
+### Human Interface Layer (`crates/ac-cli` & `crates/ac-tui`)
+
+The human interface is split into two complementary layers:
+
+1. **Normal-User Layer (`agy`, `agent-control`):**
+   - **`agent-control`**: Launches the main Ratatui interactive dashboard providing high-level overviews of `AGENTS`, `ACCOUNTS`, and `SESSIONS` with direct keyboard actions (`[Enter] Open`, `[A] Add Account`, `[N] New Agent`, `[S] Sessions`, `[Q] Quit`).
+   - **`agy "Personal Google"`**: Launches Antigravity using human-readable account labels. Resolves account via `AccountManager::find_by_label`, checks provider compatibility, verifies availability/cooldown, binds to project workspace, starts the session, and attaches the interactive session monitor.
+   - **`agy`**: Intelligent automatic resolution: auto-launches if only 1 account exists, opens interactive terminal account selector if multiple exist, or initiates browser OAuth login if no accounts exist.
+   - **`agy account add`**: Automated browser-based OAuth 2.0 loopback authentication on `127.0.0.1:0` with manual code fallback and secure `0600` token storage.
+   - **Interactive Session Controller**: Ratatui-based live session screen with streaming transcripts, state badges, and hotkeys (`[s]` Steer, `[p]` Pause, `[r]` Resume, `[x]` Stop, `[a]` Switch Account).
+
+2. **Power-User / Automation Layer (`ac`):**
+   - Headless scriptable CLI providing low-level access to all subsystems: `ac session ...`, `ac account ...`, `ac project ...`, `ac interaction ...`, `ac policy ...`, `ac audit ...`, `ac events ...`.
+   - Used by CI pipelines, test runners, and automated scripts.
+
+### TUI Architecture (`crates/ac-tui`)
 
 The Ratatui TUI is the primary operational dashboard for human supervision of agents:
 - **Independent client layer**: Implemented in `crates/ac-tui` and built purely atop the Control API Unix socket via `ApiClient`. It holds no direct references to internal daemon storage or runtime structs.
@@ -214,7 +232,7 @@ The Ratatui TUI is the primary operational dashboard for human supervision of ag
   - Real-time daemon event stream (`events.subscribe`)
   - Periodic background polling tick (recovering connection and reconciling in-memory caches)
 - **Modular Views**:
-  - `Dashboard`: System summary cards, active sessions overview with state badges, inbox alert banner, and recent activity.
+  - `Dashboard`: System summary cards, AGENTS breakdown, ACCOUNTS overview, SESSIONS inventory with lifecycle badges, inbox alert banner, and direct action hotkeys.
   - `Sessions`: Full session inventory with task summaries and direct action triggers.
   - `Session Detail`: In-depth inspection showing workspace boundaries, bound account, live transcript buffer with color-tagged events, and recent session events.
   - `Inbox`: Unified human interaction queue for agent questions and approval requests, with one-key approval, denial, textual reply, and dismissal.
@@ -223,22 +241,15 @@ The Ratatui TUI is the primary operational dashboard for human supervision of ag
   - `Activity`: Global event log viewer with real-time streaming, kind/session filters, and payload inspection.
 - **Modal System**: Popups for textual steering input, interaction responses, destructive action confirmation, activity filters, and contextual keyboard shortcuts (`?`).
 - **Headless testability**: Decoupled UI state (`App`) and render functions allow headless testing with `ratatui::backend::TestBackend`.
-- The **CLI** (`crates/ac-cli`) offers command families for headless scripting and launches the TUI via `ac tui`.
 
 ## Cross-cutting concerns
 
 - **Identity**: every entity has a stable ULID-style identifier; events
-  reference entities by identifier only.
+  reference entities by identifier only. Friendly labels are human-facing aliases mapped to internal IDs.
 - **Time**: the core uses a single clock abstraction so that tests can drive
   time deterministically (cooldowns, timeouts, escalations).
 - **Redaction**: one shared redaction component used by the Event Store,
-  Control API and TUI.
+  Control API and TUI. Credential references (`ref:<id>`) are separated from secret payload tokens.
 - **Versioning**: event and command schemas carry a version; the store keeps
   the version with each event to allow migration on replay.
 
-## Language and UI (open decision)
-
-The recommended implementation is a **Rust core with a TUI-first interface**,
-for process/PTY control strength and consistency with sibling projects. This
-is recorded as an open decision in [`DECISIONS.md`](DECISIONS.md#adr-007)
-and must be confirmed before Phase 1.

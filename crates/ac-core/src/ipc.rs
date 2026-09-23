@@ -311,7 +311,7 @@ pub async fn handle_session_cmd(
     match req.cmd.as_str() {
         "session.create" => {
             let task = req.params["task_description"].as_str().unwrap_or("").to_owned();
-            let agent_type = req.params["agent_type"].as_str().unwrap_or("mock").to_owned();
+            let agent_type = req.params["agent_type"].as_str().unwrap_or("agy").to_owned();
             let project_id = req.params["project_id"].as_str().map(Id::from);
             let account_id = req.params["account_id"].as_str().map(Id::from);
             match mgr.create_with_context(task, agent_type, project_id, account_id).await {
@@ -331,7 +331,7 @@ pub async fn handle_session_cmd(
         }
         "session.create_and_start" => {
             let task = req.params["task_description"].as_str().unwrap_or("").to_owned();
-            let agent_type = req.params["agent_type"].as_str().unwrap_or("mock").to_owned();
+            let agent_type = req.params["agent_type"].as_str().unwrap_or("agy").to_owned();
             let project_id = req.params["project_id"].as_str().map(Id::from);
             let account_id = req.params["account_id"].as_str().map(Id::from);
             let id = match mgr.create_with_context(task, agent_type, project_id, account_id).await {

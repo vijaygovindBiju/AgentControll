@@ -331,6 +331,29 @@ transition.
 
 ---
 
+## ADR-014 — Two-Layer CLI Architecture & User-Friendly Account Launcher
+
+**Status:** Accepted — resolved during UX Layer implementation (2026-09-23)
+
+**Decision:**
+1. **Two-Layer CLI Architecture:**
+   - **Normal-User Layer (`agent-control`, `agy`):** Designed for human ergonomics. Primary entry points operate using human-readable account labels (`"Personal Google"`), automatic daemon spawning, interactive TUI selection, and OAuth browser flows.
+   - **Power-User / Automation Layer (`ac`):** Unchanged low-level commands (`ac account`, `ac session`, `ac events`) designed for scripting, CI, and explicit ID manipulation.
+2. **Label as Human Identifier, ULID as Identity:**
+   - Account labels are display names (`String`). Internal primary keys remain immutable ULIDs. Duplicate labels trigger explicit disambiguation prompts rather than database collision or silent overwrites.
+3. **No Silent Fallback on Explicit Selection:**
+   - When a user explicitly specifies `agy "Label"`, Agent Control must NEVER silently fall back to another account if the chosen account is cooldown-locked, exhausted, or unavailable. Instead, return a clear human explanation and offer interactive alternative selection.
+4. **OAuth Loopback Authentication UX:**
+   - `agy account add` binds to a temporary loopback TCP port (`127.0.0.1:0`), launches the system browser for provider OAuth, and waits up to 120s for callback. If the browser cannot be launched or loopback times out, a manual authorization code input prompt is provided as a seamless fallback.
+   - Credentials persist strictly as `0600` files under `~/.config/agentcontrol/credentials/` referenced only by `ref:antigravity:<id>`. Zero tokens enter SQLite, events, or stdout.
+
+**Rationale:**
+- Normal developers should not need to understand ULIDs, socket paths, or adapter types to start their daily coding agent.
+- Preserves 100% backward compatibility with automated test suites and power-user tooling.
+- Eliminates accidental usage of wrong accounts on billable agent workloads.
+
+---
+
 ## Open decisions summary
 
 | ADR | Decision | Blocking phase |
@@ -338,11 +361,12 @@ transition.
 | ~~ADR-006~~ | ~~Credential store integration~~ | ~~Phase 2~~ — **Resolved: credential_ref indirection** |
 | ~~ADR-007~~ | ~~Implementation language and TUI framework~~ | ~~Phase 1~~ — **Resolved: Rust + Ratatui** |
 | ~~ADR-008~~ | ~~Static vs. dynamic adapter loading~~ | ~~Phase 4~~ — **Resolved: static linking** |
-| ADR-009 | WebSocket transport architecture | Phase 7 |
+| ~~ADR-009~~ | ~~WebSocket transport architecture~~ | ~~Phase 7~~ — **Resolved: accepted** |
 | ADR-010 | Event log integrity verification | No blocker |
 | ~~ADR-011~~ | ~~`Idle → Stopped` direct transition~~ | ~~Phase 1~~ — **Resolved: accepted** |
 | ~~ADR-012~~ | ~~Policy evaluation precedence & determinism~~ | ~~Phase 3~~ — **Resolved: accepted** |
 | ~~ADR-013~~ | ~~Multi-account switching & controlled hand-off~~ | ~~Phase 6~~ — **Resolved: accepted** |
+| ~~ADR-014~~ | ~~Two-layer CLI architecture & friendly account UX~~ | ~~UX Layer~~ — **Resolved: accepted** |
 
 All open decisions must be recorded as resolved in this document before
 implementation of their blocking phase begins.

@@ -331,6 +331,51 @@ impl ApiClient {
         Ok(accounts)
     }
 
+    pub async fn register_account(
+        &self,
+        label: &str,
+        provider: &str,
+        agent_types: &[&str],
+        credential_ref: &str,
+        concurrency_cap: u8,
+        tags: &[&str],
+    ) -> Result<Id, ClientError> {
+        let resp = self
+            .send_request(
+                "account.register",
+                json!({
+                    "label": label,
+                    "provider": provider,
+                    "agent_types": agent_types,
+                    "credential_ref": credential_ref,
+                    "concurrency_cap": concurrency_cap,
+                    "tags": tags,
+                }),
+            )
+            .await?;
+        let id_val = resp
+            .result
+            .as_ref()
+            .and_then(|r| r.get("account_id"))
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| ClientError::ApiError {
+                code: "Protocol".into(),
+                message: "missing account_id in response".into(),
+            })?;
+        Ok(Id::from(id_val))
+    }
+
+    pub async fn remove_account(&self, account_id: &Id) -> Result<(), ClientError> {
+        self.send_request(
+            "account.remove",
+            json!({
+                "account_id": account_id.0,
+            }),
+        )
+        .await?;
+        Ok(())
+    }
+
     pub async fn list_projects(&self) -> Result<Vec<Project>, ClientError> {
         let resp = self.send_request("project.list", json!({})).await?;
         let projects = resp

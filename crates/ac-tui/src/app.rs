@@ -18,6 +18,8 @@ pub enum Tab {
     Accounts = 3,
     Projects = 4,
     Activity = 5,
+    Agents = 6,
+    Settings = 7,
 }
 
 impl Tab {
@@ -29,6 +31,8 @@ impl Tab {
             3 => Tab::Accounts,
             4 => Tab::Projects,
             5 => Tab::Activity,
+            6 => Tab::Agents,
+            7 => Tab::Settings,
             _ => Tab::Dashboard,
         }
     }
@@ -45,6 +49,8 @@ impl Tab {
             Tab::Accounts => "Accounts",
             Tab::Projects => "Projects",
             Tab::Activity => "Activity",
+            Tab::Agents => "Agents",
+            Tab::Settings => "Settings",
         }
     }
 }
@@ -94,6 +100,19 @@ pub enum Modal {
         selected_index: usize,
         step: SwitchModalStep,
     },
+    AddAccount {
+        label: String,
+        provider: String,
+        auth_method: usize,
+        token: String,
+        active_field: usize,
+    },
+    NewSession {
+        account_index: usize,
+        session_name: String,
+        task: String,
+        active_field: usize,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -132,6 +151,13 @@ pub struct App {
 
     // Should quit
     pub should_quit: bool,
+
+    // Professional btop-style UI state
+    pub sidebar_selected: usize,
+    pub detail_subtab: usize,
+    pub quick_launch_selected: usize,
+    pub selected_agent: usize,
+    pub start_time: Instant,
 }
 
 impl Default for App {
@@ -161,7 +187,28 @@ impl App {
             status_message: None,
             daemon_connected: false,
             should_quit: false,
+            sidebar_selected: 0,
+            detail_subtab: 0,
+            quick_launch_selected: 0,
+            selected_agent: 0,
+            start_time: Instant::now(),
         }
+    }
+
+    pub fn next_detail_subtab(&mut self) {
+        self.detail_subtab = (self.detail_subtab + 1) % 4;
+    }
+
+    pub fn prev_detail_subtab(&mut self) {
+        self.detail_subtab = if self.detail_subtab == 0 { 3 } else { self.detail_subtab - 1 };
+    }
+
+    pub fn next_sidebar_item(&mut self) {
+        self.sidebar_selected = (self.sidebar_selected + 1) % 10;
+    }
+
+    pub fn prev_sidebar_item(&mut self) {
+        self.sidebar_selected = if self.sidebar_selected == 0 { 9 } else { self.sidebar_selected - 1 };
     }
 
     pub fn set_status(&mut self, message: impl Into<String>, status_type: StatusType) {
@@ -181,6 +228,15 @@ impl App {
     pub fn set_tab(&mut self, tab: Tab) {
         self.current_tab = tab;
         self.session_detail_id = None;
+        self.sidebar_selected = match tab {
+            Tab::Dashboard => 0,
+            Tab::Agents => 1,
+            Tab::Accounts => 2,
+            Tab::Sessions => 3,
+            Tab::Activity => 6,
+            Tab::Settings => 7,
+            _ => self.sidebar_selected,
+        };
     }
 
     pub fn next_tab(&mut self) {
@@ -206,6 +262,9 @@ impl App {
                     self.selected_session = (self.selected_session + 1) % self.sessions.len();
                 }
             }
+            Tab::Agents => {
+                self.selected_agent = (self.selected_agent + 1) % 3;
+            }
             Tab::Inbox => {
                 let count = self.pending_interactions().len();
                 if count > 0 {
@@ -228,6 +287,7 @@ impl App {
                     self.selected_event = (self.selected_event + 1) % count;
                 }
             }
+            Tab::Settings => {}
         }
     }
 
@@ -241,6 +301,9 @@ impl App {
                         self.selected_session - 1
                     };
                 }
+            }
+            Tab::Agents => {
+                self.selected_agent = if self.selected_agent == 0 { 2 } else { self.selected_agent - 1 };
             }
             Tab::Inbox => {
                 let count = self.pending_interactions().len();
@@ -280,6 +343,7 @@ impl App {
                     };
                 }
             }
+            Tab::Settings => {}
         }
     }
 
@@ -297,6 +361,10 @@ impl App {
 
     pub fn selected_session(&self) -> Option<&AgentSession> {
         self.sessions.get(self.selected_session)
+    }
+
+    pub fn selected_account(&self) -> Option<&Account> {
+        self.accounts.get(self.selected_account)
     }
 
     pub fn selected_session_or_detail(&self) -> Option<&AgentSession> {

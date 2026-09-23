@@ -445,10 +445,14 @@ impl SessionManager {
         // ── Phase 2: resolve account ──────────────────────────────────────
         let resolved_account_id: Option<Id> = if let Some(aid) = explicit_account_id {
             // Explicit override: validate it exists, supports agent_type, and is available
-            if let Some(h) = &self.account_mgr {
-                h.0.lock().unwrap().validate_and_select_explicit(&aid, &agent_type)?;
-            }
-            Some(aid)
+            let actual_id = if let Some(h) = &self.account_mgr {
+                let mgr = h.0.lock().unwrap();
+                let acct = mgr.validate_and_select_explicit(&aid, &agent_type)?;
+                acct.id.clone()
+            } else {
+                aid
+            };
+            Some(actual_id)
         } else if let Some(h) = &self.account_mgr {
             // Auto-select: use project's default tags if a project is specified
             let required_tags: Vec<String> = if let Some(pid) = &project_id {
@@ -826,9 +830,13 @@ impl SessionManager {
             session.account_id.clone()
         };
 
-        if let Some(h) = &self.account_mgr {
-            h.0.lock().unwrap().validate_and_select_explicit(&account_id, &agent_type)?;
-        }
+        let actual_account_id = if let Some(h) = &self.account_mgr {
+            let mgr = h.0.lock().unwrap();
+            let acct = mgr.validate_and_select_explicit(&account_id, &agent_type)?;
+            acct.id.clone()
+        } else {
+            account_id.clone()
+        };
 
         // Decrement previous account if any
         if let Some(old_aid) = &previous_account_id {
@@ -839,11 +847,11 @@ impl SessionManager {
 
         // Increment new account
         if let Some(h) = &self.account_mgr {
-            let _ = h.0.lock().unwrap().increment_sessions(&account_id);
+            let _ = h.0.lock().unwrap().increment_sessions(&actual_account_id);
         }
 
         if let Some(session) = self.sessions.get_mut(&session_id.0) {
-            session.account_id = Some(account_id.clone());
+            session.account_id = Some(actual_account_id.clone());
             session.updated_at = chrono::Utc::now();
         }
 
@@ -852,7 +860,7 @@ impl SessionManager {
             Some(session_id.clone()),
             json!({
                 "session_id": session_id,
-                "account_id": account_id,
+                "account_id": actual_account_id,
                 "previous_account_id": previous_account_id,
             }),
             "human",
@@ -958,14 +966,14 @@ impl SessionManager {
         }
 
         // Validate target account before emitting request
-        let target_cred = if let Some(mgr_handle) = self.account_mgr.clone() {
+        let (target_cred, resolved_target_id) = if let Some(mgr_handle) = self.account_mgr.clone() {
             let res = {
                 let mgr = mgr_handle.0.lock().unwrap();
                 mgr.validate_and_select_explicit(&target_account_id, &agent_type)
-                    .map(|a| a.credential_ref.clone())
+                    .map(|a| (a.credential_ref.clone(), a.id.clone()))
             };
             match res {
-                Ok(cred) => cred,
+                Ok(res) => res,
                 Err(e) => {
                     let _ = self.emit(AgentEvent::new(
                         EventKind::AccountSwitchFailed,
@@ -982,6 +990,7 @@ impl SessionManager {
         } else {
             bail!("AccountNotFound: Account manager not available");
         };
+        let target_account_id = resolved_target_id;
 
         self.emit(AgentEvent::new(
             EventKind::AccountSwitchRequested,
@@ -1146,14 +1155,14 @@ impl SessionManager {
         };
 
         // 2. Validate target account
-        let target_credential_ref = if let Some(mgr_handle) = self.account_mgr.clone() {
+        let (target_credential_ref, resolved_target_id) = if let Some(mgr_handle) = self.account_mgr.clone() {
             let res = {
                 let mgr = mgr_handle.0.lock().unwrap();
                 mgr.validate_and_select_explicit(&target_account_id, &agent_type)
-                    .map(|a| a.credential_ref.clone())
+                    .map(|a| (a.credential_ref.clone(), a.id.clone()))
             };
             match res {
-                Ok(cred) => cred,
+                Ok(res) => res,
                 Err(e) => {
                     let _ = self.emit(AgentEvent::new(
                         EventKind::SessionHandOffFailed,
@@ -1167,6 +1176,7 @@ impl SessionManager {
         } else {
             bail!("AccountNotFound: Account manager not available");
         };
+        let target_account_id = resolved_target_id;
 
         // 3. Emit HandOffStarted & AccountSwitchStarted
         self.emit(AgentEvent::new(

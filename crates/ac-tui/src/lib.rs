@@ -9,7 +9,7 @@ pub mod views;
 use std::{io::stdout, path::PathBuf, time::Duration};
 use anyhow::Result;
 use crossterm::{
-    event::{DisableMouseCapture, EnableMouseCapture, Event, EventStream},
+    event::{Event, EventStream},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
@@ -24,7 +24,7 @@ pub async fn run_tui(socket_path: PathBuf) -> Result<()> {
     // ── 1. Setup terminal ───────────────────────────────────────────────────
     enable_raw_mode()?;
     let mut stdout = stdout();
-    execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
+    execute!(stdout, EnterAlternateScreen)?;
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
@@ -92,7 +92,7 @@ pub async fn run_tui(socket_path: PathBuf) -> Result<()> {
 
     // ── 4. Restore terminal ─────────────────────────────────────────────────
     disable_raw_mode()?;
-    execute!(terminal.backend_mut(), LeaveAlternateScreen, DisableMouseCapture)?;
+    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
     terminal.show_cursor()?;
 
     Ok(())

@@ -122,7 +122,7 @@ impl AdapterFactory for CompositeAdapterFactory {
     fn capabilities(&self, agent_type: &str) -> ProviderCapabilities {
         match agent_type {
             "claude-code" | "claude" => claude::ClaudeAdapter::capabilities(),
-            "generic-pty" | "pty" => pty::GenericPtyAdapter::capabilities(),
+            "generic-pty" | "pty" | "agy" | "antigravity" => pty::GenericPtyAdapter::capabilities(),
             "mock" => {
                 if let Some(ref mock) = self.mock_factory {
                     mock.capabilities(agent_type)
@@ -150,6 +150,16 @@ impl AdapterFactory for CompositeAdapterFactory {
             "generic-pty" | "pty" => {
                 pty::GenericPtyAdapter::spawn(&ctx, self.pty_config.clone(), event_tx)
             }
+            "agy" | "antigravity" => {
+                let mut agy_cfg = self.pty_config.clone();
+                agy_cfg.program = resolve_real_antigravity_bin();
+                let task_trimmed = ctx.task_description.trim();
+                if !task_trimmed.is_empty() {
+                    agy_cfg.args.push("-i".to_string());
+                    agy_cfg.args.push(task_trimmed.to_string());
+                }
+                pty::GenericPtyAdapter::spawn(&ctx, agy_cfg, event_tx)
+            }
             "mock" => {
                 if let Some(ref mut mock) = self.mock_factory {
                     mock.create(ctx, event_tx)
@@ -167,5 +177,27 @@ impl AdapterFactory for CompositeAdapterFactory {
             }
         }
     }
+}
+
+/// Helper to resolve the real Antigravity binary on disk without self-recursion.
+pub fn resolve_real_antigravity_bin() -> String {
+    if let Ok(bin) = std::env::var("ANTIGRAVITY_BIN").or_else(|_| std::env::var("AGY_BIN")) {
+        if !bin.trim().is_empty() {
+            return bin;
+        }
+    }
+
+    if let Ok(home) = std::env::var("HOME") {
+        let p1 = std::path::PathBuf::from(&home).join(".local/bin/agy");
+        if p1.is_file() {
+            return p1.to_string_lossy().to_string();
+        }
+        let p2 = std::path::PathBuf::from(&home).join(".gemini/antigravity-cli/bin/agy");
+        if p2.is_file() {
+            return p2.to_string_lossy().to_string();
+        }
+    }
+
+    "agy".to_string()
 }
 

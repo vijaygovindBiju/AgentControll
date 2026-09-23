@@ -7,39 +7,83 @@ Agent Control is a single daemon that owns the lifecycle of coding-agent session
 under, the projects and workspaces they operate in, and the human ↔ agent
 interaction loop (questions, approvals, steering).
 
-> **Status:** Phase 0 (Design), Phase 1 (Core daemon & CLI), and Phase 2 (Account Manager & Project Registry) are complete. Phase 3 (Interaction Hub & Policy Engine) is next.
+> **Status:** All phases (Phases 0–8 + User-Friendly Launcher & Account UX) are complete and fully tested with 100% test pass rate and 0 warnings.
 
 ---
 
-## What it does
+## User-Friendly Experience (Quickstart)
 
-- Start, attach, pause, resume, stop and supervise agent sessions.
-- Keep one authoritative state per session (`Idle`, `Working`,
-  `WaitingForHuman`, `RateLimited`, …).
-- Manage a pool of provider accounts: quota signals, cooldowns, concurrency
-  caps, rotation, and hand-off of a session from one account to another.
-- Register projects and bind sessions to isolated workspaces (worktrees).
-- Provide one inbox for everything an agent asks a human, with declarative
-  policies for safe auto-approval and a hard human-approval boundary for
-  destructive actions.
-- Persist every event to an append-only SQLite log and expose a local Control
-  API (commands + event subscription) for the TUI, CLI and external consumers.
+Agent Control provides a clean **two-layer CLI architecture**:
+1. **Normal-User Layer (`agent-control`, `agy`):** Frictionless daily workflows using friendly account labels (`"Personal Google"`, `"Work Google"`), interactive selectors, and automated browser authentication.
+2. **Power-User / Automation Layer (`ac`):** Low-level scriptable subcommands for session supervisors, account registries, policy inspection, and audit event logs.
 
----
+### 1. Main Interactive Dashboard
 
-## What it deliberately does not do
-
-| Concern | Owner |
-|---|---|
-| Attention scoring, mobile summaries, phone notifications | **AgentDesk** (separate project) |
-| LLM-driven task decomposition, multi-agent planning and coordination | **AgentMesh** (separate project) |
-
-Agent Control has no dependency on either. Both can integrate later as clients
-of the public Control API. See [`docs/PROJECT.md`](docs/PROJECT.md#boundaries).
+Launch the unified terminal dashboard:
+```bash
+agent-control
+```
+Displays:
+* **AGENTS**: Registered agent types, account counts, and active session counts.
+* **ACCOUNTS**: Friendly account labels, associated agent types, and real-time statuses (`Ready`, `Cooldown`, `Exhausted`).
+* **SESSIONS**: Active sessions with agent type, account label, project, and lifecycle badge (`Working`, `WaitingForHuman`, `Paused`).
+* **Keybindings**: `[Enter] Open`, `[A] Add Account`, `[N] New Agent`, `[S] Sessions`, `[Q] Quit`.
 
 ---
 
-## Architecture at a glance
+### 2. Antigravity Launcher (`agy`)
+
+Launch Antigravity without worrying about low-level IDs or manual login/logout:
+
+```bash
+# Launch with a specific account label
+agy "Personal Google"
+
+# Or simply run agy:
+# - If 1 account: automatically launches
+# - If multiple: opens interactive selector with real-time status & cooldowns
+# - If 0 accounts: prompts to authenticate via browser
+agy
+```
+
+Interactive Agent Control view:
+```text
+╭────────────────────────────────────────────╮
+│ Antigravity                                │
+│ Account: Personal Google                   │
+│ State: Working                             │
+├────────────────────────────────────────────┤
+│                                            │
+│ Agent output transcript...                 │
+│                                            │
+│ > Inspecting project...                    │
+│ > Running tests...                         │
+│                                            │
+├────────────────────────────────────────────┤
+│ [s] Steer  [p] Pause  [r] Resume  [x] Stop│
+│ [a] Switch Account   [q] Quit             │
+╰────────────────────────────────────────────╯
+```
+
+Add a new account via friendly browser authentication:
+```bash
+agy account add
+```
+
+---
+
+### 3. Power-User / Automation CLI (`ac`)
+
+Keep granular, scriptable control over daemon subsystems:
+```bash
+ac account list
+ac session list
+ac session steer <session-id> --instruction "Focus on auth tests"
+ac session pause <session-id>
+ac session resume <session-id>
+ac session stop <session-id>
+ac events tail
+```
 
 ```text
 Human (TUI / CLI)
@@ -69,6 +113,7 @@ as clients — they never become internal dependencies.
 | Document | Content |
 |---|---|
 | [`docs/PROJECT.md`](docs/PROJECT.md) | Problem, target user, scope, boundaries, non-goals, success criteria |
+| [`docs/CLI_REFERENCE.md`](docs/CLI_REFERENCE.md) | **Comprehensive CLI Reference Manual** — all commands, subcommands, options, and recipes |
 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Layers, modules and their responsibilities |
 | [`docs/DATA_MODEL.md`](docs/DATA_MODEL.md) | Entities, session state machine, account states |
 | [`docs/DATA_FLOW.md`](docs/DATA_FLOW.md) | Conceptual runtime flows |

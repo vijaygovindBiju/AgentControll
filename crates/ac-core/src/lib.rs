@@ -7,6 +7,7 @@
 pub mod account_manager;
 pub mod adapter;
 pub mod config;
+pub mod credentials;
 pub mod event_store;
 pub mod interaction_hub;
 pub mod ipc;
@@ -15,3 +16,4 @@ pub mod project_registry;
 pub mod session;
 pub mod types;
 pub mod ws;
+

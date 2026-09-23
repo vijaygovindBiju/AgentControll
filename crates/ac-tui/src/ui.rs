@@ -7,33 +7,46 @@ use ratatui::{
 
 use crate::{
     app::{App, Tab},
-    views::{self, render_footer, render_header},
+    views::{self, render_footer, render_header, render_sidebar},
 };
 
 pub fn draw(f: &mut Frame, app: &App) {
     let main_layout = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(3), // Header (title + tabs)
-            Constraint::Min(10),   // Active View content
-            Constraint::Length(2), // Footer (status + shortcuts)
+            Constraint::Length(2), // Header (title + info)
+            Constraint::Min(10),   // Middle Area: Sidebar + Content
+            Constraint::Length(2), // Footer (shortcuts + status)
         ])
         .split(f.area());
 
     // 1. Header
     render_header(f, app, main_layout[0]);
 
-    // 2. Main View
+    // 2. Middle Area (Sidebar + Active View)
+    let middle_layout = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Length(18), // Sidebar
+            Constraint::Min(50),   // Active View
+        ])
+        .split(main_layout[1]);
+
+    render_sidebar(f, app, middle_layout[0]);
+
+    let content_area = middle_layout[1];
     if app.session_detail_id.is_some() {
-        views::session_detail::render(f, app, main_layout[1]);
+        views::session_detail::render(f, app, content_area);
     } else {
         match app.current_tab {
-            Tab::Dashboard => views::dashboard::render(f, app, main_layout[1]),
-            Tab::Sessions => views::sessions::render(f, app, main_layout[1]),
-            Tab::Inbox => views::inbox::render(f, app, main_layout[1]),
-            Tab::Accounts => views::accounts::render(f, app, main_layout[1]),
-            Tab::Projects => views::projects::render(f, app, main_layout[1]),
-            Tab::Activity => views::activity::render(f, app, main_layout[1]),
+            Tab::Dashboard => views::dashboard::render(f, app, content_area),
+            Tab::Sessions => views::sessions::render(f, app, content_area),
+            Tab::Inbox => views::inbox::render(f, app, content_area),
+            Tab::Accounts => views::accounts::render(f, app, content_area),
+            Tab::Projects => views::projects::render(f, app, content_area),
+            Tab::Activity => views::activity::render(f, app, content_area),
+            Tab::Agents => views::agents::render(f, app, content_area),
+            Tab::Settings => views::settings::render(f, app, content_area),
         }
     }
 
