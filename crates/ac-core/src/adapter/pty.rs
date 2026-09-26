@@ -7,6 +7,7 @@
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -14,7 +15,7 @@ use anyhow::{bail, Context, Result};
 use portable_pty::{CommandBuilder, NativePtySystem, PtySize, PtySystem};
 use regex::Regex;
 use tokio::sync::mpsc;
-use tracing::debug;
+use tracing::{debug, trace, warn};
 
 use crate::adapter::AdapterHandle;
 use crate::types::{
@@ -51,6 +52,8 @@ pub struct PtyConfig {
     pub program: String,
     pub args: Vec<String>,
     pub envs: HashMap<String, String>,
+    /// Inherited environment variables to remove from the child.
+    pub env_remove: Vec<String>,
     pub patterns: Vec<PtyPatternRule>,
 }
 
@@ -60,6 +63,7 @@ impl Default for PtyConfig {
             program: "/bin/sh".into(),
             args: vec![],
             envs: HashMap::new(),
+            env_remove: vec![],
             patterns: vec![],
         }
     }
@@ -71,6 +75,7 @@ impl PtyConfig {
             program: program.into(),
             args: vec![],
             envs: HashMap::new(),
+            env_remove: vec![],
             patterns: vec![],
         }
     }
@@ -149,6 +154,9 @@ impl GenericPtyAdapter {
         }
 
         // Environment variables
+        for k in &config.env_remove {
+            cmd.env_remove(k);
+        }
         for (k, v) in &config.envs {
             cmd.env(k, v);
         }
@@ -160,15 +168,41 @@ impl GenericPtyAdapter {
         let reader = pair.master.try_clone_reader().context("cloning PTY reader")?;
         let writer = pair.master.take_writer().context("taking PTY writer")?;
         let writer = Arc::new(Mutex::new(writer));
+        let master = Arc::new(Mutex::new(pair.master));
 
         let (cmd_tx, mut cmd_rx) = mpsc::channel::<AgentCommand>(64);
         let event_tx_cmd = event_tx.clone();
         let writer_cmd = writer.clone();
+        let master_cmd = master.clone();
 
         // ── Command loop ──────────────────────────────────────────────────────
         let cmd_task = tokio::spawn(async move {
             while let Some(cmd) = cmd_rx.recv().await {
                 match cmd {
+                    AgentCommand::Input { data } => {
+                        let w = writer_cmd.clone();
+                        let _ = tokio::task::spawn_blocking(move || {
+                            if let Ok(mut lock) = w.lock() {
+                                let _ = lock.write_all(data.as_bytes());
+                                let _ = lock.flush();
+                            }
+                        })
+                        .await;
+                    }
+                    AgentCommand::Resize { rows, cols } => {
+                        let m = master_cmd.clone();
+                        let _ = tokio::task::spawn_blocking(move || {
+                            if let Ok(lock) = m.lock() {
+                                let _ = lock.resize(portable_pty::PtySize {
+                                    rows,
+                                    cols,
+                                    pixel_width: 0,
+                                    pixel_height: 0,
+                                });
+                            }
+                        })
+                        .await;
+                    }
                     AgentCommand::Respond { allow, response } => {
                         let text = if let Some(r) = response {
                             format!("{}\r\n", r)
@@ -247,26 +281,65 @@ impl GenericPtyAdapter {
         let patterns = config.patterns;
         let event_tx_reader = event_tx;
         let mut reader = reader;
+        let dropped_chunks = Arc::new(AtomicU64::new(0));
+        let dropped_for_guard = dropped_chunks.clone();
 
         let reader_thread = std::thread::spawn(move || {
             // Emitted initially on successful launch
             let _ = event_tx_reader.blocking_send(AdapterEvent::Ready);
 
-            let mut buf = [0u8; 1024];
+            // 8 KB buffer — large enough for typical AGY output bursts so we
+            // do fewer send() calls per frame, vastly reducing the odds of the
+            // channel filling up and causing back-pressure.
+            let mut buf = [0u8; 8192];
             let mut line_buffer = String::new();
+            let mut total_bytes: u64 = 0;
+            let mut total_chunks: u64 = 0;
+
+            debug!("PTY reader thread started (pid={:?})", child_pid);
 
             loop {
                 match reader.read(&mut buf) {
                     Ok(0) => {
                         // EOF reached
+                        debug!(
+                            "PTY reader EOF after {} bytes in {} chunks ({} dropped)",
+                            total_bytes,
+                            total_chunks,
+                            dropped_chunks.load(Ordering::Relaxed)
+                        );
                         break;
                     }
                     Ok(n) => {
+                        total_bytes += n as u64;
+                        total_chunks += 1;
                         let chunk = String::from_utf8_lossy(&buf[..n]).to_string();
-                        let _ = event_tx_reader.blocking_send(AdapterEvent::OutputChunk {
+
+                        // Non-blocking send: if the channel is full, drop
+                        // the chunk rather than blocking this thread.
+                        // Blocking here causes the PTY OS buffer to fill,
+                        // which makes the child process (AGY) block on
+                        // write(), appearing "stuck at Generating...".
+                        match event_tx_reader.try_send(AdapterEvent::OutputChunk {
                             text: chunk.clone(),
                             confidence: Confidence::Low,
-                        });
+                        }) {
+                            Ok(()) => {}
+                            Err(mpsc::error::TrySendError::Full(_)) => {
+                                let n_dropped = dropped_chunks.fetch_add(1, Ordering::Relaxed) + 1;
+                                if n_dropped == 1 || n_dropped % 50 == 0 {
+                                    warn!(
+                                        "PTY output channel full — dropped {} chunk(s); \
+                                         consumer may be too slow",
+                                        n_dropped
+                                    );
+                                }
+                            }
+                            Err(mpsc::error::TrySendError::Closed(_)) => {
+                                debug!("PTY event channel closed, reader exiting");
+                                break;
+                            }
+                        }
 
                         line_buffer.push_str(&chunk);
 
@@ -320,8 +393,8 @@ impl GenericPtyAdapter {
                         }
 
                         // Cap buffer to avoid unbounded growth
-                        if line_buffer.len() > 4096 {
-                            let keep = line_buffer.split_off(line_buffer.len() - 2048);
+                        if line_buffer.len() > 16384 {
+                            let keep = line_buffer.split_off(line_buffer.len() - 8192);
                             line_buffer = keep;
                         }
                     }
@@ -333,6 +406,7 @@ impl GenericPtyAdapter {
             }
 
             // Detect process exit status
+            trace!("PTY reader: waiting for child process exit");
             match child.wait() {
                 Ok(status) if status.success() => {
                     let _ = event_tx_reader.blocking_send(AdapterEvent::Completed {
@@ -360,6 +434,7 @@ impl GenericPtyAdapter {
             child_pid,
             cmd_task_abort: cmd_task.abort_handle(),
             _reader_join: Some(reader_thread),
+            _dropped_chunks: dropped_for_guard,
         });
 
         Ok(AdapterHandle::with_cmd_tx(drop_guard, cmd_tx))
@@ -370,10 +445,18 @@ struct PtyDropGuard {
     child_pid: Option<u32>,
     cmd_task_abort: tokio::task::AbortHandle,
     _reader_join: Option<std::thread::JoinHandle<()>>,
+    _dropped_chunks: Arc<AtomicU64>,
 }
 
 impl Drop for PtyDropGuard {
     fn drop(&mut self) {
+        let dropped = self._dropped_chunks.load(Ordering::Relaxed);
+        if dropped > 0 {
+            warn!(
+                "PTY adapter teardown: {} output chunk(s) were dropped due to back-pressure",
+                dropped
+            );
+        }
         self.cmd_task_abort.abort();
         #[cfg(unix)]
         if let Some(pid) = self.child_pid {

@@ -7,7 +7,7 @@ use anyhow::{bail, Result};
 use serde_json::json;
 use std::collections::HashMap;
 use tokio::sync::mpsc;
-use tracing::{debug, info, warn};
+use tracing::{debug, info, trace, warn};
 
 use crate::{
     account_manager::{AccountManager, AccountManagerHandle},
@@ -51,6 +51,11 @@ pub enum SessionCmd {
         reason: Option<String>,
         reply: tokio::sync::oneshot::Sender<Result<()>>,
     },
+    /// Remove/delete a session permanently.
+    Remove {
+        session_id: Id,
+        reply: tokio::sync::oneshot::Sender<Result<()>>,
+    },
     List {
         reply: tokio::sync::oneshot::Sender<Vec<AgentSession>>,
     },
@@ -76,6 +81,19 @@ pub enum SessionCmd {
     Steer {
         session_id: Id,
         message: String,
+        reply: tokio::sync::oneshot::Sender<Result<()>>,
+    },
+    /// Direct PTY input sent to session.
+    Input {
+        session_id: Id,
+        data: String,
+        reply: tokio::sync::oneshot::Sender<Result<()>>,
+    },
+    /// Resize PTY terminal dimensions.
+    Resize {
+        session_id: Id,
+        rows: u16,
+        cols: u16,
         reply: tokio::sync::oneshot::Sender<Result<()>>,
     },
     /// Query historical events from the event store.
@@ -229,8 +247,25 @@ impl SessionManager {
             self.do_transition(&sid, SessionState::Crashed, "system")?;
         }
 
+        self.reconcile_account_loads();
         info!("Recovery complete. {} sessions loaded.", self.sessions.len());
         Ok(())
+    }
+
+    /// Reconcile account active session counts with live non-terminal sessions.
+    pub fn reconcile_account_loads(&self) {
+        if let Some(h) = &self.account_mgr {
+            let mut counts: HashMap<Id, u8> = HashMap::new();
+            for s in self.sessions.values() {
+                if !s.state.is_terminal() {
+                    if let Some(aid) = &s.account_id {
+                        let entry = counts.entry(aid.clone()).or_insert(0);
+                        *entry = entry.saturating_add(1);
+                    }
+                }
+            }
+            let _ = h.0.lock().unwrap().reconcile_active_counts(&counts);
+        }
     }
 
     /// Return references to all in-memory sessions (for inspection & testing).
@@ -304,6 +339,11 @@ impl SessionManager {
                     }
                 }
             }
+            EventKind::SessionRemoved => {
+                if let Some(sid) = &event.session_id {
+                    self.sessions.remove(&sid.0);
+                }
+            }
             _ => {} // Other events don't affect in-memory session state
         }
     }
@@ -351,6 +391,10 @@ impl SessionManager {
                 let result = self.cmd_stop(session_id, reason).await;
                 let _ = reply.send(result);
             }
+            SessionCmd::Remove { session_id, reply } => {
+                let result = self.cmd_remove(session_id).await;
+                let _ = reply.send(result);
+            }
             SessionCmd::List { reply } => {
                 let sessions: Vec<AgentSession> =
                     self.sessions.values().cloned().collect();
@@ -386,6 +430,23 @@ impl SessionManager {
                 reply,
             } => {
                 let result = self.cmd_steer(session_id, message);
+                let _ = reply.send(result);
+            }
+            SessionCmd::Input {
+                session_id,
+                data,
+                reply,
+            } => {
+                let result = self.cmd_input(session_id, data);
+                let _ = reply.send(result);
+            }
+            SessionCmd::Resize {
+                session_id,
+                rows,
+                cols,
+                reply,
+            } => {
+                let result = self.cmd_resize(session_id, rows, cols);
                 let _ = reply.send(result);
             }
             SessionCmd::QueryEvents {
@@ -571,6 +632,7 @@ impl SessionManager {
         } else {
             None
         };
+        let account_id = session.account_id.clone();
         let _ = session;
 
         let ctx = crate::types::SessionContext {
@@ -579,11 +641,12 @@ impl SessionManager {
             agent_type: agent_type.clone(),
             workspace_path,
             credential_ref,
+            account_id,
             context_snapshot: None,
             agent_config: None,
         };
 
-        let (adapter_event_tx, adapter_event_rx) = mpsc::channel(64);
+        let (adapter_event_tx, adapter_event_rx) = mpsc::channel(512);
         let handle = self
             .adapter_factory
             .create(ctx, adapter_event_tx)?;
@@ -748,7 +811,17 @@ impl SessionManager {
             .unwrap_or((None, None));
         if let Some(aid) = account_id {
             if let Some(h) = &self.account_mgr {
-                let _ = h.0.lock().unwrap().decrement_sessions(&aid);
+                let cred_ref = {
+                    let mut mgr = h.0.lock().unwrap();
+                    let _ = mgr.decrement_sessions(&aid);
+                    mgr.get(&aid).filter(|a| a.provider == crate::agy_auth::PROVIDER).map(|a| a.credential_ref.clone())
+                };
+                // Persist any token agy refreshed during this session.
+                if let Some(cref) = cred_ref {
+                    if let Err(e) = crate::agy_auth::sync_profile_back(&aid, &cref) {
+                        warn!("Antigravity credential sync for account {} failed: {}", aid, e.to_string().replace('\n', " "));
+                    }
+                }
             }
         }
         if let Some(wid) = workspace_id {
@@ -774,6 +847,45 @@ impl SessionManager {
         }
 
         info!("Session stopped: {}", session_id);
+        Ok(())
+    }
+
+    async fn cmd_remove(&mut self, session_id: Id) -> Result<()> {
+        let is_terminal = {
+            let session = self.get_session_or_err(&session_id)?;
+            session.state.is_terminal()
+        };
+
+        if !is_terminal {
+            if let Err(e) = self.cmd_stop(session_id.clone(), Some("session removed".to_string())).await {
+                warn!("cmd_remove: error stopping session {} before removal: {}", session_id, e);
+            }
+        }
+
+        // Ensure live adapter is cleaned up
+        if let Some(mut live) = self.adapters.remove(&session_id.0) {
+            let _ = live.handle.stop();
+        }
+
+        // Expire / dismiss any pending interactions if any remain
+        if let Some(hub) = &self.interaction_hub {
+            let _ = hub.0.lock().unwrap().expire_session_interactions(&session_id);
+        }
+
+        // Remove from in-memory sessions map
+        self.sessions.remove(&session_id.0);
+
+        // Emit SessionRemoved event
+        self.emit(AgentEvent::new(
+            EventKind::SessionRemoved,
+            Some(session_id.clone()),
+            json!({ "session_id": session_id }),
+            "human",
+        ))?;
+
+        self.reconcile_account_loads();
+
+        info!("Session removed: {}", session_id);
         Ok(())
     }
 
@@ -803,6 +915,23 @@ impl SessionManager {
         ))?;
 
         info!("Session {} steered with message: {}", session_id, message);
+        Ok(())
+    }
+
+    fn cmd_input(&mut self, session_id: Id, data: String) -> Result<()> {
+        if let Some(live) = self.adapters.get_mut(&session_id.0) {
+            trace!("cmd_input: forwarding {} bytes to session {}", data.len(), session_id);
+            live.handle.send_command(AgentCommand::Input { data })?;
+        } else {
+            trace!("cmd_input: no live adapter for session {}", session_id);
+        }
+        Ok(())
+    }
+
+    fn cmd_resize(&mut self, session_id: Id, rows: u16, cols: u16) -> Result<()> {
+        if let Some(live) = self.adapters.get_mut(&session_id.0) {
+            live.handle.send_command(AgentCommand::Resize { rows, cols })?;
+        }
         Ok(())
     }
 
@@ -1178,6 +1307,27 @@ impl SessionManager {
         };
         let target_account_id = resolved_target_id;
 
+        // 2b. Preflight the successor (e.g. credential validation) BEFORE the
+        // predecessor is stopped, so a bad target never leaves the user with
+        // no running session and never falls back to another login.
+        let probe_ctx = crate::types::SessionContext::new(Id::new(), task_description.clone(), agent_type.clone())
+            .with_account(target_account_id.clone(), target_credential_ref.clone());
+        if let Err(e) = self.adapter_factory.preflight(&probe_ctx) {
+            let _ = self.emit(AgentEvent::new(
+                EventKind::SessionHandOffFailed,
+                Some(predecessor_id.clone()),
+                json!({ "target_account_id": target_account_id, "reason": "target account credential check failed" }),
+                "system",
+            ));
+            let _ = self.emit(AgentEvent::new(
+                EventKind::AccountSwitchFailed,
+                Some(predecessor_id.clone()),
+                json!({ "target_account_id": target_account_id, "reason": "target account credential check failed" }),
+                "system",
+            ));
+            return Err(e);
+        }
+
         // 3. Emit HandOffStarted & AccountSwitchStarted
         self.emit(AgentEvent::new(
             EventKind::AccountSwitchStarted,
@@ -1320,11 +1470,12 @@ impl SessionManager {
             agent_type: agent_type.clone(),
             workspace_path,
             credential_ref: Some(target_credential_ref),
+            account_id: Some(target_account_id.clone()),
             context_snapshot: Some(snapshot.to_context_string()),
             agent_config: None,
         };
 
-        let (adapter_event_tx, adapter_event_rx) = mpsc::channel(64);
+        let (adapter_event_tx, adapter_event_rx) = mpsc::channel(512);
         let handle = self.adapter_factory.create(ctx, adapter_event_tx)?;
 
         // Wait for first event (Ready) with 5-second timeout
@@ -1436,7 +1587,18 @@ impl SessionManager {
     // ── Phase 3: Interaction & Adapter event handlers ────────────────────────
 
     async fn handle_adapter_event(&mut self, session_id: Id, event: AdapterEvent) {
-        debug!("SessionManager: event from session {}: {:?}", session_id, event);
+        match &event {
+            AdapterEvent::OutputChunk { text, .. } => {
+                trace!(
+                    "SessionManager: OutputChunk from {} ({} bytes)",
+                    session_id,
+                    text.len()
+                );
+            }
+            other => {
+                debug!("SessionManager: event from session {}: {:?}", session_id, other);
+            }
+        }
         match event {
             AdapterEvent::Ready => {}
             AdapterEvent::OutputChunk { text, confidence: _ } => {
@@ -1474,6 +1636,7 @@ impl SessionManager {
                     "adapter",
                 ));
                 let _ = self.do_transition(&session_id, SessionState::Crashed, "adapter");
+                self.reconcile_account_loads();
             }
             AdapterEvent::SnapshotProduced { summary } => {
                 let _ = self.emit(AgentEvent::new(
@@ -1856,6 +2019,14 @@ impl SessionManagerHandle {
         .await?
     }
 
+    pub async fn remove(&self, session_id: Id) -> Result<()> {
+        self.send_and_wait(|reply| SessionCmd::Remove {
+            session_id,
+            reply,
+        })
+        .await?
+    }
+
     pub async fn list(&self) -> Result<Vec<AgentSession>> {
         let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
         self.tx
@@ -1915,6 +2086,27 @@ impl SessionManagerHandle {
         self.send_and_wait(|reply| SessionCmd::Steer {
             session_id,
             message,
+            reply,
+        })
+        .await?
+    }
+
+    /// Direct PTY input sent to session stdin.
+    pub async fn input(&self, session_id: Id, data: String) -> Result<()> {
+        self.send_and_wait(|reply| SessionCmd::Input {
+            session_id,
+            data,
+            reply,
+        })
+        .await?
+    }
+
+    /// Resize PTY terminal dimensions.
+    pub async fn resize(&self, session_id: Id, rows: u16, cols: u16) -> Result<()> {
+        self.send_and_wait(|reply| SessionCmd::Resize {
+            session_id,
+            rows,
+            cols,
             reply,
         })
         .await?
