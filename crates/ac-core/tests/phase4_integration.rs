@@ -31,10 +31,7 @@ impl TestHarness {
         Self::new_with_project(factory, None)
     }
 
-    fn new_with_project(
-        factory: Box<dyn AdapterFactory + Send>,
-        project: Option<Project>,
-    ) -> Self {
+    fn new_with_project(factory: Box<dyn AdapterFactory + Send>, project: Option<Project>) -> Self {
         let dir = tempdir().expect("tempdir");
         let events_db = dir.path().join("events.db");
         let interactions_db = dir.path().join("interactions.db");
@@ -59,15 +56,9 @@ impl TestHarness {
         let (cmd_tx, cmd_rx) = mpsc::channel(64);
         let (event_tx, event_rx) = broadcast::channel(128);
 
-        let manager = SessionManager::new(
-            store,
-            cmd_rx,
-            event_tx,
-            3,
-            factory,
-        )
-        .with_project_registry(proj_reg)
-        .with_interaction_hub(hub_handle.clone());
+        let manager = SessionManager::new(store, cmd_rx, event_tx, 3, factory)
+            .with_project_registry(proj_reg)
+            .with_interaction_hub(hub_handle.clone());
 
         tokio::spawn(async move {
             manager.run().await;
@@ -160,7 +151,12 @@ printf '{"type": "completed", "summary": "Read config successfully"}\n'
     assert_eq!(auto_app_evt.kind, EventKind::ApprovalAutoApproved);
 
     // Session remains in Working state (never pauses or waits for human)
-    let session = harness.manager_handle.get(sid.clone()).await.unwrap().unwrap();
+    let session = harness
+        .manager_handle
+        .get(sid.clone())
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(session.state, SessionState::Working);
 
     // Verify completion
@@ -329,7 +325,12 @@ printf '{"type": "completed"}\n'
     // Create session bound to project
     let sid = harness
         .manager_handle
-        .create_with_context("test isolation".into(), "claude-code".into(), Some(pid), None)
+        .create_with_context(
+            "test isolation".into(),
+            "claude-code".into(),
+            Some(pid),
+            None,
+        )
         .await
         .unwrap();
 
@@ -345,7 +346,10 @@ printf '{"type": "completed"}\n'
         false
     })
     .await;
-    assert!(output_evt.payload["text"].as_str().unwrap().contains("repo"));
+    assert!(output_evt.payload["text"]
+        .as_str()
+        .unwrap()
+        .contains("repo"));
 }
 
 // ── Generic PTY Adapter Integration Tests ────────────────────────────────────
@@ -371,7 +375,12 @@ printf 'Task finished\n'
             },
         )
         .unwrap()
-        .with_pattern("Task finished", PtyPatternKind::Completed { summary: Some("Done".into()) })
+        .with_pattern(
+            "Task finished",
+            PtyPatternKind::Completed {
+                summary: Some("Done".into()),
+            },
+        )
         .unwrap();
 
     let factory = Box::new(GenericPtyAdapterFactory::new(pty_cfg));
@@ -469,7 +478,10 @@ echo "I am pty"
 "#;
 
     let composite = CompositeAdapterFactory::new()
-        .with_claude_config(ClaudeConfig::custom("sh", vec!["-c".to_string(), claude_script.to_string()]))
+        .with_claude_config(ClaudeConfig::custom(
+            "sh",
+            vec!["-c".to_string(), claude_script.to_string()],
+        ))
         .with_pty_config(PtyConfig::new("sh").with_args(["-c", pty_script]));
 
     let mut harness = TestHarness::new(Box::new(composite));

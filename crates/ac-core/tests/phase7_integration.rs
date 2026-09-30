@@ -21,11 +21,7 @@ use tokio::{
 };
 use tokio_tungstenite::{
     connect_async,
-    tungstenite::{
-        client::IntoClientRequest,
-        http::header::AUTHORIZATION,
-        Message,
-    },
+    tungstenite::{client::IntoClientRequest, http::header::AUTHORIZATION, Message},
 };
 
 /// Helper to set up a running session manager with an event store.
@@ -112,9 +108,11 @@ async fn test_ws_unauthenticated_connection_rejected_or_denied() {
         "cmd": "auth",
         "params": { "token": "invalid-tok" }
     });
-    ws.send(Message::Text(serde_json::to_string(&auth_bad).unwrap().into()))
-        .await
-        .unwrap();
+    ws.send(Message::Text(
+        serde_json::to_string(&auth_bad).unwrap().into(),
+    ))
+    .await
+    .unwrap();
     let msg = ws.next().await.unwrap().unwrap();
     let resp: ApiResponse = serde_json::from_str(&msg.to_string()).unwrap();
     assert!(!resp.ok);
@@ -127,9 +125,11 @@ async fn test_ws_unauthenticated_connection_rejected_or_denied() {
         "cmd": "auth",
         "params": { "token": "read-token" }
     });
-    ws.send(Message::Text(serde_json::to_string(&auth_ok).unwrap().into()))
-        .await
-        .unwrap();
+    ws.send(Message::Text(
+        serde_json::to_string(&auth_ok).unwrap().into(),
+    ))
+    .await
+    .unwrap();
     let msg = ws.next().await.unwrap().unwrap();
     let resp: ApiResponse = serde_json::from_str(&msg.to_string()).unwrap();
     assert!(resp.ok);
@@ -161,16 +161,16 @@ async fn test_ws_header_auth_and_scope_enforcement() {
     // Client 1: Read-only scope via Authorization header
     let ws_url = format!("ws://{local_addr}");
     let mut req = ws_url.clone().into_client_request().unwrap();
-    req.headers_mut().insert(
-        AUTHORIZATION,
-        "Bearer read-key".parse().unwrap(),
-    );
+    req.headers_mut()
+        .insert(AUTHORIZATION, "Bearer read-key".parse().unwrap());
     let (mut ws_read, _) = connect_async(req).await.unwrap();
 
     // Read command allowed
     let list_req = json!({ "v": 1, "id": "list-1", "cmd": "session.list" });
     ws_read
-        .send(Message::Text(serde_json::to_string(&list_req).unwrap().into()))
+        .send(Message::Text(
+            serde_json::to_string(&list_req).unwrap().into(),
+        ))
         .await
         .unwrap();
     let msg = ws_read.next().await.unwrap().unwrap();
@@ -188,7 +188,9 @@ async fn test_ws_header_auth_and_scope_enforcement() {
         }
     });
     ws_read
-        .send(Message::Text(serde_json::to_string(&mutate_req).unwrap().into()))
+        .send(Message::Text(
+            serde_json::to_string(&mutate_req).unwrap().into(),
+        ))
         .await
         .unwrap();
     let msg = ws_read.next().await.unwrap().unwrap();
@@ -202,7 +204,9 @@ async fn test_ws_header_auth_and_scope_enforcement() {
 
     // Mutating command allowed for Admin scope
     ws_admin
-        .send(Message::Text(serde_json::to_string(&mutate_req).unwrap().into()))
+        .send(Message::Text(
+            serde_json::to_string(&mutate_req).unwrap().into(),
+        ))
         .await
         .unwrap();
     let msg = ws_admin.next().await.unwrap().unwrap();
@@ -249,9 +253,11 @@ async fn test_ws_subscription_filtering_and_catchup_replay() {
             "since_seq": 0
         }
     });
-    ws.send(Message::Text(serde_json::to_string(&sub_req).unwrap().into()))
-        .await
-        .unwrap();
+    ws.send(Message::Text(
+        serde_json::to_string(&sub_req).unwrap().into(),
+    ))
+    .await
+    .unwrap();
 
     // First frame is subscribe command ack
     let ack_msg = ws.next().await.unwrap().unwrap();
@@ -308,9 +314,11 @@ async fn test_version_mismatch_and_validation() {
         "id": "bad-v",
         "cmd": "daemon.status"
     });
-    ws.send(Message::Text(serde_json::to_string(&bad_version_req).unwrap().into()))
-        .await
-        .unwrap();
+    ws.send(Message::Text(
+        serde_json::to_string(&bad_version_req).unwrap().into(),
+    ))
+    .await
+    .unwrap();
     let msg = ws.next().await.unwrap().unwrap();
     let resp: ApiResponse = serde_json::from_str(&msg.to_string()).unwrap();
     assert!(!resp.ok);
@@ -406,9 +414,11 @@ async fn test_ws_ping_pong_and_unsubscribe() {
         "id": "sub-1",
         "cmd": "events.subscribe"
     });
-    ws.send(Message::Text(serde_json::to_string(&sub_req).unwrap().into()))
-        .await
-        .unwrap();
+    ws.send(Message::Text(
+        serde_json::to_string(&sub_req).unwrap().into(),
+    ))
+    .await
+    .unwrap();
     let ack_msg = ws.next().await.unwrap().unwrap();
     let ack: ApiResponse = serde_json::from_str(&ack_msg.to_string()).unwrap();
     assert!(ack.ok);
@@ -418,9 +428,11 @@ async fn test_ws_ping_pong_and_unsubscribe() {
         "id": "unsub-1",
         "cmd": "events.unsubscribe"
     });
-    ws.send(Message::Text(serde_json::to_string(&unsub_req).unwrap().into()))
-        .await
-        .unwrap();
+    ws.send(Message::Text(
+        serde_json::to_string(&unsub_req).unwrap().into(),
+    ))
+    .await
+    .unwrap();
     let ack_msg = ws.next().await.unwrap().unwrap();
     let ack: ApiResponse = serde_json::from_str(&ack_msg.to_string()).unwrap();
     assert!(ack.ok);
@@ -450,4 +462,3 @@ async fn test_ws_invalid_token_header_rejected() {
     let connect_res = connect_async(req).await;
     assert!(connect_res.is_err());
 }
-

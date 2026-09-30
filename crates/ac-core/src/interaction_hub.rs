@@ -164,8 +164,7 @@ fn row_to_interaction(row: &rusqlite::Row<'_>) -> rusqlite::Result<Interaction> 
         serde_json::from_str(&state_str).unwrap_or(InteractionState::Pending);
     let tool_args: Option<serde_json::Value> =
         tool_args_str.and_then(|s| serde_json::from_str(&s).ok());
-    let decision: Option<PolicyDecision> =
-        decision_str.and_then(|s| serde_json::from_str(&s).ok());
+    let decision: Option<PolicyDecision> = decision_str.and_then(|s| serde_json::from_str(&s).ok());
     let created_at = chrono::DateTime::parse_from_rfc3339(&created_at_str)
         .map(|d| d.with_timezone(&Utc))
         .unwrap_or_else(|_| Utc::now());
@@ -204,9 +203,7 @@ pub enum InteractionSubmissionResult {
         command: AgentCommand,
     },
     /// Requires human intervention. Stored as Pending.
-    Escalated {
-        interaction: Interaction,
-    },
+    Escalated { interaction: Interaction },
 }
 
 /// Result of human interaction resolution.
@@ -304,11 +301,9 @@ impl InteractionHub {
         );
 
         // Evaluate with Policy Engine
-        let evaluation: PolicyEvaluation = self.policy_engine.evaluate(
-            Some(&tool_name),
-            agent_type,
-            project_id,
-        );
+        let evaluation: PolicyEvaluation =
+            self.policy_engine
+                .evaluate(Some(&tool_name), agent_type, project_id);
 
         match evaluation.decision {
             PolicyDecision::Allow => {
@@ -579,7 +574,9 @@ impl InteractionHub {
         let mut expired = Vec::new();
 
         for interaction in self.interactions.values_mut() {
-            if &interaction.session_id == session_id && interaction.state == InteractionState::Pending {
+            if &interaction.session_id == session_id
+                && interaction.state == InteractionState::Pending
+            {
                 interaction.state = InteractionState::Expired;
                 interaction.resolved_by = Some("system".into());
                 interaction.resolved_at = Some(now);
@@ -728,7 +725,10 @@ mod tests {
             } => {
                 assert_eq!(interaction.state, InteractionState::AutoResolved);
                 assert_eq!(decision, PolicyDecision::Deny);
-                assert!(matches!(command, AgentCommand::Respond { allow: false, .. }));
+                assert!(matches!(
+                    command,
+                    AgentCommand::Respond { allow: false, .. }
+                ));
             }
             _ => panic!("Expected AutoResolved Deny"),
         }

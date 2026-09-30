@@ -6,9 +6,7 @@ use std::time::Duration;
 use tokio::sync::{broadcast, mpsc};
 
 use ac_core::{
-    adapter::mock::{
-        default_script, start_fail_script, MockAdapterFactory,
-    },
+    adapter::mock::{default_script, start_fail_script, MockAdapterFactory},
     event_store::EventStore,
     session::manager::{SessionManager, SessionManagerHandle},
     types::{AgentEvent, EventKind, Id, SessionState},
@@ -76,8 +74,7 @@ async fn start_session_reaches_working() {
     mgr.start(id.clone()).await.unwrap();
 
     let event = wait_for_event(&mut rx, |e| {
-        e.kind == EventKind::StateChanged
-            && e.payload["to"].as_str() == Some("working")
+        e.kind == EventKind::StateChanged && e.payload["to"].as_str() == Some("working")
     })
     .await;
     assert_eq!(event.session_id.as_ref().unwrap(), &id);
@@ -156,7 +153,10 @@ async fn cannot_start_already_started_session() {
     .await;
 
     let result = mgr.start(id.clone()).await;
-    assert!(result.is_err(), "Expected error starting an already-working session");
+    assert!(
+        result.is_err(),
+        "Expected error starting an already-working session"
+    );
 }
 
 #[tokio::test]
@@ -207,7 +207,10 @@ async fn events_are_persisted_to_store() {
         let store = EventStore::open(&db_path).unwrap();
         let (mgr, mut rx) = make_manager(store);
 
-        let id = mgr.create("persisted task".into(), "mock".into()).await.unwrap();
+        let id = mgr
+            .create("persisted task".into(), "mock".into())
+            .await
+            .unwrap();
         mgr.start(id.clone()).await.unwrap();
 
         wait_for_event(&mut rx, |e| {
@@ -221,7 +224,11 @@ async fn events_are_persisted_to_store() {
     let events = store.query(0, None, None).unwrap();
     // Should have: SessionCreated, SessionStartRequested, StateChanged(→Starting),
     //              SessionReady, StateChanged(→Working), SessionStarted
-    assert!(events.len() >= 3, "Expected at least 3 persisted events, got {}", events.len());
+    assert!(
+        events.len() >= 3,
+        "Expected at least 3 persisted events, got {}",
+        events.len()
+    );
 }
 
 // ── Recovery from event log ───────────────────────────────────────────────────
@@ -238,7 +245,10 @@ async fn recovery_rebuilds_session_states() {
         let store = EventStore::open(&db_path).unwrap();
         let (mgr, mut rx) = make_manager(store);
 
-        session_id = mgr.create("recovery task".into(), "mock".into()).await.unwrap();
+        session_id = mgr
+            .create("recovery task".into(), "mock".into())
+            .await
+            .unwrap();
         mgr.start(session_id.clone()).await.unwrap();
 
         wait_for_event(&mut rx, |e| {
@@ -382,7 +392,10 @@ async fn remove_session_stops_and_removes_from_manager() {
         e.kind == EventKind::SessionRemoved && e.session_id == Some(id.clone())
     })
     .await;
-    assert_eq!(removed_event.payload["session_id"].as_str(), Some(id.0.as_str()));
+    assert_eq!(
+        removed_event.payload["session_id"].as_str(),
+        Some(id.0.as_str())
+    );
 
     // Verify session no longer exists in manager
     let session = mgr.get(id.clone()).await.unwrap();
@@ -421,7 +434,10 @@ async fn recovery_replayed_removed_session_stays_removed() {
         let store = EventStore::open(&db_path).unwrap();
         let (mgr, mut rx) = make_manager(store);
 
-        session_id = mgr.create("task to remove".into(), "mock".into()).await.unwrap();
+        session_id = mgr
+            .create("task to remove".into(), "mock".into())
+            .await
+            .unwrap();
         mgr.start(session_id.clone()).await.unwrap();
 
         wait_for_event(&mut rx, |e| {
@@ -450,7 +466,9 @@ async fn recovery_replayed_removed_session_stays_removed() {
 
         let mgr = SessionManagerHandle::new(cmd_tx);
         let session = mgr.get(session_id.clone()).await.unwrap();
-        assert!(session.is_none(), "Removed session should remain absent after store recovery");
+        assert!(
+            session.is_none(),
+            "Removed session should remain absent after store recovery"
+        );
     }
 }
-

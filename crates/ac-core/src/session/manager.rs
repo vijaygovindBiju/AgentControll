@@ -245,12 +245,18 @@ impl SessionManager {
             .collect();
 
         for sid in orphaned {
-            warn!("Recovery: session {} was orphaned at shutdown → Crashed", sid);
+            warn!(
+                "Recovery: session {} was orphaned at shutdown → Crashed",
+                sid
+            );
             self.do_transition(&sid, SessionState::Crashed, "system")?;
         }
 
         self.reconcile_account_loads();
-        info!("Recovery complete. {} sessions loaded.", self.sessions.len());
+        info!(
+            "Recovery complete. {} sessions loaded.",
+            self.sessions.len()
+        );
         Ok(())
     }
 
@@ -290,24 +296,13 @@ impl SessionManager {
                     .to_owned();
                 let mut session = AgentSession::new(id.clone(), task, agent_type);
                 // Restore Phase 2 & 6 fields if present in payload
-                session.project_id = event.payload["project_id"]
-                    .as_str()
-                    .map(Id::from);
-                session.account_id = event.payload["account_id"]
-                    .as_str()
-                    .map(Id::from);
-                session.workspace_id = event.payload["workspace_id"]
-                    .as_str()
-                    .map(Id::from);
-                session.predecessor_id = event.payload["predecessor_id"]
-                    .as_str()
-                    .map(Id::from);
-                session.successor_id = event.payload["successor_id"]
-                    .as_str()
-                    .map(Id::from);
-                session.context_snapshot_id = event.payload["context_snapshot_id"]
-                    .as_str()
-                    .map(Id::from);
+                session.project_id = event.payload["project_id"].as_str().map(Id::from);
+                session.account_id = event.payload["account_id"].as_str().map(Id::from);
+                session.workspace_id = event.payload["workspace_id"].as_str().map(Id::from);
+                session.predecessor_id = event.payload["predecessor_id"].as_str().map(Id::from);
+                session.successor_id = event.payload["successor_id"].as_str().map(Id::from);
+                session.context_snapshot_id =
+                    event.payload["context_snapshot_id"].as_str().map(Id::from);
                 session.launch = serde_json::from_value(event.payload["launch"].clone()).ok();
                 self.sessions.insert(id.0, session);
             }
@@ -374,8 +369,16 @@ impl SessionManager {
 
     async fn handle_cmd(&mut self, cmd: SessionCmd) {
         match cmd {
-            SessionCmd::Create { task_description, agent_type, project_id, account_id, launch, reply } => {
-                let result = self.cmd_create(task_description, agent_type, project_id, account_id, launch);
+            SessionCmd::Create {
+                task_description,
+                agent_type,
+                project_id,
+                account_id,
+                launch,
+                reply,
+            } => {
+                let result =
+                    self.cmd_create(task_description, agent_type, project_id, account_id, launch);
                 let _ = reply.send(result);
             }
             SessionCmd::Start { session_id, reply } => {
@@ -390,7 +393,11 @@ impl SessionManager {
                 let result = self.cmd_resume(session_id);
                 let _ = reply.send(result);
             }
-            SessionCmd::Stop { session_id, reason, reply } => {
+            SessionCmd::Stop {
+                session_id,
+                reason,
+                reply,
+            } => {
                 let result = self.cmd_stop(session_id, reason).await;
                 let _ = reply.send(result);
             }
@@ -399,8 +406,7 @@ impl SessionManager {
                 let _ = reply.send(result);
             }
             SessionCmd::List { reply } => {
-                let sessions: Vec<AgentSession> =
-                    self.sessions.values().cloned().collect();
+                let sessions: Vec<AgentSession> = self.sessions.values().cloned().collect();
                 let _ = reply.send(sessions);
             }
             SessionCmd::Get { session_id, reply } => {
@@ -485,10 +491,7 @@ impl SessionManager {
                 let result = self.cmd_switch_account(session_id, target_account_id).await;
                 let _ = reply.send(result);
             }
-            SessionCmd::Snapshot {
-                session_id,
-                reply,
-            } => {
+            SessionCmd::Snapshot { session_id, reply } => {
                 let result = self.cmd_snapshot(session_id);
                 let _ = reply.send(result);
             }
@@ -514,7 +517,8 @@ impl SessionManager {
         launch: Option<crate::agy_launch::AgyLaunchOptions>,
     ) -> Result<Id> {
         if let Some(l) = &launch {
-            l.validate().map_err(|e| anyhow::anyhow!("ValidationError: {e}"))?;
+            l.validate()
+                .map_err(|e| anyhow::anyhow!("ValidationError: {e}"))?;
         }
         // ── Phase 2: resolve account ──────────────────────────────────────
         let resolved_account_id: Option<Id> = if let Some(aid) = explicit_account_id {
@@ -531,7 +535,11 @@ impl SessionManager {
             // Auto-select: use project's default tags if a project is specified
             let required_tags: Vec<String> = if let Some(pid) = &project_id {
                 if let Some(reg_h) = &self.project_registry {
-                    reg_h.0.lock().unwrap().get(pid)
+                    reg_h
+                        .0
+                        .lock()
+                        .unwrap()
+                        .get(pid)
                         .map(|p| p.default_account_tags.clone())
                         .unwrap_or_default()
                 } else {
@@ -563,7 +571,8 @@ impl SessionManager {
         };
 
         // ── Build session ─────────────────────────────────────────────────
-        let mut session = AgentSession::new(id.clone(), task_description.clone(), agent_type.clone());
+        let mut session =
+            AgentSession::new(id.clone(), task_description.clone(), agent_type.clone());
         session.project_id = project_id.clone();
         session.account_id = resolved_account_id.clone();
         session.workspace_id = resolved_workspace_id.clone();
@@ -604,7 +613,10 @@ impl SessionManager {
             ))?;
         }
 
-        info!("Session created: {} (project={:?}, account={:?})", id, project_id, resolved_account_id);
+        info!(
+            "Session created: {} (project={:?}, account={:?})",
+            id, project_id, resolved_account_id
+        );
         Ok(id)
     }
 
@@ -612,7 +624,11 @@ impl SessionManager {
         {
             let session = self.get_session_or_err(&session_id)?;
             if session.state != SessionState::Idle {
-                bail!("Session {} is not Idle (state={})", session_id, session.state);
+                bail!(
+                    "Session {} is not Idle (state={})",
+                    session_id,
+                    session.state
+                );
             }
         }
 
@@ -631,7 +647,12 @@ impl SessionManager {
         let agent_type = session.agent_type.clone();
         let workspace_path = if let Some(wid) = &session.workspace_id {
             if let Some(reg_h) = &self.project_registry {
-                reg_h.0.lock().unwrap().get_workspace(wid).map(|w| w.path.clone())
+                reg_h
+                    .0
+                    .lock()
+                    .unwrap()
+                    .get_workspace(wid)
+                    .map(|w| w.path.clone())
             } else {
                 None
             }
@@ -640,10 +661,14 @@ impl SessionManager {
         };
         // A project workspace wins; otherwise the directory chosen at launch.
         let launch = session.launch.clone();
-        let workspace_path = workspace_path.or_else(|| launch.as_ref().and_then(|l| l.working_dir.clone()));
+        let workspace_path =
+            workspace_path.or_else(|| launch.as_ref().and_then(|l| l.working_dir.clone()));
         let credential_ref = if let Some(aid) = &session.account_id {
             if let Some(h) = &self.account_mgr {
-                h.0.lock().unwrap().get(aid).map(|a| a.credential_ref.clone())
+                h.0.lock()
+                    .unwrap()
+                    .get(aid)
+                    .map(|a| a.credential_ref.clone())
             } else {
                 None
             }
@@ -665,37 +690,34 @@ impl SessionManager {
         };
 
         let (adapter_event_tx, adapter_event_rx) = mpsc::channel(512);
-        let handle = self
-            .adapter_factory
-            .create(ctx, adapter_event_tx)?;
+        let handle = self.adapter_factory.create(ctx, adapter_event_tx)?;
 
         // Process the first event synchronously (Ready or StartFailed)
         // with a timeout so tests don't hang.
-        let first_event = tokio::time::timeout(
-            std::time::Duration::from_secs(5),
-            {
-                let mut rx = adapter_event_rx;
-                async move {
-                    let event = rx.recv().await;
-                    (event, rx)
-                }
-            },
-        )
+        let first_event = tokio::time::timeout(std::time::Duration::from_secs(5), {
+            let mut rx = adapter_event_rx;
+            async move {
+                let event = rx.recv().await;
+                (event, rx)
+            }
+        })
         .await;
 
         match first_event {
             Ok((Some(AdapterEvent::Ready), rx)) => {
-                self.adapters.insert(
-                    session_id.0.clone(),
-                    LiveAdapter { handle },
-                );
+                self.adapters
+                    .insert(session_id.0.clone(), LiveAdapter { handle });
                 // Forward subsequent adapter events to session manager
                 let session_id_clone = session_id.clone();
                 let forward_tx = self.adapter_event_tx.clone();
                 tokio::spawn(async move {
                     let mut rx = rx;
                     while let Some(evt) = rx.recv().await {
-                        if forward_tx.send((session_id_clone.clone(), evt)).await.is_err() {
+                        if forward_tx
+                            .send((session_id_clone.clone(), evt))
+                            .await
+                            .is_err()
+                        {
                             break;
                         }
                     }
@@ -706,7 +728,11 @@ impl SessionManager {
                     json!({}),
                     format!("adapter:{}", agent_type),
                 ))?;
-                self.do_transition(&session_id, SessionState::Working, format!("adapter:{}", agent_type))?;
+                self.do_transition(
+                    &session_id,
+                    SessionState::Working,
+                    format!("adapter:{}", agent_type),
+                )?;
                 self.emit(AgentEvent::new(
                     EventKind::SessionStarted,
                     Some(session_id.clone()),
@@ -718,7 +744,11 @@ impl SessionManager {
             }
             Ok((Some(AdapterEvent::StartFailed { reason }), _)) => {
                 self.do_transition(&session_id, SessionState::Failed, "system")?;
-                bail!("Adapter start failed for session {}: {}", session_id, reason);
+                bail!(
+                    "Adapter start failed for session {}: {}",
+                    session_id,
+                    reason
+                );
             }
             Ok((None, _)) | Err(_) => {
                 self.do_transition(&session_id, SessionState::Failed, "system")?;
@@ -726,7 +756,11 @@ impl SessionManager {
             }
             Ok((Some(other), _)) => {
                 self.do_transition(&session_id, SessionState::Failed, "system")?;
-                bail!("Unexpected first adapter event for session {}: {:?}", session_id, other);
+                bail!(
+                    "Unexpected first adapter event for session {}: {:?}",
+                    session_id,
+                    other
+                );
             }
         }
     }
@@ -832,12 +866,18 @@ impl SessionManager {
                 let cred_ref = {
                     let mut mgr = h.0.lock().unwrap();
                     let _ = mgr.decrement_sessions(&aid);
-                    mgr.get(&aid).filter(|a| a.provider == crate::agy_auth::PROVIDER).map(|a| a.credential_ref.clone())
+                    mgr.get(&aid)
+                        .filter(|a| a.provider == crate::agy_auth::PROVIDER)
+                        .map(|a| a.credential_ref.clone())
                 };
                 // Persist any token agy refreshed during this session.
                 if let Some(cref) = cred_ref {
                     if let Err(e) = crate::agy_auth::sync_profile_back(&aid, &cref) {
-                        warn!("Antigravity credential sync for account {} failed: {}", aid, e.to_string().replace('\n', " "));
+                        warn!(
+                            "Antigravity credential sync for account {} failed: {}",
+                            aid,
+                            e.to_string().replace('\n', " ")
+                        );
                     }
                 }
             }
@@ -875,8 +915,14 @@ impl SessionManager {
         };
 
         if !is_terminal {
-            if let Err(e) = self.cmd_stop(session_id.clone(), Some("session removed".to_string())).await {
-                warn!("cmd_remove: error stopping session {} before removal: {}", session_id, e);
+            if let Err(e) = self
+                .cmd_stop(session_id.clone(), Some("session removed".to_string()))
+                .await
+            {
+                warn!(
+                    "cmd_remove: error stopping session {} before removal: {}",
+                    session_id, e
+                );
             }
         }
 
@@ -887,7 +933,11 @@ impl SessionManager {
 
         // Expire / dismiss any pending interactions if any remain
         if let Some(hub) = &self.interaction_hub {
-            let _ = hub.0.lock().unwrap().expire_session_interactions(&session_id);
+            let _ = hub
+                .0
+                .lock()
+                .unwrap()
+                .expire_session_interactions(&session_id);
         }
 
         // Remove from in-memory sessions map
@@ -910,7 +960,9 @@ impl SessionManager {
     fn cmd_steer(&mut self, session_id: Id, message: String) -> Result<()> {
         {
             let session = self.get_session_or_err(&session_id)?;
-            if session.state != SessionState::Working && session.state != SessionState::WaitingForHuman {
+            if session.state != SessionState::Working
+                && session.state != SessionState::WaitingForHuman
+            {
                 bail!(
                     "Session {} is in state {}, must be Working or WaitingForHuman to steer",
                     session_id,
@@ -938,22 +990,35 @@ impl SessionManager {
 
     fn cmd_input(&mut self, session_id: Id, data: String) -> Result<()> {
         if let Some(live) = self.adapters.get_mut(&session_id.0) {
-            debug!("cmd_input: forwarding {} bytes to session {}", data.len(), session_id);
+            debug!(
+                "cmd_input: forwarding {} bytes to session {}",
+                data.len(),
+                session_id
+            );
             live.handle.send_command(AgentCommand::Input { data })?;
         } else {
-            warn!("cmd_input: no live adapter for session {}; {} input byte(s) dropped", session_id, data.len());
+            warn!(
+                "cmd_input: no live adapter for session {}; {} input byte(s) dropped",
+                session_id,
+                data.len()
+            );
         }
         Ok(())
     }
 
     fn cmd_resize(&mut self, session_id: Id, rows: u16, cols: u16) -> Result<()> {
         if let Some(live) = self.adapters.get_mut(&session_id.0) {
-            live.handle.send_command(AgentCommand::Resize { rows, cols })?;
+            live.handle
+                .send_command(AgentCommand::Resize { rows, cols })?;
         }
         Ok(())
     }
 
-    fn cmd_query_events(&self, session_id: Option<Id>, limit: Option<u64>) -> Result<Vec<AgentEvent>> {
+    fn cmd_query_events(
+        &self,
+        session_id: Option<Id>,
+        limit: Option<u64>,
+    ) -> Result<Vec<AgentEvent>> {
         self.store.query(0, session_id.as_ref(), limit)
     }
 
@@ -1045,7 +1110,12 @@ impl SessionManager {
             let session = self.get_session_or_err(&session_id)?;
             if let Some(wid) = &session.workspace_id {
                 if let Some(reg_h) = &self.project_registry {
-                    reg_h.0.lock().unwrap().get_workspace(wid).map(|w| w.path.clone())
+                    reg_h
+                        .0
+                        .lock()
+                        .unwrap()
+                        .get_workspace(wid)
+                        .map(|w| w.path.clone())
                 } else {
                     None
                 }
@@ -1085,7 +1155,11 @@ impl SessionManager {
                     session.state
                 );
             }
-            (session.state.clone(), session.agent_type.clone(), session.account_id.clone())
+            (
+                session.state.clone(),
+                session.agent_type.clone(),
+                session.account_id.clone(),
+            )
         };
 
         // Path A: If session is Idle, rebind account before launch
@@ -1209,7 +1283,8 @@ impl SessionManager {
                 Ok(session_id)
             }
             AccountSwitchMode::RequiresRestart => {
-                self.cmd_handoff_internal(session_id, target_account_id).await
+                self.cmd_handoff_internal(session_id, target_account_id)
+                    .await
             }
             AccountSwitchMode::Unsupported => unreachable!(),
         }
@@ -1225,7 +1300,11 @@ impl SessionManager {
                     session.state
                 );
             }
-            (session.agent_type.clone(), session.account_id.clone(), session.project_id.clone())
+            (
+                session.agent_type.clone(),
+                session.account_id.clone(),
+                session.project_id.clone(),
+            )
         };
 
         let resolved_target_id = if let Some(tid) = target_account_id {
@@ -1234,7 +1313,12 @@ impl SessionManager {
             // Auto-select an account compatible with agent_type excluding current_account_id
             let tags = if let Some(pid) = &project_id {
                 if let Some(reg) = &self.project_registry {
-                    reg.0.lock().unwrap().get(pid).map(|p| p.default_account_tags.clone()).unwrap_or_default()
+                    reg.0
+                        .lock()
+                        .unwrap()
+                        .get(pid)
+                        .map(|p| p.default_account_tags.clone())
+                        .unwrap_or_default()
                 } else {
                     vec![]
                 }
@@ -1258,13 +1342,16 @@ impl SessionManager {
 
             match candidate {
                 Some(a) => a.id.clone(),
-                None => bail!("NoAccountAvailable: No alternative active account available for hand-off"),
+                None => bail!(
+                    "NoAccountAvailable: No alternative active account available for hand-off"
+                ),
             }
         } else {
             bail!("AccountNotFound: Account manager not available");
         };
 
-        self.cmd_switch_account(session_id, resolved_target_id).await
+        self.cmd_switch_account(session_id, resolved_target_id)
+            .await
     }
 
     async fn cmd_handoff_internal(
@@ -1273,7 +1360,15 @@ impl SessionManager {
         target_account_id: Id,
     ) -> Result<Id> {
         // 1. Validate predecessor
-        let (task_description, agent_type, project_id, old_account_id, workspace_id, workspace_path, launch) = {
+        let (
+            task_description,
+            agent_type,
+            project_id,
+            old_account_id,
+            workspace_id,
+            workspace_path,
+            launch,
+        ) = {
             let session = self.get_session_or_err(&predecessor_id)?;
             if session.state.is_terminal() {
                 bail!(
@@ -1284,7 +1379,11 @@ impl SessionManager {
             }
             let ws_path = if let Some(wid) = &session.workspace_id {
                 if let Some(reg) = &self.project_registry {
-                    reg.0.lock().unwrap().get_workspace(wid).map(|w| w.path.clone())
+                    reg.0
+                        .lock()
+                        .unwrap()
+                        .get_workspace(wid)
+                        .map(|w| w.path.clone())
                 } else {
                     None
                 }
@@ -1303,34 +1402,39 @@ impl SessionManager {
         };
 
         // 2. Validate target account
-        let (target_credential_ref, resolved_target_id) = if let Some(mgr_handle) = self.account_mgr.clone() {
-            let res = {
-                let mgr = mgr_handle.0.lock().unwrap();
-                mgr.validate_and_select_explicit(&target_account_id, &agent_type)
-                    .map(|a| (a.credential_ref.clone(), a.id.clone()))
-            };
-            match res {
-                Ok(res) => res,
-                Err(e) => {
-                    let _ = self.emit(AgentEvent::new(
+        let (target_credential_ref, resolved_target_id) =
+            if let Some(mgr_handle) = self.account_mgr.clone() {
+                let res = {
+                    let mgr = mgr_handle.0.lock().unwrap();
+                    mgr.validate_and_select_explicit(&target_account_id, &agent_type)
+                        .map(|a| (a.credential_ref.clone(), a.id.clone()))
+                };
+                match res {
+                    Ok(res) => res,
+                    Err(e) => {
+                        let _ = self.emit(AgentEvent::new(
                         EventKind::SessionHandOffFailed,
                         Some(predecessor_id.clone()),
                         json!({ "target_account_id": target_account_id, "reason": e.to_string() }),
                         "system",
                     ));
-                    return Err(e);
+                        return Err(e);
+                    }
                 }
-            }
-        } else {
-            bail!("AccountNotFound: Account manager not available");
-        };
+            } else {
+                bail!("AccountNotFound: Account manager not available");
+            };
         let target_account_id = resolved_target_id;
 
         // 2b. Preflight the successor (e.g. credential validation) BEFORE the
         // predecessor is stopped, so a bad target never leaves the user with
         // no running session and never falls back to another login.
-        let probe_ctx = crate::types::SessionContext::new(Id::new(), task_description.clone(), agent_type.clone())
-            .with_account(target_account_id.clone(), target_credential_ref.clone());
+        let probe_ctx = crate::types::SessionContext::new(
+            Id::new(),
+            task_description.clone(),
+            agent_type.clone(),
+        )
+        .with_account(target_account_id.clone(), target_credential_ref.clone());
         if let Err(e) = self.adapter_factory.preflight(&probe_ctx) {
             let _ = self.emit(AgentEvent::new(
                 EventKind::SessionHandOffFailed,
@@ -1369,24 +1473,25 @@ impl SessionManager {
         ))?;
 
         // 4. Capture snapshot
-        let snapshot = match self.create_snapshot_for_session(&predecessor_id, workspace_path.clone()) {
-            Ok(s) => s,
-            Err(e) => {
-                let _ = self.emit(AgentEvent::new(
-                    EventKind::SessionHandOffFailed,
-                    Some(predecessor_id.clone()),
-                    json!({ "reason": format!("SnapshotFailed: {e}") }),
-                    "system",
-                ));
-                let _ = self.emit(AgentEvent::new(
-                    EventKind::AccountSwitchFailed,
-                    Some(predecessor_id.clone()),
-                    json!({ "reason": format!("SnapshotFailed: {e}") }),
-                    "system",
-                ));
-                bail!("SnapshotFailed: {e}");
-            }
-        };
+        let snapshot =
+            match self.create_snapshot_for_session(&predecessor_id, workspace_path.clone()) {
+                Ok(s) => s,
+                Err(e) => {
+                    let _ = self.emit(AgentEvent::new(
+                        EventKind::SessionHandOffFailed,
+                        Some(predecessor_id.clone()),
+                        json!({ "reason": format!("SnapshotFailed: {e}") }),
+                        "system",
+                    ));
+                    let _ = self.emit(AgentEvent::new(
+                        EventKind::AccountSwitchFailed,
+                        Some(predecessor_id.clone()),
+                        json!({ "reason": format!("SnapshotFailed: {e}") }),
+                        "system",
+                    ));
+                    bail!("SnapshotFailed: {e}");
+                }
+            };
 
         self.emit(AgentEvent::new(
             EventKind::SessionSnapshotCreated,
@@ -1434,7 +1539,11 @@ impl SessionManager {
         ))?;
 
         // 6. Create successor session (Idle)
-        let mut successor = AgentSession::new(successor_id.clone(), task_description.clone(), agent_type.clone());
+        let mut successor = AgentSession::new(
+            successor_id.clone(),
+            task_description.clone(),
+            agent_type.clone(),
+        );
         successor.project_id = project_id.clone();
         successor.account_id = Some(target_account_id.clone());
         successor.workspace_id = workspace_id.clone(); // Workspace preserved!
@@ -1500,30 +1609,29 @@ impl SessionManager {
         let handle = self.adapter_factory.create(ctx, adapter_event_tx)?;
 
         // Wait for first event (Ready) with 5-second timeout
-        let first_event = tokio::time::timeout(
-            std::time::Duration::from_secs(5),
-            {
-                let mut rx = adapter_event_rx;
-                async move {
-                    let event = rx.recv().await;
-                    (event, rx)
-                }
-            },
-        )
+        let first_event = tokio::time::timeout(std::time::Duration::from_secs(5), {
+            let mut rx = adapter_event_rx;
+            async move {
+                let event = rx.recv().await;
+                (event, rx)
+            }
+        })
         .await;
 
         match first_event {
             Ok((Some(AdapterEvent::Ready), rx)) => {
-                self.adapters.insert(
-                    successor_id.0.clone(),
-                    LiveAdapter { handle },
-                );
+                self.adapters
+                    .insert(successor_id.0.clone(), LiveAdapter { handle });
                 let successor_id_clone = successor_id.clone();
                 let forward_tx = self.adapter_event_tx.clone();
                 tokio::spawn(async move {
                     let mut rx = rx;
                     while let Some(evt) = rx.recv().await {
-                        if forward_tx.send((successor_id_clone.clone(), evt)).await.is_err() {
+                        if forward_tx
+                            .send((successor_id_clone.clone(), evt))
+                            .await
+                            .is_err()
+                        {
                             break;
                         }
                     }
@@ -1535,7 +1643,11 @@ impl SessionManager {
                     json!({}),
                     format!("adapter:{}", agent_type),
                 ))?;
-                self.do_transition(&successor_id, SessionState::Working, format!("adapter:{}", agent_type))?;
+                self.do_transition(
+                    &successor_id,
+                    SessionState::Working,
+                    format!("adapter:{}", agent_type),
+                )?;
                 self.emit(AgentEvent::new(
                     EventKind::SessionStarted,
                     Some(successor_id.clone()),
@@ -1567,7 +1679,10 @@ impl SessionManager {
                     "system",
                 ))?;
 
-                info!("Session hand-off complete: {} -> {}", predecessor_id, successor_id);
+                info!(
+                    "Session hand-off complete: {} -> {}",
+                    predecessor_id, successor_id
+                );
                 Ok(successor_id)
             }
             Ok((Some(AdapterEvent::StartFailed { reason }), _)) => {
@@ -1584,7 +1699,11 @@ impl SessionManager {
                     json!({ "reason": reason }),
                     "system",
                 ))?;
-                bail!("HandOffFailed: Adapter start failed for successor session {}: {}", successor_id, reason);
+                bail!(
+                    "HandOffFailed: Adapter start failed for successor session {}: {}",
+                    successor_id,
+                    reason
+                );
             }
             _ => {
                 self.do_transition(&successor_id, SessionState::Failed, "system")?;
@@ -1600,7 +1719,10 @@ impl SessionManager {
                     json!({ "reason": "timeout" }),
                     "system",
                 ))?;
-                bail!("HandOffFailed: Adapter start timed out for successor session {}", successor_id);
+                bail!(
+                    "HandOffFailed: Adapter start timed out for successor session {}",
+                    successor_id
+                );
             }
         }
     }
@@ -1617,12 +1739,18 @@ impl SessionManager {
                 );
             }
             other => {
-                debug!("SessionManager: event from session {}: {:?}", session_id, other);
+                debug!(
+                    "SessionManager: event from session {}: {:?}",
+                    session_id, other
+                );
             }
         }
         match event {
             AdapterEvent::Ready => {}
-            AdapterEvent::OutputChunk { text, confidence: _ } => {
+            AdapterEvent::OutputChunk {
+                text,
+                confidence: _,
+            } => {
                 let _ = self.emit(AgentEvent::new(
                     EventKind::AgentOutputReceived,
                     Some(session_id),
@@ -1631,7 +1759,8 @@ impl SessionManager {
                 ));
             }
             AdapterEvent::ApprovalRequested { tool_name, prompt } => {
-                self.handle_approval_requested(session_id, tool_name, prompt).await;
+                self.handle_approval_requested(session_id, tool_name, prompt)
+                    .await;
             }
             AdapterEvent::QuestionRaised { prompt } => {
                 self.handle_question_raised(session_id, prompt).await;
@@ -1668,7 +1797,10 @@ impl SessionManager {
                 ));
             }
             AdapterEvent::StartFailed { reason } => {
-                warn!("StartFailed after start for session {}: {}", session_id, reason);
+                warn!(
+                    "StartFailed after start for session {}: {}",
+                    session_id, reason
+                );
             }
         }
     }
@@ -2007,7 +2139,8 @@ impl SessionManagerHandle {
         project_id: Option<Id>,
         account_id: Option<Id>,
     ) -> Result<Id> {
-        self.create_with_launch(task, agent_type, project_id, account_id, None).await
+        self.create_with_launch(task, agent_type, project_id, account_id, None)
+            .await
     }
 
     /// Create a session with explicit per-session launch options.
@@ -2055,11 +2188,8 @@ impl SessionManagerHandle {
     }
 
     pub async fn remove(&self, session_id: Id) -> Result<()> {
-        self.send_and_wait(|reply| SessionCmd::Remove {
-            session_id,
-            reply,
-        })
-        .await?
+        self.send_and_wait(|reply| SessionCmd::Remove { session_id, reply })
+            .await?
     }
 
     pub async fn list(&self) -> Result<Vec<AgentSession>> {
@@ -2076,7 +2206,10 @@ impl SessionManagerHandle {
     pub async fn get(&self, session_id: Id) -> Result<Option<AgentSession>> {
         let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
         self.tx
-            .send(SessionCmd::Get { session_id, reply: reply_tx })
+            .send(SessionCmd::Get {
+                session_id,
+                reply: reply_tx,
+            })
             .await
             .map_err(|_| anyhow::anyhow!("Session manager is not running"))?;
         reply_rx
@@ -2199,11 +2332,8 @@ impl SessionManagerHandle {
 
     /// Phase 6: Capture a session snapshot.
     pub async fn snapshot(&self, session_id: Id) -> Result<SessionSnapshot> {
-        self.send_and_wait(|reply| SessionCmd::Snapshot {
-            session_id,
-            reply,
-        })
-        .await?
+        self.send_and_wait(|reply| SessionCmd::Snapshot { session_id, reply })
+            .await?
     }
 
     /// Phase 6: Controlled hand-off to another account.
@@ -2216,4 +2346,3 @@ impl SessionManagerHandle {
         .await?
     }
 }
-

@@ -74,13 +74,16 @@ Subscription filters (all optional, combinable):
 
 | Command | Params | Description |
 |---|---|---|
-| `session.create` | `project_id?`, `task_description`, `agent_type?`, `account_tags?`, `account_id?` | Create a session (state = Idle) without starting it |
+| `session.create` | `project_id?`, `task_description`, `agent_type?`, `account_tags?`, `account_id?`, `launch?` | Create a session (state = Idle) without starting it; accepts optional `launch` options (`AgyLaunchOptions`) |
 | `session.start` | `session_id` | Start a created session (Idle → Starting) |
 | `session.create_and_start` | same as create | Shorthand: create + start atomically |
 | `session.pause` | `session_id` | Pause a Working or WaitingForHuman session |
 | `session.resume` | `session_id` | Resume a Paused session |
 | `session.stop` | `session_id`, `reason?` | Gracefully stop any non-terminal session |
+| `session.remove` / `session.delete` | `session_id` | Permanently remove a terminal session record |
 | `session.steer` | `session_id`, `message` | Send a steering instruction to a running session |
+| `session.input` | `session_id`, `data` | Send raw terminal input bytes/characters directly to the agent PTY |
+| `session.resize` | `session_id`, `rows`, `cols` | Resize the agent pseudo-terminal geometry |
 | `session.select_account` | `session_id`, `account_id` | Explicitly bind/rebind an account to an Idle session |
 | `session.switch_account` | `session_id`, `target_account_id` | Switch account for an Idle (rebind) or running session (controlled hand-off) |
 | `session.snapshot` | `session_id` | Capture a provider-neutral context snapshot |
@@ -359,11 +362,11 @@ The TUI provides a complete keyboard-driven navigation model with contextual hin
 | Key | Context | Action |
 |---|---|---|
 | `Tab` / `BackTab` | Global | Cycle forward / backward through top navigation tabs |
-| `1` .. `6` | Global | Jump directly to tab (1=Dashboard, 2=Sessions, 3=Inbox, 4=Accounts, 5=Projects, 6=Activity) |
+| `1` .. `6` | Global | Jump directly to tab (1=Dashboard, 2=Sessions, 3=Accounts, 4=Activity, 5=Agents, 6=Settings) |
 | `↑` / `k`, `↓` / `j` | List Views | Move selection up / down |
-| `Enter` | Sessions list | Open Session Detail drilldown view |
+| `Enter` | Sessions / Agents | Open Session Detail drilldown view / launch session |
 | `Ctrl+Q` | Session Terminal | Detach / exit active session terminal view back to dashboard |
-| `Esc` | Modals / Terminal | Dismiss active modal dialog (forwarded to PTY in session terminal) |
+| `Esc` | Modals / Terminal | Dismiss active modal dialog (forwarded directly to PTY in session terminal) |
 | `q` | Global | Quit TUI application (or close active modal if open) |
 | `r` | Global | Force manual data refresh from Control API |
 | `?` | Global | Toggle keyboard shortcuts modal overlay |
@@ -372,23 +375,32 @@ The TUI provides a complete keyboard-driven navigation model with contextual hin
 
 - **Session Terminal View**:
   - `Ctrl+Q` : Detach from session terminal view back to dashboard / sessions
+  - `Esc` : Forwarded directly to agent PTY (cancels input or closes modal dialogs like Quota in agy)
+  - `PgUp` / `PgDn` or `↑` / `↓` : Scroll terminal history in ANSI virtual buffer
+  - `End` : Follow mode (auto-scroll to newest terminal output)
   - `Ctrl+P` / `F1` : Open Agent Control Command Palette
-  - `Esc` : Forwarded to agent PTY (cancels input or closes modal dialogs like Quota in agy)
-  - `PgUp` / `PgDn` : Scroll terminal history
 - **Sessions List**:
-  - `s` : Start selected session (`Idle -> Starting`)
+  - `n` : Open Start Session Modal (account, tab directory completion, execution mode, permissions, model)
+  - `s` : Steer selected session
   - `p` : Pause selected session (`Working / WaitingForHuman -> Paused`)
-  - `Space` : Resume selected session (`Paused -> Working / WaitingForHuman`)
+  - `Space` : Smart run / resume / restart selected session
+  - `w` : Switch account modal (controlled hand-off with restart confirmation)
   - `x` : Open Stop Confirmation modal to gracefully stop session
-  - `t` : Open Steer modal to submit human steering instruction
-- **Interaction Inbox**:
-  - `a` : Approve selected approval request (`Allow` decision)
-  - `d` : Deny selected approval request (`Deny` decision)
-  - `r` : Open textual Reply modal to provide guidance or answer agent questions
-  - `x` : Dismiss interaction without decision
+- **Accounts Tab**:
+  - `a` : Add new account (browser OAuth loopback or token import)
+  - `d` : Delete selected account (refused if active sessions exist)
+  - `s` : Set selected account as default
+  - `r` : Refresh account statuses
 - **Activity Stream**:
   - `/` : Open Event Filter modal (filter stream by event kind or session ID)
   - `c` : Clear active filter to view all events
+- **Settings View**:
+  - `↑` / `↓` : Navigate between 9 configuration sections
+  - `Enter` / `→` : Focus content panel
+  - `Esc` / `←` : Return focus to sidebar sections
+  - `a` : Add account or project
+  - `d` : Delete account or project (with confirmation)
+  - `s` : Set default account or project
 
 ---
 

@@ -185,7 +185,11 @@ async fn handle_ws_connection(
     // Accept WebSocket handshake with token extraction from HTTP headers / query string
     let ws_stream = match accept_hdr_async(stream, move |req: &Request, resp: Response| {
         // 1. Check Authorization: Bearer <token>
-        if let Some(auth_hdr) = req.headers().get("authorization").and_then(|v| v.to_str().ok()) {
+        if let Some(auth_hdr) = req
+            .headers()
+            .get("authorization")
+            .and_then(|v| v.to_str().ok())
+        {
             if let Some(token) = auth_hdr
                 .strip_prefix("Bearer ")
                 .or_else(|| auth_hdr.strip_prefix("bearer "))
@@ -196,7 +200,8 @@ async fn handle_ws_connection(
                         return Ok(resp);
                     }
                     None => {
-                        let mut err = ErrorResponse::new(Some("Invalid authorization token".into()));
+                        let mut err =
+                            ErrorResponse::new(Some("Invalid authorization token".into()));
                         *err.status_mut() = StatusCode::UNAUTHORIZED;
                         return Err(err);
                     }
@@ -214,7 +219,8 @@ async fn handle_ws_connection(
                             return Ok(resp);
                         }
                         None => {
-                            let mut err = ErrorResponse::new(Some("Invalid authorization token".into()));
+                            let mut err =
+                                ErrorResponse::new(Some("Invalid authorization token".into()));
                             *err.status_mut() = StatusCode::UNAUTHORIZED;
                             return Err(err);
                         }

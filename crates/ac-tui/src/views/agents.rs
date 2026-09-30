@@ -13,8 +13,8 @@ use ratatui::{
     Frame,
 };
 
-use ac_core::types::SessionState;
 use crate::app::App;
+use ac_core::types::SessionState;
 
 pub fn render(f: &mut Frame, app: &App, area: Rect) {
     let chunks = Layout::default()
@@ -27,51 +27,119 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
 }
 
 fn render_agents_table(f: &mut Frame, app: &App, area: Rect) {
-    let header_cells = ["#", "AGENT NAME", "TYPE", "ACCOUNTS", "RUNNING", "STATUS", "SWITCH CAPABILITY"]
-        .iter()
-        .map(|h| Cell::from(*h).style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)));
+    let header_cells = [
+        "#",
+        "AGENT NAME",
+        "TYPE",
+        "ACCOUNTS",
+        "RUNNING",
+        "STATUS",
+        "SWITCH CAPABILITY",
+    ]
+    .iter()
+    .map(|h| {
+        Cell::from(*h).style(
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        )
+    });
     let header = Row::new(header_cells).height(1).bottom_margin(1);
 
     let agent_defs = [
-        ("1", "Antigravity", "agy", vec!["agy", "antigravity"], "RestartRequired", "Ready"),
-        ("2", "Claude Code", "claude", vec!["claude", "claude-code"], "RestartRequired", "Ready"),
-        ("3", "Codex / Generic PTY", "pty", vec!["pty", "generic-pty", "codex"], "None", "Ready"),
+        (
+            "1",
+            "Antigravity",
+            "agy",
+            vec!["agy", "antigravity"],
+            "RestartRequired",
+            "Ready",
+        ),
+        (
+            "2",
+            "Claude Code",
+            "claude",
+            vec!["claude", "claude-code"],
+            "RestartRequired",
+            "Ready",
+        ),
+        (
+            "3",
+            "Codex / Generic PTY",
+            "pty",
+            vec!["pty", "generic-pty", "codex"],
+            "None",
+            "Ready",
+        ),
     ];
 
-    let rows = agent_defs.iter().enumerate().map(|(idx, (num, name, code, provs, switch_mode, _))| {
-        let is_selected = idx == app.selected_agent;
-        let style = if is_selected {
-            Style::default().bg(Color::Rgb(0, 119, 182)).fg(Color::White).add_modifier(Modifier::BOLD)
-        } else {
-            Style::default()
-        };
+    let rows =
+        agent_defs
+            .iter()
+            .enumerate()
+            .map(|(idx, (num, name, code, provs, switch_mode, _))| {
+                let is_selected = idx == app.selected_agent;
+                let style = if is_selected {
+                    Style::default()
+                        .bg(Color::Rgb(0, 119, 182))
+                        .fg(Color::White)
+                        .add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default()
+                };
 
-        let acct_count = app.accounts.iter().filter(|a| {
-            provs.contains(&a.provider.as_str()) || provs.iter().any(|t| a.supports_agent_type(t))
-        }).count();
+                let acct_count = app
+                    .accounts
+                    .iter()
+                    .filter(|a| {
+                        provs.contains(&a.provider.as_str())
+                            || provs.iter().any(|t| a.supports_agent_type(t))
+                    })
+                    .count();
 
-        let running_count = app.sessions.iter().filter(|s| {
-            s.state == SessionState::Working && provs.contains(&s.agent_type.as_str())
-        }).count();
+                let running_count = app
+                    .sessions
+                    .iter()
+                    .filter(|s| {
+                        s.state == SessionState::Working && provs.contains(&s.agent_type.as_str())
+                    })
+                    .count();
 
-        let status_badge = if acct_count > 0 {
-            Span::styled(" Ready ", Style::default().fg(Color::Black).bg(Color::Green).add_modifier(Modifier::BOLD))
-        } else {
-            Span::styled(" Not Configured ", Style::default().fg(Color::DarkGray).bg(Color::Reset))
-        };
+                let status_badge = if acct_count > 0 {
+                    Span::styled(
+                        " Ready ",
+                        Style::default()
+                            .fg(Color::Black)
+                            .bg(Color::Green)
+                            .add_modifier(Modifier::BOLD),
+                    )
+                } else {
+                    Span::styled(
+                        " Not Configured ",
+                        Style::default().fg(Color::DarkGray).bg(Color::Reset),
+                    )
+                };
 
-        let cells = vec![
-            Cell::from(*num).style(Style::default().fg(Color::DarkGray)),
-            Cell::from(*name).style(Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
-            Cell::from(*code).style(Style::default().fg(Color::Cyan)),
-            Cell::from(format!("{acct_count}")).style(Style::default().fg(Color::White)),
-            Cell::from(format!("{running_count}")).style(if running_count > 0 { Style::default().fg(Color::Green) } else { Style::default().fg(Color::DarkGray) }),
-            Cell::from(Line::from(vec![status_badge])),
-            Cell::from(*switch_mode).style(Style::default().fg(Color::Yellow)),
-        ];
+                let cells = vec![
+                    Cell::from(*num).style(Style::default().fg(Color::DarkGray)),
+                    Cell::from(*name).style(
+                        Style::default()
+                            .fg(Color::White)
+                            .add_modifier(Modifier::BOLD),
+                    ),
+                    Cell::from(*code).style(Style::default().fg(Color::Cyan)),
+                    Cell::from(format!("{acct_count}")).style(Style::default().fg(Color::White)),
+                    Cell::from(format!("{running_count}")).style(if running_count > 0 {
+                        Style::default().fg(Color::Green)
+                    } else {
+                        Style::default().fg(Color::DarkGray)
+                    }),
+                    Cell::from(Line::from(vec![status_badge])),
+                    Cell::from(*switch_mode).style(Style::default().fg(Color::Yellow)),
+                ];
 
-        Row::new(cells).style(style).height(1)
-    });
+                Row::new(cells).style(style).height(1)
+            });
 
     let table = Table::new(
         rows,
@@ -90,7 +158,12 @@ fn render_agents_table(f: &mut Frame, app: &App, area: Rect) {
         Block::default()
             .borders(Borders::ALL)
             .border_style(Style::default().fg(Color::Cyan))
-            .title(Span::styled(" ⚡ AGENTS ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))),
+            .title(Span::styled(
+                " ⚡ AGENTS ",
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            )),
     );
 
     f.render_widget(table, area);
@@ -100,7 +173,12 @@ fn render_agent_detail(f: &mut Frame, app: &App, area: Rect) {
     let block = Block::default()
         .borders(Borders::ALL)
         .border_style(Style::default().fg(Color::Cyan))
-        .title(Span::styled(" Agent Specifications & Capabilities ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)));
+        .title(Span::styled(
+            " Agent Specifications & Capabilities ",
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        ));
 
     let lines = match app.selected_agent {
         0 => vec![
@@ -171,6 +249,8 @@ fn render_agent_detail(f: &mut Frame, app: &App, area: Rect) {
         ],
     };
 
-    let p = Paragraph::new(lines).block(block).wrap(Wrap { trim: false });
+    let p = Paragraph::new(lines)
+        .block(block)
+        .wrap(Wrap { trim: false });
     f.render_widget(p, area);
 }

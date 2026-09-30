@@ -161,7 +161,10 @@ fn spawn_mock_task(
             if scripted.delay_ms > 0 {
                 tokio::time::sleep(std::time::Duration::from_millis(scripted.delay_ms)).await;
             }
-            debug!("MockAdapter [{}]: emitting {:?}", session_id, scripted.event);
+            debug!(
+                "MockAdapter [{}]: emitting {:?}",
+                session_id, scripted.event
+            );
             if event_tx.send(scripted.event).await.is_err() {
                 break; // channel closed (session stopped)
             }
@@ -183,13 +186,10 @@ mod tests {
             .create_simple(Id::new(), "test task".into(), "mock".into(), tx)
             .unwrap();
 
-        let first = tokio::time::timeout(
-            std::time::Duration::from_millis(100),
-            rx.recv(),
-        )
-        .await
-        .expect("timeout")
-        .expect("channel closed");
+        let first = tokio::time::timeout(std::time::Duration::from_millis(100), rx.recv())
+            .await
+            .expect("timeout")
+            .expect("channel closed");
 
         assert!(matches!(first, AdapterEvent::Ready));
     }

@@ -1,6 +1,41 @@
+# Rust build artifacts
 /target
 **/*.rs.bk
+*.pdb
+
+# Local databases & SQLite runtime files
 *.db
 *.db-wal
 *.db-shm
+
+# Sockets and IPC runtime files
 *.sock
+
+# Logs and runtime diagnostics
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Node / npm artifacts
+node_modules/
+
+# Local configurations & credentials (never commit secrets)
+credentials/
+profiles/
+*.pem
+*.key
+antigravity-oauth-client.json
+settings.json
+config.toml
+
+# OS-specific files
+.DS_Store
+Thumbs.db
+
+# IDE files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~

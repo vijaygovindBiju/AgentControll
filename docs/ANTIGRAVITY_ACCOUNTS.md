@@ -101,18 +101,17 @@ fields and ←/→ to change a value.
 
 * **Account**: any saved account launches directly, with no re-login. Choose
   `+ Add Antigravity Account` to add one; you return to the form afterwards.
-* **Permission / Access Mode**: only modes the installed agy supports are
-  listed. agy 1.2.13 supports Normal (no flag), Accept Edits
-  (`--mode accept-edits`), Plan (`--mode plan`), Sandbox (`--sandbox`) and
-  Dangerously Skip Permissions (`--dangerously-skip-permissions`, needs an
-  explicit confirmation, applies to this session only). agy's `toolPermission`
-  policies (`request-review`, `strict`, `always-proceed`, `proceed-in-sandbox`)
-  can only be set in agy's shared `settings.json`, so they are not offered per
-  session.
 * **Working Directory**: type a path (absolute, relative or `~/…`). Tab lists
   child directories; typing filters the list. ↑/↓ or Tab selects, Enter opens
   the directory, Esc closes the list. The resolved absolute path is shown
   before you start.
+* **Execution Mode**: `Default` (standard AGY workflow), `Accept Edits`
+  (`--mode=accept-edits`, auto-approves file edits while prompting for commands),
+  or `Plan` (`--mode=plan`, research and plan only, no edits).
+* **Permission Mode**: `Normal / AGY default permissions` (no flag; agy prompts
+  for approval per its policy) or `Dangerously Skip Permissions`
+  (`--dangerously-skip-permissions`, auto-approves all tool actions without
+  prompting; requires an explicit confirmation modal and applies to this session only).
 * **Model**: `Default (agy setting)` or any model `agy models` reports for the
   account.
 

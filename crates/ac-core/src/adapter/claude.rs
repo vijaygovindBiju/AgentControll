@@ -265,8 +265,14 @@ pub fn parse_claude_event(line: &str) -> Option<AdapterEvent> {
                     .and_then(|m| m.as_str())
                     .unwrap_or(trimmed);
 
-                if err_type == "rate_limit_error" || msg.contains("429") || msg.contains("rate limit") {
-                    let back_off_secs = val.get("back_off_secs").and_then(|v| v.as_u64()).or(Some(30));
+                if err_type == "rate_limit_error"
+                    || msg.contains("429")
+                    || msg.contains("rate limit")
+                {
+                    let back_off_secs = val
+                        .get("back_off_secs")
+                        .and_then(|v| v.as_u64())
+                        .or(Some(30));
                     Some(AdapterEvent::RateLimitSignal { back_off_secs })
                 } else {
                     Some(AdapterEvent::OutputChunk {
@@ -590,10 +596,7 @@ impl ClaudeAdapter {
                     tool_name: Some("tool".into()),
                 },
             )?
-            .with_pattern(
-                r"(?i)(Claude asks:|\?\s*$)",
-                PtyPatternKind::QuestionRaised,
-            )?
+            .with_pattern(r"(?i)(Claude asks:|\?\s*$)", PtyPatternKind::QuestionRaised)?
             .with_pattern(
                 r"(?i)(rate limit exceeded|429 too many requests|quota exhausted)",
                 PtyPatternKind::RateLimitSignal {
@@ -741,9 +744,10 @@ mod tests {
         }
 
         // Action/tool_use format
-        let evt2 =
-            parse_claude_event(r#"{"type": "tool_use", "name": "Edit", "input": {"file": "a.rs"}}"#)
-                .unwrap();
+        let evt2 = parse_claude_event(
+            r#"{"type": "tool_use", "name": "Edit", "input": {"file": "a.rs"}}"#,
+        )
+        .unwrap();
         if let AdapterEvent::ApprovalRequested { tool_name, prompt } = evt2 {
             assert_eq!(tool_name, "Edit");
             assert!(prompt.contains("a.rs"));
@@ -766,12 +770,18 @@ mod tests {
             r#"{"type": "error", "error": {"type": "rate_limit_error"}, "back_off_secs": 30}"#,
         )
         .unwrap();
-        assert!(matches!(evt2, AdapterEvent::RateLimitSignal { back_off_secs: Some(30) }));
+        assert!(matches!(
+            evt2,
+            AdapterEvent::RateLimitSignal {
+                back_off_secs: Some(30)
+            }
+        ));
     }
 
     #[test]
     fn test_claude_event_parsing_completed() {
-        let evt = parse_claude_event(r#"{"type": "completed", "summary": "Done everything"}"#).unwrap();
+        let evt =
+            parse_claude_event(r#"{"type": "completed", "summary": "Done everything"}"#).unwrap();
         if let AdapterEvent::Completed { summary } = evt {
             assert_eq!(summary, Some("Done everything".into()));
         } else {
@@ -781,7 +791,8 @@ mod tests {
 
     #[test]
     fn test_claude_event_parsing_error() {
-        let evt = parse_claude_event(r#"{"type": "error", "message": "Syntax error on line 5"}"#).unwrap();
+        let evt = parse_claude_event(r#"{"type": "error", "message": "Syntax error on line 5"}"#)
+            .unwrap();
         if let AdapterEvent::OutputChunk { text, confidence } = evt {
             assert!(text.contains("[error] Syntax error"));
             assert_eq!(confidence, Confidence::High);
@@ -852,7 +863,8 @@ printf '{"type": "completed", "summary": "Finished task"}\n'
 
         let start = std::time::Instant::now();
         while start.elapsed() < Duration::from_secs(3) {
-            if let Ok(Some(evt)) = tokio::time::timeout(Duration::from_millis(200), rx.recv()).await {
+            if let Ok(Some(evt)) = tokio::time::timeout(Duration::from_millis(200), rx.recv()).await
+            {
                 match evt {
                     AdapterEvent::Ready => got_ready = true,
                     AdapterEvent::OutputChunk { text, .. } => {
@@ -891,7 +903,8 @@ printf '{"type": "completed", "summary": "Finished task"}\n'
         let mut pwd_output = String::new();
         let start = std::time::Instant::now();
         while start.elapsed() < Duration::from_secs(3) {
-            if let Ok(Some(evt)) = tokio::time::timeout(Duration::from_millis(200), rx.recv()).await {
+            if let Ok(Some(evt)) = tokio::time::timeout(Duration::from_millis(200), rx.recv()).await
+            {
                 match evt {
                     AdapterEvent::OutputChunk { text, .. } => {
                         pwd_output.push_str(&text);

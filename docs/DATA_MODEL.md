@@ -117,29 +117,24 @@ A specific on-disk working directory bound to exactly one session at a time.
 One running (or paused/stopped) instance of an agent, bound to a workspace,
 an account and a task.
 
-> **Phase 1 implementation note:** The Phase 1 struct contains only the fields
-> needed by the core daemon and session manager. Fields requiring the Account
-> Manager (Phase 2) and Project Registry (Phase 2) are listed below but are
-> not yet present in the implementation. They are marked accordingly.
-
-| Field | Type | Phase | Description |
-|---|---|---|---|
-| `id` | ULID | 1 | Stable identifier |
-| `task_description` | string | 1 | Full task description given to the agent |
-| `agent_type` | string | 1 | Adapter type, e.g. `"mock"`, `"claude-code"` |
-| `state` | SessionState | 1 | See state machine below |
-| `restart_count` | u32 | 1 | Number of automatic restarts performed |
-| `created_at` | timestamp | 1 | |
-| `updated_at` | timestamp | 1 | Last state change timestamp |
-| `started_at` | timestamp? | 1 | When the adapter process was last launched |
-| `stopped_at` | timestamp? | 1 | When the session entered a terminal state |
-| `project_id` | ULID | 2 | Parent project (Phase 2) |
-| `workspace_id` | ULID | 2 | Bound workspace (Phase 2) |
-| `account_id` | ULID | 2 | The account currently in use (Phase 2) |
-| `task_id` | ULID | 2 | Reference to separate Task entity (Phase 2) |
-| `predecessor_id` | ULID? | 5 | Previous session (for hand-offs, Phase 5) |
-| `successor_id` | ULID? | 5 | Next session (after hand-off, Phase 5) |
-| `context_snapshot_id` | ULID? | 5 | Latest snapshot used or produced (Phase 5) |
+| Field | Type | Description |
+|---|---|---|
+| `id` | ULID | Stable identifier |
+| `task_description` | string | Full task description given to the agent |
+| `agent_type` | string | Adapter type, e.g. `"mock"`, `"claude-code"`, `"agy"`, `"pty"` |
+| `state` | SessionState | See state machine below |
+| `restart_count` | u32 | Number of automatic restarts performed |
+| `project_id` | ULID? | Parent project (None for unassociated sessions) |
+| `workspace_id` | ULID? | Bound workspace directory reference |
+| `account_id` | ULID? | The account currently in use |
+| `predecessor_id` | ULID? | Previous session (for hand-offs) |
+| `successor_id` | ULID? | Next session (after hand-off) |
+| `context_snapshot_id` | ULID? | Latest snapshot used or produced |
+| `created_at` | timestamp | Timestamp of entity creation |
+| `updated_at` | timestamp | Last state change timestamp |
+| `started_at` | timestamp? | When the adapter process was last launched |
+| `stopped_at` | timestamp? | When the session entered a terminal state |
+| `launch` | AgyLaunchOptions? | Per-session launch configuration (permission mode, execution mode, model, directory) |
 
 #### AgentSession State Machine
 
@@ -511,6 +506,39 @@ Provider-neutral capture of session context used for hand-off and recovery. Stri
 | `workspace_path` | path? | Absolute filesystem path of workspace |
 | `summary` | string? | Summary of session progress |
 | `metadata` | map<string, string> | Safe key-value metadata (strictly non-sensitive) |
+
+---
+
+### AgyLaunchOptions
+
+Per-session launch options controlling agent execution, permission boundaries, model selection, and working directory.
+
+| Field | Type | Description |
+|---|---|---|
+| `execution_mode` | AgyExecutionMode | Execution workflow: `Default` (standard), `AcceptEdits` (`--mode=accept-edits`), `Plan` (`--mode=plan`) |
+| `permission_mode` | AgyPermissionMode | Permission boundary: `Normal` (standard approval prompt) or `DangerouslySkipPermissions` (`--dangerously-skip-permissions`) |
+| `sandbox` | boolean | Whether to pass `--sandbox` |
+| `model` | string? | Model ID (e.g. `gemini-3.8-flash-medium`); None for provider default |
+| `working_dir` | path? | Absolute filesystem working directory for the session |
+
+---
+
+### UserSettings
+
+Global user preferences and defaults persisted to `~/.config/agentcontrol/settings.json`.
+
+| Field | Type | Description |
+|---|---|---|
+| `default_agent` | string | Default agent type (e.g. `"Antigravity"`) |
+| `default_account` | string? | Default account label or ID for new sessions |
+| `default_project` | string? | Default project name or ID |
+| `default_working_dir` | path? | Default working directory |
+| `default_execution_mode` | AgyExecutionMode | Default AGY execution mode |
+| `default_permission_mode` | AgyPermissionMode | Default AGY permission mode |
+| `default_model` | string? | Default model ID |
+| `terminal_theme` | string | Active TUI terminal theme (`"Default"`, `"Dark"`, `"High-Contrast"`) |
+| `terminal_scrollback` | usize | Virtual terminal buffer line capacity (default: 5000) |
+| `terminal_cursor` | string | Terminal cursor style (`"Block"`, `"Bar"`, `"Underline"`) |
 
 ---
 

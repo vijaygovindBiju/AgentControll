@@ -49,16 +49,16 @@ impl EventStore {
 
     /// Open an in-memory event store (for tests).
     pub fn open_in_memory() -> Result<Self> {
-        let conn = Connection::open_in_memory()
-            .context("opening in-memory sqlite db")?;
+        let conn = Connection::open_in_memory().context("opening in-memory sqlite db")?;
         let store = Self { conn };
         store.init_schema()?;
         Ok(store)
     }
 
     fn init_schema(&self) -> Result<()> {
-        self.conn.execute_batch(&format!(
-            "PRAGMA journal_mode=WAL;
+        self.conn
+            .execute_batch(&format!(
+                "PRAGMA journal_mode=WAL;
              PRAGMA foreign_keys=ON;
 
              CREATE TABLE IF NOT EXISTS schema_meta (
@@ -93,23 +93,25 @@ impl EventStore {
                  payload      TEXT    NOT NULL,
                  created_at   TEXT    NOT NULL
              );",
-        ))
-        .context("initialising event store schema")?;
+            ))
+            .context("initialising event store schema")?;
         Ok(())
     }
 
     /// Verify that all sequence numbers in the events table are gapless.
     /// A gap means the log has been tampered with or is corrupt.
     fn verify_sequence_integrity(&self) -> Result<()> {
-        let gap_count: i64 = self.conn.query_row(
-            "SELECT COUNT(*) FROM (
+        let gap_count: i64 = self
+            .conn
+            .query_row(
+                "SELECT COUNT(*) FROM (
                  SELECT seq, LAG(seq, 1, 0) OVER (ORDER BY seq) AS prev
                  FROM events
              ) WHERE seq - prev > 1",
-            [],
-            |row| row.get(0),
-        )
-        .context("checking sequence integrity")?;
+                [],
+                |row| row.get(0),
+            )
+            .context("checking sequence integrity")?;
 
         if gap_count > 0 {
             bail!(
@@ -123,23 +125,33 @@ impl EventStore {
 
     /// Detailed diagnostic verification of event sequence integrity (Phase 8).
     pub fn verify_integrity(&self) -> Result<IntegrityReport> {
-        let total_events: i64 = self.conn.query_row(
-            "SELECT COUNT(*) FROM events", [], |r| r.get(0)
-        ).unwrap_or(0);
-        let max_seq: Option<i64> = self.conn.query_row(
-            "SELECT MAX(seq) FROM events", [], |r| r.get(0)
-        ).unwrap_or(None);
-        let gap_count: i64 = self.conn.query_row(
-            "SELECT COUNT(*) FROM (
+        let total_events: i64 = self
+            .conn
+            .query_row("SELECT COUNT(*) FROM events", [], |r| r.get(0))
+            .unwrap_or(0);
+        let max_seq: Option<i64> = self
+            .conn
+            .query_row("SELECT MAX(seq) FROM events", [], |r| r.get(0))
+            .unwrap_or(None);
+        let gap_count: i64 = self
+            .conn
+            .query_row(
+                "SELECT COUNT(*) FROM (
                  SELECT seq, LAG(seq, 1, 0) OVER (ORDER BY seq) AS prev
                  FROM events
              ) WHERE seq - prev > 1",
-            [],
-            |row| row.get(0),
-        ).unwrap_or(0);
-        let schema_ver_str: String = self.conn.query_row(
-            "SELECT value FROM schema_meta WHERE key = 'version'", [], |r| r.get(0)
-        ).unwrap_or_else(|_| "1".to_string());
+                [],
+                |row| row.get(0),
+            )
+            .unwrap_or(0);
+        let schema_ver_str: String = self
+            .conn
+            .query_row(
+                "SELECT value FROM schema_meta WHERE key = 'version'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap_or_else(|_| "1".to_string());
         let schema_version = schema_ver_str.parse().unwrap_or(1);
 
         Ok(IntegrityReport {
@@ -154,8 +166,8 @@ impl EventStore {
     /// Append an event. Assigns and returns the sequence number.
     pub fn append(&mut self, event: &mut AgentEvent) -> Result<u64> {
         let kind_str = event.kind.to_string();
-        let payload_str = serde_json::to_string(&event.payload)
-            .context("serialising event payload")?;
+        let payload_str =
+            serde_json::to_string(&event.payload).context("serialising event payload")?;
         let ts_str = event.timestamp.to_rfc3339();
         let session_id = event.session_id.as_ref().map(|id| id.0.as_str());
 
@@ -189,8 +201,8 @@ impl EventStore {
             )?;
             for event in events.iter_mut() {
                 let kind_str = event.kind.to_string();
-                let payload_str = serde_json::to_string(&event.payload)
-                    .context("serialising event payload")?;
+                let payload_str =
+                    serde_json::to_string(&event.payload).context("serialising event payload")?;
                 let ts_str = event.timestamp.to_rfc3339();
                 let session_id = event.session_id.as_ref().map(|id| id.0.as_str());
 
@@ -213,7 +225,8 @@ impl EventStore {
 
     /// Return the current maximum sequence number (0 if the store is empty).
     pub fn max_seq(&self) -> Result<u64> {
-        let seq: Option<i64> = self.conn
+        let seq: Option<i64> = self
+            .conn
             .query_row("SELECT MAX(seq) FROM events", [], |row| row.get(0))
             .context("querying max seq")?;
         Ok(seq.unwrap_or(0) as u64)
@@ -226,9 +239,7 @@ impl EventStore {
         session_id: Option<&Id>,
         limit: Option<u64>,
     ) -> Result<Vec<AgentEvent>> {
-        let limit_clause = limit
-            .map(|l| format!("LIMIT {l}"))
-            .unwrap_or_default();
+        let limit_clause = limit.map(|l| format!("LIMIT {l}")).unwrap_or_default();
 
         let rows = if let Some(sid) = session_id {
             let sql = format!(
@@ -278,20 +289,21 @@ impl EventStore {
     pub fn save_snapshot(&mut self, event_seq: u64, payload: &serde_json::Value) -> Result<()> {
         let payload_str = serde_json::to_string(payload).context("serialising snapshot")?;
         let now = chrono::Utc::now().to_rfc3339();
-        self.conn.execute(
-            "INSERT INTO snapshots (event_seq, payload, created_at) VALUES (?1, ?2, ?3)",
-            params![event_seq as i64, payload_str, now],
-        )
-        .context("saving snapshot")?;
+        self.conn
+            .execute(
+                "INSERT INTO snapshots (event_seq, payload, created_at) VALUES (?1, ?2, ?3)",
+                params![event_seq as i64, payload_str, now],
+            )
+            .context("saving snapshot")?;
         Ok(())
     }
 
     /// Load the latest snapshot, returning the event_seq it was taken at and
     /// the payload. Returns `None` if no snapshot exists.
     pub fn load_latest_snapshot(&self) -> Result<Option<(u64, serde_json::Value)>> {
-        let mut stmt = self.conn.prepare(
-            "SELECT event_seq, payload FROM snapshots ORDER BY event_seq DESC LIMIT 1",
-        )?;
+        let mut stmt = self
+            .conn
+            .prepare("SELECT event_seq, payload FROM snapshots ORDER BY event_seq DESC LIMIT 1")?;
         let mut rows = stmt.query_map([], |row| {
             let seq: i64 = row.get(0)?;
             let payload_str: String = row.get(1)?;

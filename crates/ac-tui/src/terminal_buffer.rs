@@ -122,7 +122,11 @@ impl TerminalLine {
     }
 
     pub fn to_plain_string(&self) -> String {
-        self.chars.iter().filter(|sc| sc.c != WIDE_SPACER).map(|sc| sc.c).collect()
+        self.chars
+            .iter()
+            .filter(|sc| sc.c != WIDE_SPACER)
+            .map(|sc| sc.c)
+            .collect()
     }
 }
 
@@ -301,7 +305,10 @@ impl TerminalBuffer {
 
     /// First buffer row of the visible screen on the normal screen.
     fn screen_top(&self) -> usize {
-        self.lines.len().max(self.cursor_row + 1).saturating_sub(self.rows)
+        self.lines
+            .len()
+            .max(self.cursor_row + 1)
+            .saturating_sub(self.rows)
     }
 
     /// Active scroll region (alternate screen), inclusive.
@@ -479,7 +486,8 @@ impl TerminalBuffer {
                                 }
                             }
                         }
-                        Some(&'(') | Some(&')') | Some(&'*') | Some(&'+') | Some(&'#') | Some(&' ') => {
+                        Some(&'(') | Some(&')') | Some(&'*') | Some(&'+') | Some(&'#')
+                        | Some(&' ') => {
                             // Character set selection: \x1b(B etc.
                             esc_seq.push(chars.next().unwrap());
                             if let Some(&_next_c) = chars.peek() {
@@ -630,7 +638,11 @@ impl TerminalBuffer {
         // Private-marker sequences (`?`, `>`, `<`, `=`): only DEC private modes
         // matter. Crucially `CSI > 4 ; 2 m` (modifyOtherKeys) is not SGR and
         // `CSI > 1 u` / `CSI ? u` (kitty keyboard) do not restore the cursor.
-        if let Some(first) = params_str.chars().next().filter(|c| ('<'..='?').contains(c)) {
+        if let Some(first) = params_str
+            .chars()
+            .next()
+            .filter(|c| ('<'..='?').contains(c))
+        {
             if first == '?' && (last_char == 'h' || last_char == 'l') {
                 let set = last_char == 'h';
                 for mode in params_str[1..].split(';') {
@@ -660,7 +672,10 @@ impl TerminalBuffer {
         }
 
         self.wrap_pending = false;
-        let params: Vec<usize> = params_str.split(';').map(|s| s.parse().unwrap_or(0)).collect();
+        let params: Vec<usize> = params_str
+            .split(';')
+            .map(|s| s.parse().unwrap_or(0))
+            .collect();
         let raw = |i: usize| params.get(i).copied().unwrap_or(0);
         let n = |i: usize| params.get(i).copied().filter(|&v| v > 0).unwrap_or(1);
         let rows = self.rows;
@@ -679,7 +694,8 @@ impl TerminalBuffer {
                             self.lines[self.cursor_row].truncate(self.cursor_col);
                         }
                         1 => {
-                            for i in 0..self.cursor_col.min(self.lines[self.cursor_row].chars.len()) {
+                            for i in 0..self.cursor_col.min(self.lines[self.cursor_row].chars.len())
+                            {
                                 self.lines[self.cursor_row].chars[i] = StyledChar {
                                     c: ' ',
                                     style: self.current_style,
@@ -708,7 +724,8 @@ impl TerminalBuffer {
                             self.lines[r].clear();
                         }
                         if self.cursor_row < self.lines.len() {
-                            for c in 0..self.cursor_col.min(self.lines[self.cursor_row].chars.len()) {
+                            for c in 0..self.cursor_col.min(self.lines[self.cursor_row].chars.len())
+                            {
                                 self.lines[self.cursor_row].chars[c] = StyledChar {
                                     c: ' ',
                                     style: self.current_style,
@@ -832,7 +849,12 @@ impl TerminalBuffer {
             return;
         }
         self.ensure_cursor();
-        let (col, cols, alt, blank) = (self.cursor_col, self.cols, self.in_alt_screen(), self.blank());
+        let (col, cols, alt, blank) = (
+            self.cursor_col,
+            self.cols,
+            self.in_alt_screen(),
+            self.blank(),
+        );
         let line = &mut self.lines[self.cursor_row];
         match op {
             'P' => {
@@ -854,7 +876,11 @@ impl TerminalBuffer {
                 }
             }
             'X' => {
-                let end = if alt { (col + count).min(cols) } else { col + count };
+                let end = if alt {
+                    (col + count).min(cols)
+                } else {
+                    col + count
+                };
                 line.erase(col, end, &blank);
             }
             _ => {}
@@ -862,7 +888,15 @@ impl TerminalBuffer {
     }
 
     /// CSI handling for the alternate screen: a fixed rows×cols grid.
-    fn handle_alt_csi(&mut self, op: char, params_str: &str, p0: usize, n0: usize, n1: usize, nparams: usize) {
+    fn handle_alt_csi(
+        &mut self,
+        op: char,
+        params_str: &str,
+        p0: usize,
+        n0: usize,
+        n1: usize,
+        nparams: usize,
+    ) {
         let (rows, cols) = (self.rows, self.cols);
         let (top, bottom) = self.region();
         let in_region = self.cursor_row >= top && self.cursor_row <= bottom;
@@ -898,7 +932,10 @@ impl TerminalBuffer {
             }
             'A' | 'F' => {
                 let floor = if in_region { top } else { 0 };
-                self.cursor_row = self.cursor_row.saturating_sub(n0).max(floor.min(self.cursor_row));
+                self.cursor_row = self
+                    .cursor_row
+                    .saturating_sub(n0)
+                    .max(floor.min(self.cursor_row));
                 if op == 'F' {
                     self.cursor_col = 0;
                 }
@@ -935,13 +972,19 @@ impl TerminalBuffer {
             'T' if nparams <= 1 => self.scroll_region_down(n0),
             'r' => {
                 let t = n0 - 1;
-                let b = if nparams > 1 && n1 > 0 { n1 - 1 } else { rows - 1 };
+                let b = if nparams > 1 && n1 > 0 {
+                    n1 - 1
+                } else {
+                    rows - 1
+                };
                 self.scroll_region = (t < b && b < rows).then_some((t, b));
                 self.cursor_row = 0;
                 self.cursor_col = 0;
             }
             'P' | '@' | 'X' | 'b' => self.line_edit(op, n0),
-            's' if params_str.is_empty() => self.saved_cursor = Some((self.cursor_row, self.cursor_col)),
+            's' if params_str.is_empty() => {
+                self.saved_cursor = Some((self.cursor_row, self.cursor_col))
+            }
             'u' if params_str.is_empty() => self.restore_cursor(),
             _ => {}
         }
@@ -1018,14 +1061,38 @@ impl TerminalBuffer {
                     idx += 1;
                 }
                 // Standard Foreground Colors
-                30 => { self.current_style = self.current_style.fg(Color::Black); idx += 1; }
-                31 => { self.current_style = self.current_style.fg(Color::Red); idx += 1; }
-                32 => { self.current_style = self.current_style.fg(Color::Green); idx += 1; }
-                33 => { self.current_style = self.current_style.fg(Color::Yellow); idx += 1; }
-                34 => { self.current_style = self.current_style.fg(Color::Blue); idx += 1; }
-                35 => { self.current_style = self.current_style.fg(Color::Magenta); idx += 1; }
-                36 => { self.current_style = self.current_style.fg(Color::Cyan); idx += 1; }
-                37 => { self.current_style = self.current_style.fg(Color::Gray); idx += 1; }
+                30 => {
+                    self.current_style = self.current_style.fg(Color::Black);
+                    idx += 1;
+                }
+                31 => {
+                    self.current_style = self.current_style.fg(Color::Red);
+                    idx += 1;
+                }
+                32 => {
+                    self.current_style = self.current_style.fg(Color::Green);
+                    idx += 1;
+                }
+                33 => {
+                    self.current_style = self.current_style.fg(Color::Yellow);
+                    idx += 1;
+                }
+                34 => {
+                    self.current_style = self.current_style.fg(Color::Blue);
+                    idx += 1;
+                }
+                35 => {
+                    self.current_style = self.current_style.fg(Color::Magenta);
+                    idx += 1;
+                }
+                36 => {
+                    self.current_style = self.current_style.fg(Color::Cyan);
+                    idx += 1;
+                }
+                37 => {
+                    self.current_style = self.current_style.fg(Color::Gray);
+                    idx += 1;
+                }
                 // Extended Foreground Color
                 38 => {
                     if idx + 2 < parts.len() && parts[idx + 1] == 5 {
@@ -1047,14 +1114,38 @@ impl TerminalBuffer {
                     idx += 1;
                 }
                 // Standard Background Colors
-                40 => { self.current_style = self.current_style.bg(Color::Black); idx += 1; }
-                41 => { self.current_style = self.current_style.bg(Color::Red); idx += 1; }
-                42 => { self.current_style = self.current_style.bg(Color::Green); idx += 1; }
-                43 => { self.current_style = self.current_style.bg(Color::Yellow); idx += 1; }
-                44 => { self.current_style = self.current_style.bg(Color::Blue); idx += 1; }
-                45 => { self.current_style = self.current_style.bg(Color::Magenta); idx += 1; }
-                46 => { self.current_style = self.current_style.bg(Color::Cyan); idx += 1; }
-                47 => { self.current_style = self.current_style.bg(Color::Gray); idx += 1; }
+                40 => {
+                    self.current_style = self.current_style.bg(Color::Black);
+                    idx += 1;
+                }
+                41 => {
+                    self.current_style = self.current_style.bg(Color::Red);
+                    idx += 1;
+                }
+                42 => {
+                    self.current_style = self.current_style.bg(Color::Green);
+                    idx += 1;
+                }
+                43 => {
+                    self.current_style = self.current_style.bg(Color::Yellow);
+                    idx += 1;
+                }
+                44 => {
+                    self.current_style = self.current_style.bg(Color::Blue);
+                    idx += 1;
+                }
+                45 => {
+                    self.current_style = self.current_style.bg(Color::Magenta);
+                    idx += 1;
+                }
+                46 => {
+                    self.current_style = self.current_style.bg(Color::Cyan);
+                    idx += 1;
+                }
+                47 => {
+                    self.current_style = self.current_style.bg(Color::Gray);
+                    idx += 1;
+                }
                 // Extended Background Color
                 48 => {
                     if idx + 2 < parts.len() && parts[idx + 1] == 5 {
@@ -1076,23 +1167,71 @@ impl TerminalBuffer {
                     idx += 1;
                 }
                 // Bright Foreground Colors
-                90 => { self.current_style = self.current_style.fg(Color::DarkGray); idx += 1; }
-                91 => { self.current_style = self.current_style.fg(Color::LightRed); idx += 1; }
-                92 => { self.current_style = self.current_style.fg(Color::LightGreen); idx += 1; }
-                93 => { self.current_style = self.current_style.fg(Color::LightYellow); idx += 1; }
-                94 => { self.current_style = self.current_style.fg(Color::LightBlue); idx += 1; }
-                95 => { self.current_style = self.current_style.fg(Color::LightMagenta); idx += 1; }
-                96 => { self.current_style = self.current_style.fg(Color::LightCyan); idx += 1; }
-                97 => { self.current_style = self.current_style.fg(Color::White); idx += 1; }
+                90 => {
+                    self.current_style = self.current_style.fg(Color::DarkGray);
+                    idx += 1;
+                }
+                91 => {
+                    self.current_style = self.current_style.fg(Color::LightRed);
+                    idx += 1;
+                }
+                92 => {
+                    self.current_style = self.current_style.fg(Color::LightGreen);
+                    idx += 1;
+                }
+                93 => {
+                    self.current_style = self.current_style.fg(Color::LightYellow);
+                    idx += 1;
+                }
+                94 => {
+                    self.current_style = self.current_style.fg(Color::LightBlue);
+                    idx += 1;
+                }
+                95 => {
+                    self.current_style = self.current_style.fg(Color::LightMagenta);
+                    idx += 1;
+                }
+                96 => {
+                    self.current_style = self.current_style.fg(Color::LightCyan);
+                    idx += 1;
+                }
+                97 => {
+                    self.current_style = self.current_style.fg(Color::White);
+                    idx += 1;
+                }
                 // Bright Background Colors
-                100 => { self.current_style = self.current_style.bg(Color::DarkGray); idx += 1; }
-                101 => { self.current_style = self.current_style.bg(Color::LightRed); idx += 1; }
-                102 => { self.current_style = self.current_style.bg(Color::LightGreen); idx += 1; }
-                103 => { self.current_style = self.current_style.bg(Color::LightYellow); idx += 1; }
-                104 => { self.current_style = self.current_style.bg(Color::LightBlue); idx += 1; }
-                105 => { self.current_style = self.current_style.bg(Color::LightMagenta); idx += 1; }
-                106 => { self.current_style = self.current_style.bg(Color::LightCyan); idx += 1; }
-                107 => { self.current_style = self.current_style.bg(Color::White); idx += 1; }
+                100 => {
+                    self.current_style = self.current_style.bg(Color::DarkGray);
+                    idx += 1;
+                }
+                101 => {
+                    self.current_style = self.current_style.bg(Color::LightRed);
+                    idx += 1;
+                }
+                102 => {
+                    self.current_style = self.current_style.bg(Color::LightGreen);
+                    idx += 1;
+                }
+                103 => {
+                    self.current_style = self.current_style.bg(Color::LightYellow);
+                    idx += 1;
+                }
+                104 => {
+                    self.current_style = self.current_style.bg(Color::LightBlue);
+                    idx += 1;
+                }
+                105 => {
+                    self.current_style = self.current_style.bg(Color::LightMagenta);
+                    idx += 1;
+                }
+                106 => {
+                    self.current_style = self.current_style.bg(Color::LightCyan);
+                    idx += 1;
+                }
+                107 => {
+                    self.current_style = self.current_style.bg(Color::White);
+                    idx += 1;
+                }
                 _ => {
                     idx += 1;
                 }
@@ -1194,9 +1333,14 @@ impl TerminalBuffer {
         viewport_width: usize,
     ) -> (Vec<Line<'static>>, ScrollInfo, Option<(u16, u16)>) {
         let shown = self.lines.len().min(viewport_height);
-        let mut result: Vec<Line<'static>> = self.lines[..shown].iter().map(TerminalLine::to_ratatui_line).collect();
+        let mut result: Vec<Line<'static>> = self.lines[..shown]
+            .iter()
+            .map(TerminalLine::to_ratatui_line)
+            .collect();
         result.resize(viewport_height, Line::from(""));
-        let cursor = (self.cursor_visible && self.cursor_row < viewport_height && self.cursor_col < viewport_width)
+        let cursor = (self.cursor_visible
+            && self.cursor_row < viewport_height
+            && self.cursor_col < viewport_width)
             .then_some((self.cursor_col as u16, self.cursor_row as u16));
         (
             result,
@@ -1283,7 +1427,8 @@ impl TerminalBuffer {
                 while start < line.chars.len() {
                     let mut end = (start + viewport_width).min(line.chars.len());
                     // Never split a double-width character across two rows.
-                    if end < line.chars.len() && line.chars[end].c == WIDE_SPACER && end > start + 1 {
+                    if end < line.chars.len() && line.chars[end].c == WIDE_SPACER && end > start + 1
+                    {
                         end -= 1;
                     }
                     visual_lines.push(VisualLineEntry {
@@ -1348,7 +1493,8 @@ impl TerminalBuffer {
         let cursor_pos = if let Some(v_row) = cursor_visual_row {
             if self.cursor_visible && v_row >= start_idx && v_row < end_idx {
                 let rel_row = (v_row - start_idx) as u16;
-                let rel_col = (cursor_visual_col as u16).min(viewport_width.saturating_sub(1) as u16);
+                let rel_col =
+                    (cursor_visual_col as u16).min(viewport_width.saturating_sub(1) as u16);
                 Some((rel_col, rel_row))
             } else {
                 None
@@ -1434,7 +1580,10 @@ mod tests {
         assert_eq!(rat_line.spans.len(), 2);
         assert_eq!(rat_line.spans[0].content, "SUCCESS");
         assert_eq!(rat_line.spans[0].style.fg, Some(Color::Green));
-        assert!(rat_line.spans[0].style.add_modifier.contains(Modifier::BOLD));
+        assert!(rat_line.spans[0]
+            .style
+            .add_modifier
+            .contains(Modifier::BOLD));
         assert_eq!(rat_line.spans[1].content, " normal text");
     }
 
@@ -1445,7 +1594,10 @@ mod tests {
         buf.push_str("\x1b[?25l\x1b[?1049h\x1b]0;Antigravity\x07Clean output\x1b[?25h\n");
         assert!(buf.in_alt_screen());
         assert_eq!(buf.lines[0].to_plain_string(), "Clean output");
-        assert!(buf.lines.iter().all(|l| !l.to_plain_string().contains('\x1b')));
+        assert!(buf
+            .lines
+            .iter()
+            .all(|l| !l.to_plain_string().contains('\x1b')));
     }
 
     fn alt(rows: usize, cols: usize) -> TerminalBuffer {
@@ -1522,7 +1674,11 @@ mod tests {
         let mut buf = TerminalBuffer::new(100);
         buf.push_str("ab\x1b[s");
         buf.push_str("\x1b[>4;2m\x1b[>1u\x1b[?u\x1b[?2026$p\x1b[2 qcd");
-        assert_eq!(buf.current_style, Style::default(), "CSI > 4;2 m must not set DIM");
+        assert_eq!(
+            buf.current_style,
+            Style::default(),
+            "CSI > 4;2 m must not set DIM"
+        );
         assert_eq!(row(&buf, 0), "abcd");
         assert_eq!(buf.cursor_col, 4);
     }
@@ -1587,8 +1743,12 @@ mod tests {
         let screen: Vec<String> = buf.lines.iter().map(|l| l.to_plain_string()).collect();
         // The trust prompt was drawn from the top (\x1b[H) over the logo frame.
         assert_eq!(screen[0], "Accessing workspace:");
-        assert!(screen.iter().any(|l| l.contains("> Yes, I trust this folder")));
-        assert!(screen.iter().all(|l| !l.contains('\u{FFFD}') && !l.contains('\x1b')));
+        assert!(screen
+            .iter()
+            .any(|l| l.contains("> Yes, I trust this folder")));
+        assert!(screen
+            .iter()
+            .all(|l| !l.contains('\u{FFFD}') && !l.contains('\x1b')));
         assert_eq!(buf.current_style, Style::default());
         assert!(buf.lines.iter().all(|l| l.chars.len() <= 100));
 

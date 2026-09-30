@@ -223,6 +223,7 @@ entity IDs, making test assertions readable and reproducible.
 | Phase 7 (External API and integrations) | Control API v1 schema freeze; WebSocket loopback; token auth & scopes; filtering & catch-up replay | ✅ 185/185 tests passing (106 unit, 63 core integration across 6 suites, 8 TUI state, 8 API integration) |
 | Phase 8 (Hardening and v1 release) | Security audit suite (T1–T5); fuzz testing; performance benchmarks; v1.0.0 release | ✅ 195/195 tests passing (106 unit, 73 core integration/bench/security/fuzz across 9 suites, 8 TUI state, 8 API integration) |
 | Phase UX (User Launcher & Account UX) | Explicit label launch, single-account auto selection, multi-account filtering, OAuth token security, controlled hand-off | ✅ 204/204 tests passing (106 unit, 73 core integration/bench/security/fuzz, 8 TUI state, 8 API integration, 9 launcher & account UX) |
+| Post-v1 Hardening (Terminal, Navigation & AGY Modes) | Fake agy E2E tests, profile isolation, ambient env stripping, ANSI virtual buffer, alternate screen, multibyte UTF-8 stream decoding, Tab directory completion, dangerous permission modal | ✅ 250+ tests passing across all workspace suites with 0 compiler warnings |
 
 ---
 

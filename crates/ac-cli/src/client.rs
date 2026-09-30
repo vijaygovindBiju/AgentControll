@@ -2,10 +2,7 @@
 
 use anyhow::{Context, Result};
 use serde_json::json;
-use std::{
-    path::PathBuf,
-    time::Duration,
-};
+use std::{path::PathBuf, time::Duration};
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
     net::UnixStream,
@@ -14,8 +11,7 @@ use tokio::{
 use tracing::debug;
 
 use ac_core::types::{
-    Account, AgentEvent, AgentSession, ApiRequest, ApiResponse, Id, Project,
-    SubscriptionFilter,
+    Account, AgentEvent, AgentSession, ApiRequest, ApiResponse, Id, Project, SubscriptionFilter,
 };
 
 #[derive(Debug, Clone)]
@@ -125,8 +121,8 @@ impl DaemonClient {
             .await?
             .context("Daemon closed connection without responding")?;
 
-        let resp: ApiResponse = serde_json::from_str(&response_line)
-            .context("Failed to parse daemon response")?;
+        let resp: ApiResponse =
+            serde_json::from_str(&response_line).context("Failed to parse daemon response")?;
         Ok(resp)
     }
 
@@ -134,12 +130,15 @@ impl DaemonClient {
     pub async fn list_accounts(&self) -> Result<Vec<Account>> {
         let resp = self.send_command("account.list", json!({})).await?;
         if !resp.ok {
-            let msg = resp.error.map(|e| e.message).unwrap_or_else(|| "Unknown error".into());
+            let msg = resp
+                .error
+                .map(|e| e.message)
+                .unwrap_or_else(|| "Unknown error".into());
             anyhow::bail!("Failed to list accounts: {msg}");
         }
         let result = resp.result.unwrap_or(json!({}));
-        let accounts: Vec<Account> = serde_json::from_value(result["accounts"].clone())
-            .unwrap_or_default();
+        let accounts: Vec<Account> =
+            serde_json::from_value(result["accounts"].clone()).unwrap_or_default();
         Ok(accounts)
     }
 
@@ -168,7 +167,10 @@ impl DaemonClient {
             .await?;
 
         if !resp.ok {
-            let msg = resp.error.map(|e| e.message).unwrap_or_else(|| "Unknown error".into());
+            let msg = resp
+                .error
+                .map(|e| e.message)
+                .unwrap_or_else(|| "Unknown error".into());
             anyhow::bail!("Failed to register account: {msg}");
         }
 
@@ -185,7 +187,10 @@ impl DaemonClient {
             .send_command("account.remove", json!({ "account_id": account_id }))
             .await?;
         if !resp.ok {
-            let msg = resp.error.map(|e| e.message).unwrap_or_else(|| "Unknown error".into());
+            let msg = resp
+                .error
+                .map(|e| e.message)
+                .unwrap_or_else(|| "Unknown error".into());
             anyhow::bail!("{msg}");
         }
         Ok(resp
@@ -198,12 +203,15 @@ impl DaemonClient {
     pub async fn list_sessions(&self) -> Result<Vec<AgentSession>> {
         let resp = self.send_command("session.list", json!({})).await?;
         if !resp.ok {
-            let msg = resp.error.map(|e| e.message).unwrap_or_else(|| "Unknown error".into());
+            let msg = resp
+                .error
+                .map(|e| e.message)
+                .unwrap_or_else(|| "Unknown error".into());
             anyhow::bail!("Failed to list sessions: {msg}");
         }
         let result = resp.result.unwrap_or(json!({}));
-        let sessions: Vec<AgentSession> = serde_json::from_value(result["sessions"].clone())
-            .unwrap_or_default();
+        let sessions: Vec<AgentSession> =
+            serde_json::from_value(result["sessions"].clone()).unwrap_or_default();
         Ok(sessions)
     }
 
@@ -218,7 +226,10 @@ impl DaemonClient {
                     return Ok(None);
                 }
             }
-            let msg = resp.error.map(|e| e.message).unwrap_or_else(|| "Unknown error".into());
+            let msg = resp
+                .error
+                .map(|e| e.message)
+                .unwrap_or_else(|| "Unknown error".into());
             anyhow::bail!("Failed to get session: {msg}");
         }
         let result = resp.result.context("Missing result in session.get")?;
@@ -247,7 +258,10 @@ impl DaemonClient {
             .await?;
 
         if !resp.ok {
-            let msg = resp.error.map(|e| e.message).unwrap_or_else(|| "Unknown error".into());
+            let msg = resp
+                .error
+                .map(|e| e.message)
+                .unwrap_or_else(|| "Unknown error".into());
             anyhow::bail!("{msg}");
         }
 
@@ -264,7 +278,10 @@ impl DaemonClient {
             .send_command("session.pause", json!({ "session_id": session_id }))
             .await?;
         if !resp.ok {
-            let msg = resp.error.map(|e| e.message).unwrap_or_else(|| "Unknown error".into());
+            let msg = resp
+                .error
+                .map(|e| e.message)
+                .unwrap_or_else(|| "Unknown error".into());
             anyhow::bail!("Failed to pause session: {msg}");
         }
         Ok(())
@@ -276,7 +293,10 @@ impl DaemonClient {
             .send_command("session.resume", json!({ "session_id": session_id }))
             .await?;
         if !resp.ok {
-            let msg = resp.error.map(|e| e.message).unwrap_or_else(|| "Unknown error".into());
+            let msg = resp
+                .error
+                .map(|e| e.message)
+                .unwrap_or_else(|| "Unknown error".into());
             anyhow::bail!("Failed to resume session: {msg}");
         }
         Ok(())
@@ -291,7 +311,10 @@ impl DaemonClient {
             )
             .await?;
         if !resp.ok {
-            let msg = resp.error.map(|e| e.message).unwrap_or_else(|| "Unknown error".into());
+            let msg = resp
+                .error
+                .map(|e| e.message)
+                .unwrap_or_else(|| "Unknown error".into());
             anyhow::bail!("Failed to stop session: {msg}");
         }
         Ok(())
@@ -300,13 +323,13 @@ impl DaemonClient {
     /// Remove/delete a session.
     pub async fn remove_session(&self, session_id: &Id) -> Result<()> {
         let resp = self
-            .send_command(
-                "session.remove",
-                json!({ "session_id": session_id }),
-            )
+            .send_command("session.remove", json!({ "session_id": session_id }))
             .await?;
         if !resp.ok {
-            let msg = resp.error.map(|e| e.message).unwrap_or_else(|| "Unknown error".into());
+            let msg = resp
+                .error
+                .map(|e| e.message)
+                .unwrap_or_else(|| "Unknown error".into());
             anyhow::bail!("Failed to remove session: {msg}");
         }
         Ok(())
@@ -321,7 +344,10 @@ impl DaemonClient {
             )
             .await?;
         if !resp.ok {
-            let msg = resp.error.map(|e| e.message).unwrap_or_else(|| "Unknown error".into());
+            let msg = resp
+                .error
+                .map(|e| e.message)
+                .unwrap_or_else(|| "Unknown error".into());
             anyhow::bail!("Failed to steer session: {msg}");
         }
         Ok(())
@@ -340,7 +366,10 @@ impl DaemonClient {
             .await?;
 
         if !resp.ok {
-            let msg = resp.error.map(|e| e.message).unwrap_or_else(|| "Unknown error".into());
+            let msg = resp
+                .error
+                .map(|e| e.message)
+                .unwrap_or_else(|| "Unknown error".into());
             anyhow::bail!("{msg}");
         }
 
@@ -361,12 +390,15 @@ impl DaemonClient {
     pub async fn list_projects(&self) -> Result<Vec<Project>> {
         let resp = self.send_command("project.list", json!({})).await?;
         if !resp.ok {
-            let msg = resp.error.map(|e| e.message).unwrap_or_else(|| "Unknown error".into());
+            let msg = resp
+                .error
+                .map(|e| e.message)
+                .unwrap_or_else(|| "Unknown error".into());
             anyhow::bail!("Failed to list projects: {msg}");
         }
         let result = resp.result.unwrap_or(json!({}));
-        let projects: Vec<Project> = serde_json::from_value(result["projects"].clone())
-            .unwrap_or_default();
+        let projects: Vec<Project> =
+            serde_json::from_value(result["projects"].clone()).unwrap_or_default();
         Ok(projects)
     }
 
@@ -393,7 +425,10 @@ impl DaemonClient {
             .await?;
 
         if !resp.ok {
-            let msg = resp.error.map(|e| e.message).unwrap_or_else(|| "Unknown error".into());
+            let msg = resp
+                .error
+                .map(|e| e.message)
+                .unwrap_or_else(|| "Unknown error".into());
             anyhow::bail!("Failed to register project: {msg}");
         }
 
@@ -405,7 +440,11 @@ impl DaemonClient {
     }
 
     /// Query historical events for a session.
-    pub async fn query_events(&self, session_id: &Id, limit: Option<u64>) -> Result<Vec<AgentEvent>> {
+    pub async fn query_events(
+        &self,
+        session_id: &Id,
+        limit: Option<u64>,
+    ) -> Result<Vec<AgentEvent>> {
         let resp = self
             .send_command(
                 "events.query",
@@ -414,13 +453,16 @@ impl DaemonClient {
             .await?;
 
         if !resp.ok {
-            let msg = resp.error.map(|e| e.message).unwrap_or_else(|| "Unknown error".into());
+            let msg = resp
+                .error
+                .map(|e| e.message)
+                .unwrap_or_else(|| "Unknown error".into());
             anyhow::bail!("Failed to query events: {msg}");
         }
 
         let result = resp.result.unwrap_or(json!({}));
-        let events: Vec<AgentEvent> = serde_json::from_value(result["events"].clone())
-            .unwrap_or_default();
+        let events: Vec<AgentEvent> =
+            serde_json::from_value(result["events"].clone()).unwrap_or_default();
         Ok(events)
     }
 

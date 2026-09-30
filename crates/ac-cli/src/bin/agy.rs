@@ -128,7 +128,10 @@ async fn list_antigravity_accounts(client: &DaemonClient) -> Result<()> {
     }
 
     println!("\nConfigured Antigravity Accounts:");
-    println!("{:<24}  {:<12}  {:<11}  {:<26}  {}", "ACCOUNT NAME", "STATUS", "CONCURRENCY", "ACCOUNT ID", "CREDENTIAL");
+    println!(
+        "{:<24}  {:<12}  {:<11}  {:<26}  {}",
+        "ACCOUNT NAME", "STATUS", "CONCURRENCY", "ACCOUNT ID", "CREDENTIAL"
+    );
     println!("{}", "-".repeat(100));
 
     for a in agy_accounts {
@@ -152,7 +155,10 @@ async fn list_antigravity_accounts(client: &DaemonClient) -> Result<()> {
             Err(_) => "INVALID - sign in again".into(),
         };
         let conc = format!("{}/{}", a.active_session_count, a.concurrency_cap);
-        println!("{:<24}  {:<12}  {:<11}  {:<26}  {}", a.label, status, conc, a.id, credential);
+        println!(
+            "{:<24}  {:<12}  {:<11}  {:<26}  {}",
+            a.label, status, conc, a.id, credential
+        );
     }
     println!();
     Ok(())

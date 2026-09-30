@@ -190,7 +190,9 @@ fn test_property_state_machine_random_transitions() {
     // Simple pseudo-random LCG generator for deterministic reproducibility without extra dependencies
     let mut seed: u64 = 0xDEADBEEFCAFEBABE;
     let mut next_rand = || {
-        seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        seed = seed
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
         seed
     };
 

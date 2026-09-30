@@ -19,9 +19,7 @@ use std::collections::HashMap;
 use std::path::Path;
 use tracing::{debug, info};
 
-use crate::types::{
-    AuditEntry, Id, Policy, PolicyCondition, PolicyDecision, PolicyScope,
-};
+use crate::types::{AuditEntry, Id, Policy, PolicyCondition, PolicyDecision, PolicyScope};
 
 // ── Never-auto-approve boundary ──────────────────────────────────────────────
 
@@ -255,9 +253,7 @@ impl PolicyStore {
         session_id: Option<&Id>,
         limit: Option<u64>,
     ) -> Result<Vec<AuditEntry>> {
-        let limit_clause = limit
-            .map(|l| format!("LIMIT {l}"))
-            .unwrap_or_default();
+        let limit_clause = limit.map(|l| format!("LIMIT {l}")).unwrap_or_default();
 
         if let Some(sid) = session_id {
             let sql = format!(
@@ -485,7 +481,10 @@ impl PolicyEngine {
                 return PolicyEvaluation {
                     decision: PolicyDecision::Deny,
                     matched_policy: Some((*policy).clone()),
-                    reason: format!("Denied by policy '{}' (priority={})", policy.name, policy.priority),
+                    reason: format!(
+                        "Denied by policy '{}' (priority={})",
+                        policy.name, policy.priority
+                    ),
                 };
             }
         }
@@ -788,7 +787,7 @@ mod tests {
         eng.create_policy(Policy::new(
             "allow-everything".into(),
             PolicyScope::Global,
-            1000, // Very high priority
+            1000,   // Very high priority
             vec![], // Matches everything
             PolicyDecision::Allow,
         ))
@@ -955,12 +954,14 @@ mod tests {
         );
         // Only one condition matches
         assert_eq!(
-            eng.evaluate(Some("read_file"), Some("claude"), None).decision,
+            eng.evaluate(Some("read_file"), Some("claude"), None)
+                .decision,
             PolicyDecision::RequireHuman
         );
         // Neither condition matches
         assert_eq!(
-            eng.evaluate(Some("write_file"), Some("claude"), None).decision,
+            eng.evaluate(Some("write_file"), Some("claude"), None)
+                .decision,
             PolicyDecision::RequireHuman
         );
     }

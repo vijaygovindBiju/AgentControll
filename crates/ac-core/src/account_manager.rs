@@ -110,7 +110,8 @@ impl AccountStore {
     }
 
     pub fn delete(&self, id: &Id) -> Result<()> {
-        self.conn.execute("DELETE FROM accounts WHERE id=?1", params![id.0])?;
+        self.conn
+            .execute("DELETE FROM accounts WHERE id=?1", params![id.0])?;
         Ok(())
     }
 
@@ -152,10 +153,8 @@ fn row_to_account(row: &rusqlite::Row<'_>) -> rusqlite::Result<Account> {
     let created_at_str: String = row.get(11)?;
     let updated_at_str: String = row.get(12)?;
 
-    let agent_types: Vec<String> =
-        serde_json::from_str(&agent_types_str).unwrap_or_default();
-    let state: AccountState =
-        serde_json::from_str(&state_str).unwrap_or(AccountState::Active);
+    let agent_types: Vec<String> = serde_json::from_str(&agent_types_str).unwrap_or_default();
+    let state: AccountState = serde_json::from_str(&state_str).unwrap_or(AccountState::Active);
     let tags: Vec<String> = serde_json::from_str(&tags_str).unwrap_or_default();
     let cooldown_until = cooldown_until_str.and_then(|s| {
         chrono::DateTime::parse_from_rfc3339(&s)
@@ -222,7 +221,11 @@ impl AccountManager {
     }
 
     /// List all accounts, optionally filtered by state and/or tags.
-    pub fn list(&self, state_filter: Option<&AccountState>, tag_filter: &[String]) -> Vec<&Account> {
+    pub fn list(
+        &self,
+        state_filter: Option<&AccountState>,
+        tag_filter: &[String],
+    ) -> Vec<&Account> {
         self.accounts
             .values()
             .filter(|a| {
@@ -231,9 +234,7 @@ impl AccountManager {
                         return false;
                     }
                 }
-                if !tag_filter.is_empty()
-                    && !tag_filter.iter().any(|t| a.tags.contains(t))
-                {
+                if !tag_filter.is_empty() && !tag_filter.iter().any(|t| a.tags.contains(t)) {
                     return false;
                 }
                 true
@@ -289,7 +290,11 @@ impl AccountManager {
             .get(&id.0)
             .ok_or_else(|| anyhow::anyhow!("Account not found: {}", id))?;
         if account.active_session_count > 0 {
-            bail!("Cannot remove account {} with {} active session(s)", id, account.active_session_count);
+            bail!(
+                "Cannot remove account {} with {} active session(s)",
+                id,
+                account.active_session_count
+            );
         }
         self.store.delete(id)?;
         self.accounts.remove(&id.0);
@@ -350,11 +355,7 @@ impl AccountManager {
     }
 
     /// Start a cooldown period (transitions to Cooldown state).
-    pub fn start_cooldown(
-        &mut self,
-        id: &Id,
-        cooldown_until: chrono::DateTime<Utc>,
-    ) -> Result<()> {
+    pub fn start_cooldown(&mut self, id: &Id, cooldown_until: chrono::DateTime<Utc>) -> Result<()> {
         {
             let account = self
                 .accounts
@@ -517,19 +518,14 @@ impl AccountManager {
     ///    (least-loaded), with a stable tie-breaker for deterministic selection.
     ///
     /// Returns `Err` with `NoAccountAvailable` message when no account qualifies.
-    pub fn select(
-        &self,
-        agent_type: &str,
-        required_tags: &[String],
-    ) -> Result<Id> {
+    pub fn select(&self, agent_type: &str, required_tags: &[String]) -> Result<Id> {
         let best = self
             .accounts
             .values()
             .filter(|a| a.can_accept_session())
             .filter(|a| a.supports_agent_type(agent_type))
             .filter(|a| {
-                required_tags.is_empty()
-                    || required_tags.iter().any(|t| a.tags.contains(t))
+                required_tags.is_empty() || required_tags.iter().any(|t| a.tags.contains(t))
             })
             .min_by(|a, b| {
                 a.active_session_count
@@ -540,7 +536,10 @@ impl AccountManager {
 
         match best {
             Some(a) => {
-                debug!("Selected account {} (load={}/{})", a.id, a.active_session_count, a.concurrency_cap);
+                debug!(
+                    "Selected account {} (load={}/{})",
+                    a.id, a.active_session_count, a.concurrency_cap
+                );
                 Ok(a.id.clone())
             }
             None => bail!(
@@ -564,7 +563,10 @@ impl AccountManager {
             if !a.state.is_available() {
                 reason = Some(format!("Account is {}", a.state));
             } else if a.active_session_count >= a.concurrency_cap {
-                reason = Some(format!("At concurrency limit ({}/{})", a.active_session_count, a.concurrency_cap));
+                reason = Some(format!(
+                    "At concurrency limit ({}/{})",
+                    a.active_session_count, a.concurrency_cap
+                ));
             } else if let Some(at) = agent_type {
                 if !a.supports_agent_type(at) {
                     reason = Some(format!("Does not support agent_type '{}'", at));
@@ -659,12 +661,19 @@ mod tests {
     #[test]
     fn explicit_selection_never_guesses_between_duplicate_labels() {
         let mut mgr = manager();
-        let a = mgr.register(make_account("Personal Google", vec![])).unwrap();
-        mgr.register(make_account("Personal Google", vec![])).unwrap();
-        let err = mgr.validate_and_select_explicit(&Id::from("Personal Google"), "mock").unwrap_err();
+        let a = mgr
+            .register(make_account("Personal Google", vec![]))
+            .unwrap();
+        mgr.register(make_account("Personal Google", vec![]))
+            .unwrap();
+        let err = mgr
+            .validate_and_select_explicit(&Id::from("Personal Google"), "mock")
+            .unwrap_err();
         assert!(err.to_string().contains("AmbiguousAccount"), "{err}");
         assert_eq!(mgr.validate_and_select_explicit(&a, "mock").unwrap().id, a);
-        assert!(mgr.validate_and_select_explicit(&Id::from("Wrong"), "mock").is_err());
+        assert!(mgr
+            .validate_and_select_explicit(&Id::from("Wrong"), "mock")
+            .is_err());
     }
 
     #[test]
@@ -699,7 +708,8 @@ mod tests {
     #[test]
     fn list_filter_by_tag() {
         let mut mgr = manager();
-        mgr.register(make_account("tagged", vec!["anthropic"])).unwrap();
+        mgr.register(make_account("tagged", vec!["anthropic"]))
+            .unwrap();
         mgr.register(make_account("other", vec!["openai"])).unwrap();
         let filtered = mgr.list(None, &["anthropic".to_string()]);
         assert_eq!(filtered.len(), 1);
@@ -720,7 +730,10 @@ mod tests {
     fn enable_non_disabled_fails() {
         let mut mgr = manager();
         let id = mgr.register(make_account("a", vec![])).unwrap();
-        assert!(mgr.enable(&id).is_err(), "enabling an already-active account should fail");
+        assert!(
+            mgr.enable(&id).is_err(),
+            "enabling an already-active account should fail"
+        );
     }
 
     #[test]
@@ -737,22 +750,26 @@ mod tests {
     #[test]
     fn select_respects_agent_type() {
         let mut mgr = manager();
-        let _id_wrong = mgr.register(Account::new(
-            "wrong-type".into(),
-            "anthropic".into(),
-            vec!["codex".into()],
-            "ref".into(),
-            2,
-            vec![],
-        )).unwrap();
-        let id_ok = mgr.register(Account::new(
-            "right-type".into(),
-            "anthropic".into(),
-            vec!["mock".into()],
-            "ref".into(),
-            2,
-            vec![],
-        )).unwrap();
+        let _id_wrong = mgr
+            .register(Account::new(
+                "wrong-type".into(),
+                "anthropic".into(),
+                vec!["codex".into()],
+                "ref".into(),
+                2,
+                vec![],
+            ))
+            .unwrap();
+        let id_ok = mgr
+            .register(Account::new(
+                "right-type".into(),
+                "anthropic".into(),
+                vec!["mock".into()],
+                "ref".into(),
+                2,
+                vec![],
+            ))
+            .unwrap();
         let selected = mgr.select("mock", &[]).unwrap();
         assert_eq!(selected, id_ok);
     }
@@ -760,8 +777,11 @@ mod tests {
     #[test]
     fn select_respects_tags() {
         let mut mgr = manager();
-        mgr.register(make_account("wrong-tag", vec!["openai"])).unwrap();
-        let id_ok = mgr.register(make_account("right-tag", vec!["anthropic"])).unwrap();
+        mgr.register(make_account("wrong-tag", vec!["openai"]))
+            .unwrap();
+        let id_ok = mgr
+            .register(make_account("right-tag", vec!["anthropic"]))
+            .unwrap();
         let selected = mgr.select("mock", &["anthropic".to_string()]).unwrap();
         assert_eq!(selected, id_ok);
     }
@@ -781,7 +801,10 @@ mod tests {
         a.concurrency_cap = 1;
         let id = mgr.register(a).unwrap();
         mgr.increment_sessions(&id).unwrap();
-        assert!(mgr.select("mock", &[]).is_err(), "Full account should not be selected");
+        assert!(
+            mgr.select("mock", &[]).is_err(),
+            "Full account should not be selected"
+        );
     }
 
     #[test]
@@ -846,7 +869,9 @@ mod tests {
         {
             let store = AccountStore::open(&db).unwrap();
             let mut mgr = AccountManager::new(store).unwrap();
-            id = mgr.register(make_account("persisted", vec!["tag1"])).unwrap();
+            id = mgr
+                .register(make_account("persisted", vec!["tag1"]))
+                .unwrap();
         }
         {
             let store = AccountStore::open(&db).unwrap();

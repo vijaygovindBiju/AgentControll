@@ -354,6 +354,37 @@ transition.
 
 ---
 
+## ADR-015 — Centralized Settings, Streamlined TUI Navigation, ANSI Virtual Terminal Pass-Through & Decoupled AGY Execution/Permission Modes
+
+**Status:** Accepted — resolved during TUI & Terminal Hardening (2026-09-30)
+
+**Decision:**
+1. **Streamlined 6-Tab Navigation:**
+   - Consolidate top-level tabs into: `1: Dashboard`, `2: Sessions`, `3: Accounts`, `4: Activity`, `5: Agents`, and `6: Settings`.
+   - Remove standalone `Inbox` and `Projects` top-level tabs. Projects are managed within Settings; human approval alerts are surfaced prominently on the Dashboard and handled in context.
+2. **Centralized Settings & User Persistence:**
+   - Redesign Settings into 9 keyboard-navigable sections: General, Accounts, Projects & Workspaces, Agents, Models, Permissions, Authentication, Terminal, and Security.
+   - Persist user configuration in `~/.config/agentcontrol/settings.json`.
+3. **ANSI Virtual Terminal Emulation & Key Forwarding:**
+   - Dedicated Agent Terminal view powered by an ANSI virtual buffer (`terminal_buffer.rs`) supporting alternate screen buffers (`1049h`/`1049l`), cursor positioning, scrolling, and colors.
+   - Use `decode_utf8_stream` to prevent multi-byte glyph fragmentation across PTY reads.
+   - **Transparent Pass-Through:** `Esc` is forwarded directly to the agent PTY so vi, nano, fzf, and AGY prompts work without interference. `Ctrl+Q` cleanly detaches back to the dashboard.
+4. **Anti-Deadlock PTY Pipeline:**
+   - Replace blocking PTY sends with `try_send` for OutputChunk events.
+   - Increase read buffer from 1KB to 8KB and per-session channel capacity to 512 entries with atomic dropped-chunk diagnostics.
+5. **Decoupled Execution & Permission Modes:**
+   - Separate execution modes (`default`, `--mode=accept-edits`, `--mode=plan`) from permission controls (`normal`, `--dangerously-skip-permissions`).
+   - Require explicit modal confirmation before launching with `--dangerously-skip-permissions`.
+6. **Per-Account Profile Isolation:**
+   - Set `HOME=~/.config/agentcontrol/profiles/<account-id>/` for each Antigravity account and strip ambient Google credentials from environment. Never launch without a validated, selected account.
+
+**Rationale:**
+- Prevents UI clutter while making full project and account management accessible from a single configuration tab.
+- Enables full-screen interactive agents to behave like native terminal sessions without breaking supervisor escape hatches.
+- Eliminates deadlock bugs during intensive generation bursts while maintaining strict security boundaries.
+
+---
+
 ## Open decisions summary
 
 | ADR | Decision | Blocking phase |
@@ -367,6 +398,7 @@ transition.
 | ~~ADR-012~~ | ~~Policy evaluation precedence & determinism~~ | ~~Phase 3~~ — **Resolved: accepted** |
 | ~~ADR-013~~ | ~~Multi-account switching & controlled hand-off~~ | ~~Phase 6~~ — **Resolved: accepted** |
 | ~~ADR-014~~ | ~~Two-layer CLI architecture & friendly account UX~~ | ~~UX Layer~~ — **Resolved: accepted** |
+| ~~ADR-015~~ | ~~Centralized settings, ANSI terminal pass-through & AGY modes~~ | ~~Post-v1 UX~~ — **Resolved: accepted** |
 
 All open decisions must be recorded as resolved in this document before
 implementation of their blocking phase begins.

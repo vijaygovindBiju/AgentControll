@@ -40,7 +40,11 @@ impl DirCompletion {
     /// Children matching the typed partial name (case-insensitive prefix).
     pub fn matches(&self, partial: &str) -> Vec<&str> {
         let p = partial.to_lowercase();
-        self.all.iter().map(String::as_str).filter(|d| d.to_lowercase().starts_with(&p)).collect()
+        self.all
+            .iter()
+            .map(String::as_str)
+            .filter(|d| d.to_lowercase().starts_with(&p))
+            .collect()
     }
 }
 
@@ -87,9 +91,17 @@ impl StartSessionForm {
             completion: None,
             listing: None,
             dir_notice: None,
-            exec_modes: if exec_modes.is_empty() { vec![AgyExecutionMode::Default] } else { exec_modes },
+            exec_modes: if exec_modes.is_empty() {
+                vec![AgyExecutionMode::Default]
+            } else {
+                exec_modes
+            },
             exec_mode_index: 0,
-            perm_modes: if perm_modes.is_empty() { vec![AgyPermissionMode::Normal] } else { perm_modes },
+            perm_modes: if perm_modes.is_empty() {
+                vec![AgyPermissionMode::Normal]
+            } else {
+                perm_modes
+            },
             perm_mode_index: 0,
             model_index: 0,
             button: 0,
@@ -101,11 +113,17 @@ impl StartSessionForm {
     }
 
     pub fn exec_mode(&self) -> AgyExecutionMode {
-        self.exec_modes.get(self.exec_mode_index).copied().unwrap_or_default()
+        self.exec_modes
+            .get(self.exec_mode_index)
+            .copied()
+            .unwrap_or_default()
     }
 
     pub fn perm_mode(&self) -> AgyPermissionMode {
-        self.perm_modes.get(self.perm_mode_index).copied().unwrap_or_default()
+        self.perm_modes
+            .get(self.perm_mode_index)
+            .copied()
+            .unwrap_or_default()
     }
 
     pub fn resolved_dir(&self) -> PathBuf {
@@ -116,8 +134,15 @@ impl StartSessionForm {
 /// Background results applied on tick.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum JobResult {
-    Dirs { parent: String, from_tab: bool, result: Result<Vec<String>, String> },
-    Models { account_id: String, result: Result<Vec<(String, String)>, String> },
+    Dirs {
+        parent: String,
+        from_tab: bool,
+        result: Result<Vec<String>, String>,
+    },
+    Models {
+        account_id: String,
+        result: Result<Vec<(String, String)>, String>,
+    },
 }
 
 pub fn is_agy(a: &Account) -> bool {
@@ -157,7 +182,11 @@ pub fn list_child_dirs(dir: &Path) -> Result<Vec<String>, String> {
     })?;
     let mut out: Vec<String> = entries
         .flatten()
-        .filter(|e| e.file_type().map(|t| t.is_dir() || (t.is_symlink() && e.path().is_dir())).unwrap_or(false))
+        .filter(|e| {
+            e.file_type()
+                .map(|t| t.is_dir() || (t.is_symlink() && e.path().is_dir()))
+                .unwrap_or(false)
+        })
         .filter_map(|e| e.file_name().to_str().map(|n| format!("{n}/")))
         .collect();
     out.sort_by_key(|n| (n.starts_with('.'), n.to_lowercase()));
@@ -204,29 +233,49 @@ pub fn request_models(app: &mut App, account: &Account) {
     let id = account.id.clone();
     let cred = account.credential_ref.clone();
     spawn_job(app, move || {
-        let res = list_models(&id, &cred).map(|ms| ms.into_iter().map(|m| (m.id, m.name)).collect());
-        JobResult::Models { account_id: aid, result: res }
+        let res =
+            list_models(&id, &cred).map(|ms| ms.into_iter().map(|m| (m.id, m.name)).collect());
+        JobResult::Models {
+            account_id: aid,
+            result: res,
+        }
     });
 }
 
 #[cfg(unix)]
-fn list_models(account_id: &ac_core::types::Id, cred_ref: &str) -> Result<Vec<ac_core::agy_launch::AgyModel>, String> {
+fn list_models(
+    account_id: &ac_core::types::Id,
+    cred_ref: &str,
+) -> Result<Vec<ac_core::agy_launch::AgyModel>, String> {
     ac_core::agy_launch::list_models(account_id, cred_ref, std::time::Duration::from_secs(6))
 }
 
 #[cfg(not(unix))]
-fn list_models(_: &ac_core::types::Id, _: &str) -> Result<Vec<ac_core::agy_launch::AgyModel>, String> {
+fn list_models(
+    _: &ac_core::types::Id,
+    _: &str,
+) -> Result<Vec<ac_core::agy_launch::AgyModel>, String> {
     Err("model listing is only supported on Unix".into())
 }
 
 /// Model choices for the selected account: `(model id, label)`, first = agy default.
-pub fn model_options(app: &App, form: &StartSessionForm) -> (Vec<(Option<String>, String)>, Option<String>) {
+pub fn model_options(
+    app: &App,
+    form: &StartSessionForm,
+) -> (Vec<(Option<String>, String)>, Option<String>) {
     let mut opts = vec![(None, "Default (agy setting)".to_string())];
-    let status = match agy_accounts(app).get(form.account_index).and_then(|a| app.agy_models.get(&a.id.0)) {
+    let status = match agy_accounts(app)
+        .get(form.account_index)
+        .and_then(|a| app.agy_models.get(&a.id.0))
+    {
         Some(None) => Some("loading models…".to_string()),
         Some(Some(Err(e))) => Some(format!("model list unavailable: {e}")),
         Some(Some(Ok(models))) => {
-            opts.extend(models.iter().map(|(id, name)| (Some(id.clone()), name.clone())));
+            opts.extend(
+                models
+                    .iter()
+                    .map(|(id, name)| (Some(id.clone()), name.clone())),
+            );
             None
         }
         None => None,
@@ -237,11 +286,21 @@ pub fn model_options(app: &App, form: &StartSessionForm) -> (Vec<(Option<String>
 /// Open the start-session form. Accounts of other providers keep the
 /// existing generic launcher.
 pub fn open_new_session(app: &mut App) {
-    if app.accounts.get(app.selected_account).is_some_and(|a| !is_agy(a)) {
-        app.active_modal = Some(Modal::NewSession { account_index: app.selected_account, session_name: String::new(), active_field: 0 });
+    if app
+        .accounts
+        .get(app.selected_account)
+        .is_some_and(|a| !is_agy(a))
+    {
+        app.active_modal = Some(Modal::NewSession {
+            account_index: app.selected_account,
+            session_name: String::new(),
+            active_field: 0,
+        });
         return;
     }
-    let home = std::env::var("HOME").map(PathBuf::from).unwrap_or_else(|_| PathBuf::from("/"));
+    let home = std::env::var("HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| PathBuf::from("/"));
     let cwd = std::env::current_dir().unwrap_or_else(|_| home.clone());
     let mut form = StartSessionForm::new(
         cwd,
@@ -252,12 +311,18 @@ pub fn open_new_session(app: &mut App) {
 
     // Apply persisted default account if matched
     if let Some(ref default_acc) = app.user_settings.default_account {
-        if let Some(pos) = agy_accounts(app).iter().position(|a| &a.label == default_acc || &a.id.0 == default_acc) {
+        if let Some(pos) = agy_accounts(app)
+            .iter()
+            .position(|a| &a.label == default_acc || &a.id.0 == default_acc)
+        {
             form.account_index = pos;
         }
     } else {
         let selected_id = app.accounts.get(app.selected_account).map(|a| a.id.clone());
-        form.account_index = agy_accounts(app).iter().position(|a| Some(&a.id) == selected_id.as_ref()).unwrap_or(0);
+        form.account_index = agy_accounts(app)
+            .iter()
+            .position(|a| Some(&a.id) == selected_id.as_ref())
+            .unwrap_or(0);
     }
 
     // Apply persisted default working directory if valid
@@ -274,17 +339,28 @@ pub fn open_new_session(app: &mut App) {
     }
 
     // Apply persisted default execution mode
-    form.exec_mode_index = form.exec_modes.iter().position(|m| *m == app.user_settings.default_execution_mode).unwrap_or(0);
+    form.exec_mode_index = form
+        .exec_modes
+        .iter()
+        .position(|m| *m == app.user_settings.default_execution_mode)
+        .unwrap_or(0);
 
     // Apply persisted default permission mode
-    form.perm_mode_index = form.perm_modes.iter().position(|m| *m == app.user_settings.default_permission_mode).unwrap_or(0);
+    form.perm_mode_index = form
+        .perm_modes
+        .iter()
+        .position(|m| *m == app.user_settings.default_permission_mode)
+        .unwrap_or(0);
 
     open_form(app, Box::new(form));
 }
 
 /// Show the form (again), refreshing the model list for its account.
 pub fn open_form(app: &mut App, form: Box<StartSessionForm>) {
-    if let Some(a) = agy_accounts(app).get(form.account_index).map(|a| (*a).clone()) {
+    if let Some(a) = agy_accounts(app)
+        .get(form.account_index)
+        .map(|a| (*a).clone())
+    {
         request_models(app, &a);
     }
     app.active_modal = Some(Modal::StartSession(form));
@@ -307,8 +383,16 @@ fn request_listing(app: &App, form: &mut StartSessionForm, from_tab: bool) {
         return;
     }
     form.listing = Some(parent.clone());
-    let dir = resolve_dir_input(if parent.is_empty() { "." } else { &parent }, &form.cwd, &form.home);
-    spawn_job(app, move || JobResult::Dirs { result: list_child_dirs(&dir), parent, from_tab });
+    let dir = resolve_dir_input(
+        if parent.is_empty() { "." } else { &parent },
+        &form.cwd,
+        &form.home,
+    );
+    spawn_job(app, move || JobResult::Dirs {
+        result: list_child_dirs(&dir),
+        parent,
+        from_tab,
+    });
 }
 
 /// Re-filter (or re-list) after the directory input was edited.
@@ -325,21 +409,35 @@ fn after_dir_edit(app: &App, form: &mut StartSessionForm) {
 
 fn apply_completion(form: &mut StartSessionForm, name: &str) {
     let parent = split_input(&form.dir_input).0.to_string();
-    let parent = if parent == "~" { "~/".to_string() } else { parent };
+    let parent = if parent == "~" {
+        "~/".to_string()
+    } else {
+        parent
+    };
     form.dir_input = format!("{parent}{name}");
     form.completion = None;
 }
 
 /// Apply finished background work. Called on every tick.
 pub fn poll_jobs(app: &mut App) {
-    let jobs: Vec<JobResult> = app.launch_jobs.lock().map(|mut v| v.drain(..).collect()).unwrap_or_default();
+    let jobs: Vec<JobResult> = app
+        .launch_jobs
+        .lock()
+        .map(|mut v| v.drain(..).collect())
+        .unwrap_or_default();
     for job in jobs {
         match job {
             JobResult::Models { account_id, result } => {
                 app.agy_models.insert(account_id, Some(result));
             }
-            JobResult::Dirs { parent, from_tab, result } => {
-                let Some(Modal::StartSession(form)) = app.active_modal.as_mut() else { continue };
+            JobResult::Dirs {
+                parent,
+                from_tab,
+                result,
+            } => {
+                let Some(Modal::StartSession(form)) = app.active_modal.as_mut() else {
+                    continue;
+                };
                 if form.listing.as_deref() == Some(parent.as_str()) {
                     form.listing = None;
                 }
@@ -354,12 +452,24 @@ pub fn poll_jobs(app: &mut App) {
                         form.completion = None;
                     }
                     Ok(all) => {
-                        let c = DirCompletion { parent, all, selected: 0 };
-                        let matches: Vec<String> = c.matches(&partial).into_iter().map(str::to_string).collect();
+                        let c = DirCompletion {
+                            parent,
+                            all,
+                            selected: 0,
+                        };
+                        let matches: Vec<String> = c
+                            .matches(&partial)
+                            .into_iter()
+                            .map(str::to_string)
+                            .collect();
                         if from_tab && matches.len() == 1 {
                             apply_completion(form, &matches[0]);
                         } else if from_tab && matches.is_empty() {
-                            form.dir_notice = Some(if partial.is_empty() { "No subdirectories".into() } else { "No matching directories".into() });
+                            form.dir_notice = Some(if partial.is_empty() {
+                                "No subdirectories".into()
+                            } else {
+                                "No matching directories".into()
+                            });
                             form.completion = None;
                         } else {
                             let refs: Vec<&str> = matches.iter().map(String::as_str).collect();
@@ -383,16 +493,24 @@ fn validate_dir(form: &StartSessionForm) -> Result<PathBuf, String> {
     if !p.is_dir() {
         return Err(format!("Working directory does not exist: {}", p.display()));
     }
-    std::fs::read_dir(&p).map_err(|_| format!("Working directory is not accessible: {}", p.display()))?;
+    std::fs::read_dir(&p)
+        .map_err(|_| format!("Working directory is not accessible: {}", p.display()))?;
     Ok(p)
 }
 
 /// Handle a key for the start-session form (which has been taken out of `app`).
-pub async fn handle_key(app: &mut App, client: &ApiClient, mut form: Box<StartSessionForm>, key: KeyEvent) {
+pub async fn handle_key(
+    app: &mut App,
+    client: &ApiClient,
+    mut form: Box<StartSessionForm>,
+    key: KeyEvent,
+) {
     // Dangerous-mode confirmation: Cancel is focused by default (0 = Cancel, 1 = Continue).
     if let Some(btn) = form.confirm_dangerous {
         match key.code {
-            KeyCode::Left | KeyCode::Right | KeyCode::Tab | KeyCode::BackTab => form.confirm_dangerous = Some(1 - btn),
+            KeyCode::Left | KeyCode::Right | KeyCode::Tab | KeyCode::BackTab => {
+                form.confirm_dangerous = Some(1 - btn)
+            }
             KeyCode::Enter if btn == 1 => return launch(app, client, form).await,
             KeyCode::Enter | KeyCode::Esc => form.confirm_dangerous = None,
             _ => {}
@@ -417,7 +535,10 @@ pub async fn handle_key(app: &mut App, client: &ApiClient, mut form: Box<StartSe
                     return;
                 }
                 KeyCode::Enter => {
-                    let pick = c.matches(split_input(&form.dir_input).1).get(c.selected).map(|s| s.to_string());
+                    let pick = c
+                        .matches(split_input(&form.dir_input).1)
+                        .get(c.selected)
+                        .map(|s| s.to_string());
                     match pick {
                         Some(name) => apply_completion(&mut form, &name),
                         None => form.completion = None,
@@ -456,12 +577,19 @@ pub async fn handle_key(app: &mut App, client: &ApiClient, mut form: Box<StartSe
                     form.account_index = cycle(form.account_index, n_accounts + 1, fwd);
                     form.model_index = 0;
                     form.error = None;
-                    if let Some(a) = agy_accounts(app).get(form.account_index).map(|a| (*a).clone()) {
+                    if let Some(a) = agy_accounts(app)
+                        .get(form.account_index)
+                        .map(|a| (*a).clone())
+                    {
                         request_models(app, &a);
                     }
                 }
-                FIELD_EXEC_MODE => form.exec_mode_index = cycle(form.exec_mode_index, form.exec_modes.len(), fwd),
-                FIELD_PERM_MODE => form.perm_mode_index = cycle(form.perm_mode_index, form.perm_modes.len(), fwd),
+                FIELD_EXEC_MODE => {
+                    form.exec_mode_index = cycle(form.exec_mode_index, form.exec_modes.len(), fwd)
+                }
+                FIELD_PERM_MODE => {
+                    form.perm_mode_index = cycle(form.perm_mode_index, form.perm_modes.len(), fwd)
+                }
                 FIELD_MODEL => form.model_index = cycle(form.model_index, models.len(), fwd),
                 FIELD_BUTTONS => form.button = 1 - form.button,
                 _ => {}
@@ -529,7 +657,9 @@ pub fn launch_options(app: &App, form: &StartSessionForm) -> Result<AgyLaunchOpt
 }
 
 async fn launch(app: &mut App, client: &ApiClient, mut form: Box<StartSessionForm>) {
-    let account = agy_accounts(app).get(form.account_index).map(|a| a.id.clone());
+    let account = agy_accounts(app)
+        .get(form.account_index)
+        .map(|a| a.id.clone());
     let (Some(account), Ok(opts)) = (account, launch_options(app, &form)) else {
         form.confirm_dangerous = None;
         form.error = Some("The selected account or directory is no longer valid.".into());
@@ -537,5 +667,13 @@ async fn launch(app: &mut App, client: &ApiClient, mut form: Box<StartSessionFor
         return;
     };
     app.active_modal = None;
-    crate::event::launch_session_and_open(app, client, "[interactive] session", "agy", Some(&account), Some(&opts)).await;
+    crate::event::launch_session_and_open(
+        app,
+        client,
+        "[interactive] session",
+        "agy",
+        Some(&account),
+        Some(&opts),
+    )
+    .await;
 }

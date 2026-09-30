@@ -12,18 +12,16 @@ use ratatui::{
     Frame,
 };
 
-use crate::{
-    app::App,
-    terminal_buffer::TerminalBuffer,
-    views::session_state_badge,
-};
+use crate::{app::App, terminal_buffer::TerminalBuffer, views::session_state_badge};
 
 pub fn render(f: &mut Frame, app: &App, area: Rect) {
     let session = match app.selected_session_or_detail() {
         Some(s) => s,
         None => {
-            let p = Paragraph::new("Session not found or has been removed. Press Ctrl+Q or Esc to return.")
-                .style(Style::default().fg(Color::Red));
+            let p = Paragraph::new(
+                "Session not found or has been removed. Press Ctrl+Q or Esc to return.",
+            )
+            .style(Style::default().fg(Color::Red));
             f.render_widget(p, area);
             return;
         }
@@ -68,21 +66,38 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
     let mut left_spans = if scroll_info.follow {
         vec![
             Span::raw(" "),
-            Span::styled("● LIVE ", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                "● LIVE ",
+                Style::default()
+                    .fg(Color::Green)
+                    .add_modifier(Modifier::BOLD),
+            ),
             session_state_badge(&session.state),
             Span::raw("  "),
-            Span::styled(agent_name, Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                agent_name,
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            ),
         ]
     } else {
         vec![
             Span::raw(" "),
             Span::styled(
                 format!("[SCROLL: {} lines up] ", scroll_info.scroll_offset),
-                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
             ),
             session_state_badge(&session.state),
             Span::raw("  "),
-            Span::styled(agent_name, Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                agent_name,
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            ),
         ]
     };
     if chunks[0].width >= 95 && !acct_label.is_empty() && acct_label != "None" {
@@ -113,8 +128,14 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
         let empty_msg = vec![
             Line::from(""),
             Line::from(vec![
-                Span::styled("  Waiting for agent output... ", Style::default().fg(Color::DarkGray)),
-                Span::styled("(Type prompts directly into the terminal)", Style::default().fg(Color::Cyan)),
+                Span::styled(
+                    "  Waiting for agent output... ",
+                    Style::default().fg(Color::DarkGray),
+                ),
+                Span::styled(
+                    "(Type prompts directly into the terminal)",
+                    Style::default().fg(Color::Cyan),
+                ),
             ]),
         ];
         f.render_widget(Paragraph::new(empty_msg), chunks[1]);
@@ -141,20 +162,50 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
 
     let shortcuts_line = if scroll_info.follow {
         Line::from(vec![
-            Span::styled(" [Ctrl+Q]", Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                " [Ctrl+Q]",
+                Style::default()
+                    .fg(Color::White)
+                    .add_modifier(Modifier::BOLD),
+            ),
             Span::styled(" Back  ", Style::default().fg(Color::DarkGray)),
-            Span::styled("[Ctrl+P]", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                "[Ctrl+P]",
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            ),
             Span::styled(" Control  ", Style::default().fg(Color::DarkGray)),
-            Span::styled("[F1]", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                "[F1]",
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            ),
             Span::styled(" Help  ", Style::default().fg(Color::DarkGray)),
             Span::styled("[PgUp/PgDn]", Style::default().fg(Color::White)),
             Span::styled(" Scroll", Style::default().fg(Color::DarkGray)),
         ])
     } else {
         Line::from(vec![
-            Span::styled(" [SCROLL MODE: ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-            Span::styled(format!("{} lines up", scroll_info.scroll_offset), Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
-            Span::styled(" | Press End/Esc or type to return to Live] ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                " [SCROLL MODE: ",
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                format!("{} lines up", scroll_info.scroll_offset),
+                Style::default()
+                    .fg(Color::White)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                " | Press End/Esc or type to return to Live] ",
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            ),
         ])
     };
 

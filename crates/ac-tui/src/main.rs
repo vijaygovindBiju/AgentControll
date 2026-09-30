@@ -1,8 +1,8 @@
 //! `ac-tui` — Agent Control Ratatui Dashboard binary.
 
-use std::path::PathBuf;
 use anyhow::Result;
 use clap::Parser;
+use std::path::PathBuf;
 
 #[derive(Parser, Debug)]
 #[command(

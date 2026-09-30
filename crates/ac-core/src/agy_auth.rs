@@ -43,7 +43,8 @@ const GOOGLE_TOKEN_URL: &str = "https://oauth2.googleapis.com/token";
 const OAUTH_SCOPES: &str = "openid email profile https://www.googleapis.com/auth/cloud-platform https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/aicode https://www.googleapis.com/auth/cclog https://www.googleapis.com/auth/experimentsandconfigs";
 /// Public OAuth client identifier of the Antigravity installed application.
 /// Client IDs are not secret: they appear in every authorization URL.
-pub const AGY_OAUTH_CLIENT_ID: &str = "1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com";
+pub const AGY_OAUTH_CLIENT_ID: &str =
+    "1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com";
 /// How long a browser login may take before it is abandoned.
 pub const LOGIN_TIMEOUT: Duration = Duration::from_secs(300);
 
@@ -73,7 +74,11 @@ pub enum AgyAuthError {
     #[error("{}", start_failure(.label, &format!("The refreshed Antigravity credential could not be used ({}).", .reason)))]
     RefreshFailed { label: String, reason: String },
     #[error("Antigravity account \"{label}\" cannot be started.\n\nReason:\nCould not prepare the account profile at {path}: {reason}")]
-    ProfileFailure { label: String, path: String, reason: String },
+    ProfileFailure {
+        label: String,
+        path: String,
+        reason: String,
+    },
     #[error("Antigravity account \"{label}\" cannot be started.\n\nReason:\nThe agy process could not be launched: {reason}")]
     LaunchFailure { label: String, reason: String },
     #[error("No Antigravity account is selected for this session.\nAgent Control never falls back to the machine's default agy login.")]
@@ -97,7 +102,9 @@ pub type AuthResult<T> = std::result::Result<T, AgyAuthError>;
 // ── Paths ─────────────────────────────────────────────────────────────────────
 
 fn home_dir() -> PathBuf {
-    std::env::var("HOME").map(PathBuf::from).unwrap_or_else(|_| PathBuf::from("/tmp"))
+    std::env::var("HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| PathBuf::from("/tmp"))
 }
 
 /// `~/.config/agentcontrol` (honours `XDG_CONFIG_HOME`).
@@ -119,7 +126,11 @@ pub fn profiles_dir() -> PathBuf {
 /// `~/.config/agentcontrol/profiles/<account-id>/`
 pub fn profile_dir(account_id: &Id) -> AuthResult<PathBuf> {
     let id = account_id.0.as_str();
-    if id.is_empty() || !id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
+    if id.is_empty()
+        || !id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+    {
         return Err(AgyAuthError::ProfileFailure {
             label: id.to_string(),
             path: profiles_dir().display().to_string(),
@@ -190,10 +201,19 @@ impl AgyToken {
     }
 
     /// Build from a Google OAuth token endpoint response.
-    pub fn from_google_response(v: &Value, now: DateTime<Utc>) -> std::result::Result<Self, String> {
-        let access = v.get("access_token").and_then(Value::as_str).filter(|s| !s.is_empty())
+    pub fn from_google_response(
+        v: &Value,
+        now: DateTime<Utc>,
+    ) -> std::result::Result<Self, String> {
+        let access = v
+            .get("access_token")
+            .and_then(Value::as_str)
+            .filter(|s| !s.is_empty())
             .ok_or("response has no access token")?;
-        let refresh = v.get("refresh_token").and_then(Value::as_str).filter(|s| !s.is_empty())
+        let refresh = v
+            .get("refresh_token")
+            .and_then(Value::as_str)
+            .filter(|s| !s.is_empty())
             .ok_or("response has no refresh token")?;
         let expires_in = v.get("expires_in").and_then(Value::as_i64).unwrap_or(0);
         Self::from_native(serde_json::json!({
@@ -213,7 +233,10 @@ impl AgyToken {
     }
 
     fn field(&self, k: &str) -> &str {
-        self.native["token"].get(k).and_then(Value::as_str).unwrap_or("")
+        self.native["token"]
+            .get(k)
+            .and_then(Value::as_str)
+            .unwrap_or("")
     }
 
     pub fn has_refresh_token(&self) -> bool {
@@ -221,12 +244,17 @@ impl AgyToken {
     }
 
     pub fn expiry(&self) -> Option<DateTime<Utc>> {
-        DateTime::parse_from_rfc3339(self.field("expiry")).ok().map(|d| d.with_timezone(&Utc))
+        DateTime::parse_from_rfc3339(self.field("expiry"))
+            .ok()
+            .map(|d| d.with_timezone(&Utc))
     }
 
     /// Google account e-mail from the id_token (non-secret identity).
     pub fn email(&self) -> Option<String> {
-        self.native.get("id_token").and_then(Value::as_str).and_then(email_from_jwt)
+        self.native
+            .get("id_token")
+            .and_then(Value::as_str)
+            .and_then(email_from_jwt)
     }
 
     fn same_secret_as(&self, other: &AgyToken) -> bool {
@@ -329,7 +357,8 @@ struct LegacyCredentialFile {
 /// Accepts the canonical `agy` provider and the legacy `antigravity` provider.
 pub fn credential_path(cred_ref: &str) -> Option<PathBuf> {
     let (prefix, id) = cred_ref.strip_prefix("ref:")?.split_once(':')?;
-    if !matches!(prefix, "agy" | "antigravity") || id.is_empty()
+    if !matches!(prefix, "agy" | "antigravity")
+        || id.is_empty()
         || !id.chars().all(|c| c.is_ascii_alphanumeric())
     {
         return None;
@@ -378,38 +407,66 @@ pub fn load_credential(cred_ref: &str, label_hint: &str) -> AuthResult<(PathBuf,
             return Err(AgyAuthError::NoCredential { label })
         }
         Err(e) => {
-            return Err(AgyAuthError::MalformedCredential { label, detail: format!("unreadable: {}", e.kind()) })
+            return Err(AgyAuthError::MalformedCredential {
+                label,
+                detail: format!("unreadable: {}", e.kind()),
+            })
         }
     };
-    let raw: Value = serde_json::from_str(&content).map_err(|_| AgyAuthError::MalformedCredential {
-        label: label.clone(),
-        detail: "file is not valid JSON".into(),
-    })?;
+    let raw: Value =
+        serde_json::from_str(&content).map_err(|_| AgyAuthError::MalformedCredential {
+            label: label.clone(),
+            detail: "file is not valid JSON".into(),
+        })?;
 
     if raw.get("version").and_then(Value::as_u64) == Some(CREDENTIAL_VERSION as u64) {
-        let file: CredentialFile = serde_json::from_value(raw).map_err(|_| AgyAuthError::MalformedCredential {
-            label: label.clone(),
-            detail: "unexpected credential file layout".into(),
-        })?;
-        let lbl = if file.label.is_empty() { label } else { file.label.clone() };
-        let tok = file.token().map_err(|reason| AgyAuthError::InvalidCredential { label: lbl.clone(), reason })?;
-        tok.validate(Utc::now()).map_err(|reason| AgyAuthError::InvalidCredential { label: lbl, reason })?;
+        let file: CredentialFile =
+            serde_json::from_value(raw).map_err(|_| AgyAuthError::MalformedCredential {
+                label: label.clone(),
+                detail: "unexpected credential file layout".into(),
+            })?;
+        let lbl = if file.label.is_empty() {
+            label
+        } else {
+            file.label.clone()
+        };
+        let tok = file
+            .token()
+            .map_err(|reason| AgyAuthError::InvalidCredential {
+                label: lbl.clone(),
+                reason,
+            })?;
+        tok.validate(Utc::now())
+            .map_err(|reason| AgyAuthError::InvalidCredential { label: lbl, reason })?;
         return Ok((path, file));
     }
 
     // Legacy migration.
-    let legacy: LegacyCredentialFile = serde_json::from_value(raw).map_err(|_| AgyAuthError::MalformedCredential {
-        label: label.clone(),
-        detail: "unexpected legacy credential layout".into(),
-    })?;
-    let lbl = if legacy.label.is_empty() { label } else { legacy.label.clone() };
+    let legacy: LegacyCredentialFile =
+        serde_json::from_value(raw).map_err(|_| AgyAuthError::MalformedCredential {
+            label: label.clone(),
+            detail: "unexpected legacy credential layout".into(),
+        })?;
+    let lbl = if legacy.label.is_empty() {
+        label
+    } else {
+        legacy.label.clone()
+    };
     let tok = match classify_material(legacy.token.as_deref().unwrap_or(""), Utc::now()) {
         TokenMaterial::Empty => return Err(AgyAuthError::NoCredential { label: lbl }),
-        TokenMaterial::AuthorizationCode => return Err(AgyAuthError::AuthorizationCodeOnly { label: lbl }),
-        TokenMaterial::Invalid(reason) => return Err(AgyAuthError::InvalidCredential { label: lbl, reason }),
+        TokenMaterial::AuthorizationCode => {
+            return Err(AgyAuthError::AuthorizationCodeOnly { label: lbl })
+        }
+        TokenMaterial::Invalid(reason) => {
+            return Err(AgyAuthError::InvalidCredential { label: lbl, reason })
+        }
         TokenMaterial::Usable(t) => t,
     };
-    tok.validate(Utc::now()).map_err(|reason| AgyAuthError::InvalidCredential { label: lbl.clone(), reason })?;
+    tok.validate(Utc::now())
+        .map_err(|reason| AgyAuthError::InvalidCredential {
+            label: lbl.clone(),
+            reason,
+        })?;
     let now = Utc::now().to_rfc3339();
     let file = CredentialFile {
         version: CREDENTIAL_VERSION,
@@ -417,14 +474,26 @@ pub fn load_credential(cred_ref: &str, label_hint: &str) -> AuthResult<(PathBuf,
         provider: PROVIDER.into(),
         label: lbl,
         credential_type: CredentialType::AntigravityOauth,
-        source: if legacy.auth_mode.contains("import") { "local_import".into() } else { "browser_login".into() },
+        source: if legacy.auth_mode.contains("import") {
+            "local_import".into()
+        } else {
+            "browser_login".into()
+        },
         email: tok.email(),
-        created_at: if legacy.created_at.is_empty() { now.clone() } else { legacy.created_at },
+        created_at: if legacy.created_at.is_empty() {
+            now.clone()
+        } else {
+            legacy.created_at
+        },
         updated_at: now,
         credential_data: tok.native().clone(),
     };
     write_credential_file(&path, &file)?;
-    tracing::info!("Migrated Antigravity credential {} to format v{}", file.id, CREDENTIAL_VERSION);
+    tracing::info!(
+        "Migrated Antigravity credential {} to format v{}",
+        file.id,
+        CREDENTIAL_VERSION
+    );
     Ok((path, file))
 }
 
@@ -437,12 +506,26 @@ pub fn validate_credential(cred_ref: &str, label_hint: &str) -> AuthResult<Crede
 
 /// Entries of `~/.gemini` shared (symlinked) into every profile. Everything
 /// else — tokens, account lists, caches, conversation state — stays per-profile.
-const SHARED_GEMINI: [&str; 4] = ["settings.json", "trustedFolders.json", "config", "installation_id"];
-const SHARED_AGY_CLI: [&str; 6] = ["bin", "builtin", "settings.json", "keybindings.json", "updater", "installation_id"];
+const SHARED_GEMINI: [&str; 4] = [
+    "settings.json",
+    "trustedFolders.json",
+    "config",
+    "installation_id",
+];
+const SHARED_AGY_CLI: [&str; 6] = [
+    "bin",
+    "builtin",
+    "settings.json",
+    "keybindings.json",
+    "updater",
+    "installation_id",
+];
 
 #[cfg(unix)]
 fn link_entries(src: &Path, dst: &Path, filter: impl Fn(&str) -> bool) {
-    let Ok(entries) = fs::read_dir(src) else { return };
+    let Ok(entries) = fs::read_dir(src) else {
+        return;
+    };
     for entry in entries.flatten() {
         let name = entry.file_name();
         let Some(n) = name.to_str() else { continue };
@@ -474,13 +557,25 @@ fn read_profile_token(path: &Path) -> Option<std::result::Result<AgyToken, Strin
 /// the stored token and is not older than it.
 pub fn sync_profile_back(account_id: &Id, cred_ref: &str) -> AuthResult<bool> {
     let (path, mut file) = load_credential(cred_ref, &account_id.0)?;
-    let profile_token = profile_dir(account_id)?.join(".gemini/antigravity-cli").join(TOKEN_FILE);
+    let profile_token = profile_dir(account_id)?
+        .join(".gemini/antigravity-cli")
+        .join(TOKEN_FILE);
     let fresh = match read_profile_token(&profile_token) {
         None => return Ok(false),
-        Some(Err(reason)) => return Err(AgyAuthError::RefreshFailed { label: file.label.clone(), reason }),
+        Some(Err(reason)) => {
+            return Err(AgyAuthError::RefreshFailed {
+                label: file.label.clone(),
+                reason,
+            })
+        }
         Some(Ok(t)) => t,
     };
-    let stored = file.token().map_err(|reason| AgyAuthError::InvalidCredential { label: file.label.clone(), reason })?;
+    let stored = file
+        .token()
+        .map_err(|reason| AgyAuthError::InvalidCredential {
+            label: file.label.clone(),
+            reason,
+        })?;
     if fresh.same_secret_as(&stored) || fresh.validate(Utc::now()).is_err() {
         return Ok(false);
     }
@@ -498,7 +593,10 @@ pub fn sync_profile_back(account_id: &Id, cred_ref: &str) -> AuthResult<bool> {
     file.credential_data = fresh.native().clone();
     file.updated_at = Utc::now().to_rfc3339();
     write_credential_file(&path, &file)?;
-    tracing::info!("Stored refreshed Antigravity credential for account {}", account_id);
+    tracing::info!(
+        "Stored refreshed Antigravity credential for account {}",
+        account_id
+    );
     Ok(true)
 }
 
@@ -522,32 +620,56 @@ pub fn prepare_profile(account_id: &Id, cred_ref: &str) -> AuthResult<HashMap<St
     let real_home = home_dir();
     link_entries(&real_home, &home, |n| n != ".gemini");
     let real_gemini = real_home.join(".gemini");
-    link_entries(&real_gemini, &home.join(".gemini"), |n| SHARED_GEMINI.contains(&n));
-    link_entries(&real_gemini.join("antigravity-cli"), &agy_dir, |n| SHARED_AGY_CLI.contains(&n));
+    link_entries(&real_gemini, &home.join(".gemini"), |n| {
+        SHARED_GEMINI.contains(&n)
+    });
+    link_entries(&real_gemini.join("antigravity-cli"), &agy_dir, |n| {
+        SHARED_AGY_CLI.contains(&n)
+    });
 
     // Pick up any token agy refreshed during a previous run, then make the
     // profile hold exactly the stored credential.
     match sync_profile_back(account_id, cred_ref) {
         Ok(_) => {}
         // An unusable profile token is replaced by the stored credential below.
-        Err(e @ AgyAuthError::RefreshFailed { .. }) => tracing::warn!("Antigravity profile for {}: {}", account_id, e.to_string().replace('\n', " ")),
+        Err(e @ AgyAuthError::RefreshFailed { .. }) => tracing::warn!(
+            "Antigravity profile for {}: {}",
+            account_id,
+            e.to_string().replace('\n', " ")
+        ),
         Err(e) => return Err(e),
     }
     let (_, file) = load_credential(cred_ref, &label)?;
-    let stored = file.token().map_err(|reason| AgyAuthError::InvalidCredential { label: label.clone(), reason })?;
+    let stored = file
+        .token()
+        .map_err(|reason| AgyAuthError::InvalidCredential {
+            label: label.clone(),
+            reason,
+        })?;
     let token_path = agy_dir.join(TOKEN_FILE);
-    if token_path.symlink_metadata().map(|m| m.file_type().is_symlink()).unwrap_or(false) {
+    if token_path
+        .symlink_metadata()
+        .map(|m| m.file_type().is_symlink())
+        .unwrap_or(false)
+    {
         fs::remove_file(&token_path).map_err(|e| profile_err(e.to_string()))?;
     }
-    let up_to_date = matches!(read_profile_token(&token_path), Some(Ok(t)) if t.same_secret_as(&stored));
+    let up_to_date =
+        matches!(read_profile_token(&token_path), Some(Ok(t)) if t.same_secret_as(&stored));
     if !up_to_date {
-        let body = serde_json::to_vec_pretty(stored.native()).map_err(|e| profile_err(e.to_string()))?;
+        let body =
+            serde_json::to_vec_pretty(stored.native()).map_err(|e| profile_err(e.to_string()))?;
         write_private(&token_path, &body).map_err(|e| profile_err(e.to_string()))?;
     }
 
     let mut envs = HashMap::new();
-    for (var, default) in [("XDG_CONFIG_HOME", ".config"), ("XDG_DATA_HOME", ".local/share"), ("XDG_CACHE_HOME", ".cache")] {
-        let v = std::env::var(var).unwrap_or_else(|_| real_home.join(default).to_string_lossy().into_owned());
+    for (var, default) in [
+        ("XDG_CONFIG_HOME", ".config"),
+        ("XDG_DATA_HOME", ".local/share"),
+        ("XDG_CACHE_HOME", ".cache"),
+    ] {
+        let v = std::env::var(var)
+            .unwrap_or_else(|_| real_home.join(default).to_string_lossy().into_owned());
         envs.insert(var.to_string(), v);
     }
     envs.insert("HOME".into(), home.to_string_lossy().into_owned());
@@ -564,7 +686,11 @@ pub struct RemovalStaging {
 /// Step 1 of removal: move the credential file and profile out of the active
 /// locations into a staging area (atomic renames). Nothing is deleted yet.
 pub fn stage_account_removal(account_id: &Id, cred_ref: &str) -> AuthResult<RemovalStaging> {
-    let trash = agentcontrol_config_dir().join(".removing").join(format!("{}-{}", account_id.0, ulid::Ulid::new()));
+    let trash = agentcontrol_config_dir().join(".removing").join(format!(
+        "{}-{}",
+        account_id.0,
+        ulid::Ulid::new()
+    ));
     let mut staging = RemovalStaging::default();
     let mut targets = vec![profile_dir(account_id)?];
     if let Some(p) = credential_path(cred_ref) {
@@ -578,7 +704,10 @@ pub fn stage_account_removal(account_id: &Id, cred_ref: &str) -> AuthResult<Remo
         let res = fs::create_dir_all(&trash).and_then(|_| fs::rename(&src, &dst));
         if let Err(e) = res {
             staging.rollback();
-            return Err(AgyAuthError::Storage(format!("could not remove {}: {e}", src.display())));
+            return Err(AgyAuthError::Storage(format!(
+                "could not remove {}: {e}",
+                src.display()
+            )));
         }
         staging.staged.push((src, dst));
     }
@@ -601,7 +730,12 @@ impl RemovalStaging {
         let mut parent = None;
         for (_, dst) in self.staged.drain(..) {
             parent = dst.parent().map(Path::to_path_buf);
-            let res = if dst.is_dir() && !dst.symlink_metadata().map(|m| m.file_type().is_symlink()).unwrap_or(false) {
+            let res = if dst.is_dir()
+                && !dst
+                    .symlink_metadata()
+                    .map(|m| m.file_type().is_symlink())
+                    .unwrap_or(false)
+            {
                 fs::remove_dir_all(&dst)
             } else {
                 fs::remove_file(&dst)
@@ -645,23 +779,33 @@ pub struct OAuthClient {
 
 impl std::fmt::Debug for OAuthClient {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("OAuthClient").field("client_id", &self.client_id).finish_non_exhaustive()
+        f.debug_struct("OAuthClient")
+            .field("client_id", &self.client_id)
+            .finish_non_exhaustive()
     }
 }
 
 impl OAuthClient {
     pub fn new(client_id: impl Into<String>, client_secret: impl Into<String>) -> Self {
-        Self { client_id: client_id.into(), client_secret: client_secret.into() }
+        Self {
+            client_id: client_id.into(),
+            client_secret: client_secret.into(),
+        }
     }
 
     pub fn load() -> AuthResult<Self> {
-        let not_configured = || AgyAuthError::OAuthNotConfigured(oauth_client_config_path().display().to_string());
-        if let (Ok(id), Ok(secret)) = (std::env::var("AC_AGY_OAUTH_CLIENT_ID"), std::env::var("AC_AGY_OAUTH_CLIENT_SECRET")) {
+        let not_configured =
+            || AgyAuthError::OAuthNotConfigured(oauth_client_config_path().display().to_string());
+        if let (Ok(id), Ok(secret)) = (
+            std::env::var("AC_AGY_OAUTH_CLIENT_ID"),
+            std::env::var("AC_AGY_OAUTH_CLIENT_SECRET"),
+        ) {
             if !id.trim().is_empty() && !secret.trim().is_empty() {
                 return Ok(Self::new(id.trim(), secret.trim()));
             }
         }
-        let content = fs::read_to_string(oauth_client_config_path()).map_err(|_| not_configured())?;
+        let content =
+            fs::read_to_string(oauth_client_config_path()).map_err(|_| not_configured())?;
         let v: Value = serde_json::from_str(&content).map_err(|_| not_configured())?;
         match (v["client_id"].as_str(), v["client_secret"].as_str()) {
             (Some(id), Some(s)) if !id.is_empty() && !s.is_empty() => Ok(Self::new(id, s)),
@@ -679,15 +823,21 @@ impl OAuthClient {
         if let Ok(c) = Self::load() {
             return Ok(c);
         }
-        let bin = find_agy_binary().ok_or_else(|| AgyAuthError::OAuthNotConfigured("agy is not installed on this machine.".into()))?;
+        let bin = find_agy_binary().ok_or_else(|| {
+            AgyAuthError::OAuthNotConfigured("agy is not installed on this machine.".into())
+        })?;
         let client = Self::discover_from_binary(&bin, GOOGLE_TOKEN_URL).await?;
         let body = serde_json::json!({
             "client_id": client.client_id,
             "client_secret": client.client_secret,
             "source": "discovered from the local agy installation",
         });
-        let _ = ensure_private_dir(&agentcontrol_config_dir())
-            .and_then(|_| write_private(&oauth_client_config_path(), &serde_json::to_vec_pretty(&body).unwrap_or_default()));
+        let _ = ensure_private_dir(&agentcontrol_config_dir()).and_then(|_| {
+            write_private(
+                &oauth_client_config_path(),
+                &serde_json::to_vec_pretty(&body).unwrap_or_default(),
+            )
+        });
         Ok(client)
     }
 
@@ -696,14 +846,25 @@ impl OAuthClient {
     /// `invalid_grant` means the client credentials are correct,
     /// `invalid_client` means they are not. No user data is involved.
     pub async fn discover_from_binary(bin: &Path, token_url: &str) -> AuthResult<Self> {
-        let bytes = fs::read(bin).map_err(|e| AgyAuthError::OAuthNotConfigured(format!("could not read {}: {}", bin.display(), e.kind())))?;
+        let bytes = fs::read(bin).map_err(|e| {
+            AgyAuthError::OAuthNotConfigured(format!(
+                "could not read {}: {}",
+                bin.display(),
+                e.kind()
+            ))
+        })?;
         let re = regex::bytes::Regex::new(r"GOCSPX-[A-Za-z0-9_-]{28}").expect("valid regex");
-        let mut candidates: Vec<String> = re.find_iter(&bytes).map(|m| String::from_utf8_lossy(m.as_bytes()).into_owned()).collect();
+        let mut candidates: Vec<String> = re
+            .find_iter(&bytes)
+            .map(|m| String::from_utf8_lossy(m.as_bytes()).into_owned())
+            .collect();
         candidates.sort();
         candidates.dedup();
         drop(bytes);
         if candidates.is_empty() {
-            return Err(AgyAuthError::OAuthNotConfigured("the installed agy does not contain a login configuration.".into()));
+            return Err(AgyAuthError::OAuthNotConfigured(
+                "the installed agy does not contain a login configuration.".into(),
+            ));
         }
         let http = http_client()?;
         for secret in candidates {
@@ -714,21 +875,30 @@ impl OAuthClient {
                 ("grant_type", "authorization_code"),
                 ("redirect_uri", "http://127.0.0.1/oauth2callback"),
             ];
-            let body = form_urlencoded::Serializer::new(String::new()).extend_pairs(form).finish();
+            let body = form_urlencoded::Serializer::new(String::new())
+                .extend_pairs(form)
+                .finish();
             let resp = http
                 .post(token_url)
                 .header("Content-Type", "application/x-www-form-urlencoded")
                 .body(body)
                 .send()
                 .await
-                .map_err(|e| AgyAuthError::OAuthNotConfigured(format!("could not reach Google to verify the login configuration: {}", e.without_url())))?;
+                .map_err(|e| {
+                    AgyAuthError::OAuthNotConfigured(format!(
+                        "could not reach Google to verify the login configuration: {}",
+                        e.without_url()
+                    ))
+                })?;
             let text = resp.text().await.unwrap_or_default();
             let v: Value = serde_json::from_str(&text).unwrap_or(Value::Null);
             if v.get("error").and_then(Value::as_str) == Some("invalid_grant") {
                 return Ok(Self::new(AGY_OAUTH_CLIENT_ID, secret));
             }
         }
-        Err(AgyAuthError::OAuthNotConfigured("the installed agy's login configuration was not accepted by Google.".into()))
+        Err(AgyAuthError::OAuthNotConfigured(
+            "the installed agy's login configuration was not accepted by Google.".into(),
+        ))
     }
 }
 
@@ -738,7 +908,11 @@ pub fn find_agy_binary() -> Option<PathBuf> {
     if p.is_absolute() {
         return p.is_file().then_some(p);
     }
-    std::env::var_os("PATH").and_then(|paths| std::env::split_paths(&paths).map(|d| d.join(&p)).find(|c| c.is_file()))
+    std::env::var_os("PATH").and_then(|paths| {
+        std::env::split_paths(&paths)
+            .map(|d| d.join(&p))
+            .find(|c| c.is_file())
+    })
 }
 
 fn http_client() -> AuthResult<reqwest::Client> {
@@ -755,7 +929,11 @@ pub async fn begin_browser_login() -> AuthResult<BrowserLogin> {
 
 /// Wait for the callback, exchange the code, validate and only then save the
 /// credential. Returns `(credential_ref, token)`. Nothing is written on failure.
-pub async fn finish_browser_login(login: &BrowserLogin, label: &str, timeout: Duration) -> AuthResult<(String, AgyToken)> {
+pub async fn finish_browser_login(
+    login: &BrowserLogin,
+    label: &str,
+    timeout: Duration,
+) -> AuthResult<(String, AgyToken)> {
     let code = login.wait_for_callback(timeout).await?;
     let token = login.exchange(&code).await?;
     let cref = save_new_credential(label, &token, "browser_login")?;
@@ -787,7 +965,8 @@ pub async fn finish_login_with_handoff(
     on_rejected: impl Fn(String),
 ) -> AuthResult<(String, AgyToken)> {
     let deadline = tokio::time::Instant::now() + timeout;
-    let timed_out = || AgyAuthError::LoginFailed("Authentication timed out. No credential was saved.".into());
+    let timed_out =
+        || AgyAuthError::LoginFailed("Authentication timed out. No credential was saved.".into());
     let mut paste_open = true;
     let code = loop {
         let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
@@ -855,7 +1034,8 @@ impl BrowserLogin {
         let redirect_uri = format!("http://127.0.0.1:{port}/oauth2callback");
         let state = random_urlsafe(24)?;
         let verifier = random_urlsafe(48)?;
-        let challenge = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(Sha256::digest(verifier.as_bytes()));
+        let challenge = base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .encode(Sha256::digest(verifier.as_bytes()));
         let query = form_urlencoded::Serializer::new(String::new())
             .append_pair("client_id", &client.client_id)
             .append_pair("redirect_uri", &redirect_uri)
@@ -932,18 +1112,27 @@ impl BrowserLogin {
     pub fn code_from_pasted(&self, pasted: &str) -> AuthResult<String> {
         let pasted = pasted.trim();
         if pasted.is_empty() {
-            return Err(AgyAuthError::LoginFailed("no authorization code was entered".into()));
+            return Err(AgyAuthError::LoginFailed(
+                "no authorization code was entered".into(),
+            ));
         }
         match pasted.find("/oauth2callback") {
             Some(i) => self.parse_callback(&pasted[i..]),
-            None if pasted.contains("code=") => self.parse_callback(&format!("/oauth2callback?{}", pasted.trim_start_matches('?'))),
-            None => Err(AgyAuthError::LoginFailed("Paste the full address from the browser's address bar.".into())),
+            None if pasted.contains("code=") => self.parse_callback(&format!(
+                "/oauth2callback?{}",
+                pasted.trim_start_matches('?')
+            )),
+            None => Err(AgyAuthError::LoginFailed(
+                "Paste the full address from the browser's address bar.".into(),
+            )),
         }
     }
 
     fn parse_callback(&self, target: &str) -> AuthResult<String> {
         let query = target.split_once('?').map(|(_, q)| q).unwrap_or("");
-        let params: HashMap<String, String> = form_urlencoded::parse(query.as_bytes()).into_owned().collect();
+        let params: HashMap<String, String> = form_urlencoded::parse(query.as_bytes())
+            .into_owned()
+            .collect();
         if let Some(err) = params.get("error") {
             return Err(AgyAuthError::LoginFailed(match err.as_str() {
                 "access_denied" => "Authorization was denied.".to_string(),
@@ -957,7 +1146,9 @@ impl BrowserLogin {
             .get("code")
             .filter(|c| !c.is_empty())
             .cloned()
-            .ok_or_else(|| AgyAuthError::LoginFailed("callback did not contain an authorization code".into()))
+            .ok_or_else(|| {
+                AgyAuthError::LoginFailed("callback did not contain an authorization code".into())
+            })
     }
 
     /// Exchange the authorization code for tokens. The code, verifier and
@@ -971,33 +1162,61 @@ impl BrowserLogin {
             ("grant_type", "authorization_code"),
             ("redirect_uri", self.redirect_uri.as_str()),
         ];
-        let body = form_urlencoded::Serializer::new(String::new()).extend_pairs(form).finish();
+        let body = form_urlencoded::Serializer::new(String::new())
+            .extend_pairs(form)
+            .finish();
         let resp = http_client()?
             .post(&self.token_url)
             .header("Content-Type", "application/x-www-form-urlencoded")
             .body(body)
             .send()
             .await
-            .map_err(|e| AgyAuthError::LoginFailed(format!("could not reach Google token endpoint: {}", e.without_url())))?;
+            .map_err(|e| {
+                AgyAuthError::LoginFailed(format!(
+                    "could not reach Google token endpoint: {}",
+                    e.without_url()
+                ))
+            })?;
         let status = resp.status();
-        let text = resp.text().await.map_err(|e| AgyAuthError::LoginFailed(format!("token response unreadable: {}", e.without_url())))?;
-        let v: Value = serde_json::from_str(&text)
-            .map_err(|_| AgyAuthError::LoginFailed(format!("malformed token response (HTTP {status})")))?;
+        let text = resp.text().await.map_err(|e| {
+            AgyAuthError::LoginFailed(format!("token response unreadable: {}", e.without_url()))
+        })?;
+        let v: Value = serde_json::from_str(&text).map_err(|_| {
+            AgyAuthError::LoginFailed(format!("malformed token response (HTTP {status})"))
+        })?;
         if let Some(err) = v.get("error").and_then(Value::as_str) {
-            let desc = v.get("error_description").and_then(Value::as_str).unwrap_or("");
-            return Err(AgyAuthError::LoginFailed(format!("token exchange rejected: {} {}", sanitize(err), sanitize(desc)).trim().to_string()));
+            let desc = v
+                .get("error_description")
+                .and_then(Value::as_str)
+                .unwrap_or("");
+            return Err(AgyAuthError::LoginFailed(
+                format!(
+                    "token exchange rejected: {} {}",
+                    sanitize(err),
+                    sanitize(desc)
+                )
+                .trim()
+                .to_string(),
+            ));
         }
         if !status.is_success() {
-            return Err(AgyAuthError::LoginFailed(format!("token exchange failed (HTTP {status})")));
+            return Err(AgyAuthError::LoginFailed(format!(
+                "token exchange failed (HTTP {status})"
+            )));
         }
-        let tok = AgyToken::from_google_response(&v, Utc::now()).map_err(|e| AgyAuthError::LoginFailed(format!("invalid token response: {e}")))?;
-        tok.validate(Utc::now()).map_err(AgyAuthError::LoginFailed)?;
+        let tok = AgyToken::from_google_response(&v, Utc::now())
+            .map_err(|e| AgyAuthError::LoginFailed(format!("invalid token response: {e}")))?;
+        tok.validate(Utc::now())
+            .map_err(AgyAuthError::LoginFailed)?;
         Ok(tok)
     }
 }
 
 fn sanitize(s: &str) -> String {
-    s.chars().filter(|c| c.is_ascii_graphic() || *c == ' ').take(200).collect()
+    s.chars()
+        .filter(|c| c.is_ascii_graphic() || *c == ' ')
+        .take(200)
+        .collect()
 }
 
 // ── Small shared helpers ──────────────────────────────────────────────────────
@@ -1023,7 +1242,11 @@ pub fn email_from_jwt(jwt: &str) -> Option<String> {
 /// Open a URL in the user's browser. The URL is passed as a single argument
 /// and never contains secrets (only client_id, state and PKCE challenge).
 pub fn open_browser(url: &str) -> bool {
-    let candidates: &[&str] = if cfg!(target_os = "macos") { &["open"] } else { &["xdg-open"] };
+    let candidates: &[&str] = if cfg!(target_os = "macos") {
+        &["open"]
+    } else {
+        &["xdg-open"]
+    };
     candidates.iter().any(|cmd| {
         std::process::Command::new(cmd)
             .arg(url)
@@ -1040,7 +1263,8 @@ mod tests {
     use super::*;
 
     fn jwt(email: &str) -> String {
-        let p = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(format!("{{\"email\":\"{email}\"}}"));
+        let p = base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .encode(format!("{{\"email\":\"{email}\"}}"));
         format!("h.{p}.s")
     }
 
@@ -1066,13 +1290,31 @@ mod tests {
         let now = Utc::now();
         assert_eq!(classify_material("", now), TokenMaterial::Empty);
         assert_eq!(classify_material("   ", now), TokenMaterial::Empty);
-        assert_eq!(classify_material("4/0AbCdEf-xyz", now), TokenMaterial::AuthorizationCode);
-        assert_eq!(classify_material("4%2F0AbCdEf", now), TokenMaterial::AuthorizationCode);
-        assert!(matches!(classify_material("random-string", now), TokenMaterial::Invalid(_)));
-        assert!(matches!(classify_material("{\"foo\":1}", now), TokenMaterial::Invalid(_)));
-        assert!(matches!(classify_material("{\"token\":{}}", now), TokenMaterial::Invalid(_)));
+        assert_eq!(
+            classify_material("4/0AbCdEf-xyz", now),
+            TokenMaterial::AuthorizationCode
+        );
+        assert_eq!(
+            classify_material("4%2F0AbCdEf", now),
+            TokenMaterial::AuthorizationCode
+        );
+        assert!(matches!(
+            classify_material("random-string", now),
+            TokenMaterial::Invalid(_)
+        ));
+        assert!(matches!(
+            classify_material("{\"foo\":1}", now),
+            TokenMaterial::Invalid(_)
+        ));
+        assert!(matches!(
+            classify_material("{\"token\":{}}", now),
+            TokenMaterial::Invalid(_)
+        ));
         let native = r#"{"token":{"access_token":"a","refresh_token":"r","expiry":"2000-01-01T00:00:00Z"},"auth_method":"consumer","id_token":""}"#;
-        assert!(matches!(classify_material(native, now), TokenMaterial::Usable(_)));
+        assert!(matches!(
+            classify_material(native, now),
+            TokenMaterial::Usable(_)
+        ));
     }
 
     #[test]
@@ -1100,21 +1342,37 @@ mod tests {
 
     #[test]
     fn errors_never_contain_secrets() {
-        let e = AgyAuthError::AuthorizationCodeOnly { label: "College Google".into() };
+        let e = AgyAuthError::AuthorizationCodeOnly {
+            label: "College Google".into(),
+        };
         let s = e.to_string();
-        assert!(s.contains("College Google") && s.contains("cannot be started") && s.contains("sign in again"));
+        assert!(
+            s.contains("College Google")
+                && s.contains("cannot be started")
+                && s.contains("sign in again")
+        );
         let dbg = format!("{:?}", OAuthClient::new("id", "SUPERSECRET"));
         assert!(!dbg.contains("SUPERSECRET"));
     }
 
     #[tokio::test]
     async fn callback_port_matches_redirect_and_exchange() {
-        let login = BrowserLogin::start(OAuthClient::new("cid", "sec")).await.unwrap();
+        let login = BrowserLogin::start(OAuthClient::new("cid", "sec"))
+            .await
+            .unwrap();
         let port = login.listener.local_addr().unwrap().port();
-        assert_eq!(login.redirect_uri(), format!("http://127.0.0.1:{port}/oauth2callback"));
-        let enc = form_urlencoded::byte_serialize(login.redirect_uri().as_bytes()).collect::<String>();
-        assert!(login.authorization_url().contains(&format!("redirect_uri={enc}")));
-        assert!(login.authorization_url().contains("code_challenge_method=S256"));
+        assert_eq!(
+            login.redirect_uri(),
+            format!("http://127.0.0.1:{port}/oauth2callback")
+        );
+        let enc =
+            form_urlencoded::byte_serialize(login.redirect_uri().as_bytes()).collect::<String>();
+        assert!(login
+            .authorization_url()
+            .contains(&format!("redirect_uri={enc}")));
+        assert!(login
+            .authorization_url()
+            .contains("code_challenge_method=S256"));
         assert!(!login.authorization_url().contains("sec"));
     }
 
@@ -1122,17 +1380,31 @@ mod tests {
     async fn callback_port_unavailable_is_reported() {
         let busy = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = busy.local_addr().unwrap().to_string();
-        let err = BrowserLogin::start_with(OAuthClient::new("c", "s"), &addr, GOOGLE_TOKEN_URL).await.err().unwrap();
+        let err = BrowserLogin::start_with(OAuthClient::new("c", "s"), &addr, GOOGLE_TOKEN_URL)
+            .await
+            .err()
+            .unwrap();
         assert!(matches!(err, AgyAuthError::CallbackUnavailable(_)));
-        assert!(err.to_string().contains("Unable to start Antigravity login callback"));
+        assert!(err
+            .to_string()
+            .contains("Unable to start Antigravity login callback"));
     }
 
     #[tokio::test]
     async fn state_mismatch_and_error_callbacks_fail() {
-        let login = BrowserLogin::start(OAuthClient::new("c", "s")).await.unwrap();
-        assert!(login.code_from_pasted("http://127.0.0.1:1/oauth2callback?code=abc&state=WRONG").is_err());
-        assert!(login.code_from_pasted("http://127.0.0.1:1/oauth2callback?error=access_denied").is_err());
-        let ok = format!("http://127.0.0.1:1/oauth2callback?code=4%2F0Ab&state={}", login.state);
+        let login = BrowserLogin::start(OAuthClient::new("c", "s"))
+            .await
+            .unwrap();
+        assert!(login
+            .code_from_pasted("http://127.0.0.1:1/oauth2callback?code=abc&state=WRONG")
+            .is_err());
+        assert!(login
+            .code_from_pasted("http://127.0.0.1:1/oauth2callback?error=access_denied")
+            .is_err());
+        let ok = format!(
+            "http://127.0.0.1:1/oauth2callback?code=4%2F0Ab&state={}",
+            login.state
+        );
         assert_eq!(login.code_from_pasted(&ok).unwrap(), "4/0Ab");
     }
 }

@@ -9,14 +9,14 @@ use ratatui::{
     Frame,
 };
 
-use ac_core::types::InteractionKind;
 use crate::app::App;
+use ac_core::types::InteractionKind;
 
 pub fn render(f: &mut Frame, app: &App, area: Rect) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Min(8),    // Pending table
+            Constraint::Min(8),     // Pending table
             Constraint::Length(10), // Selected interaction detail & action controls
         ])
         .split(area);
@@ -27,10 +27,21 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
 
 fn render_inbox_table(f: &mut Frame, app: &App, area: Rect) {
     let header_cells = [
-        "ID", "SESSION", "KIND", "TOOL / ACTION", "PROMPT / QUESTION", "WAITING",
+        "ID",
+        "SESSION",
+        "KIND",
+        "TOOL / ACTION",
+        "PROMPT / QUESTION",
+        "WAITING",
     ]
     .iter()
-    .map(|h| Cell::from(*h).style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)));
+    .map(|h| {
+        Cell::from(*h).style(
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        )
+    });
     let header = Row::new(header_cells).height(1).bottom_margin(1);
 
     let pending = app.pending_interactions();
@@ -79,14 +90,19 @@ fn render_inbox_table(f: &mut Frame, app: &App, area: Rect) {
 
         let row_cells = vec![
             Cell::from(iid).style(if is_selected {
-                Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD)
             } else {
                 Style::default().fg(Color::White)
             }),
             Cell::from(sid),
             Cell::from(Span::styled(
                 format!(" {kind_badge} "),
-                Style::default().fg(Color::Black).bg(kind_color).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(Color::Black)
+                    .bg(kind_color)
+                    .add_modifier(Modifier::BOLD),
             )),
             Cell::from(tool_str).style(Style::default().fg(Color::Yellow)),
             Cell::from(prompt_trunc),
@@ -117,7 +133,9 @@ fn render_inbox_table(f: &mut Frame, app: &App, area: Rect) {
             })
             .title(Span::styled(
                 format!(" Pending Interactions ({}) ", pending.len()),
-                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
             )),
     );
 
@@ -128,7 +146,10 @@ fn render_inbox_detail(f: &mut Frame, app: &App, area: Rect) {
     let block = Block::default()
         .borders(Borders::ALL)
         .border_style(Style::default().fg(Color::DarkGray))
-        .title(Span::styled(" Interaction Decision Controls ", Style::default().fg(Color::White)));
+        .title(Span::styled(
+            " Interaction Decision Controls ",
+            Style::default().fg(Color::White),
+        ));
 
     if let Some(item) = app.selected_pending_interaction() {
         let kind_str = match item.kind {
@@ -151,7 +172,12 @@ fn render_inbox_detail(f: &mut Frame, app: &App, area: Rect) {
         let lines = vec![
             Line::from(vec![
                 Span::styled("Type: ", Style::default().fg(Color::DarkGray)),
-                Span::styled(kind_str, Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                Span::styled(
+                    kind_str,
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD),
+                ),
                 Span::styled(tool_info, Style::default().fg(Color::Cyan)),
                 Span::raw("    "),
                 Span::styled("Session ID: ", Style::default().fg(Color::DarkGray)),
@@ -167,16 +193,40 @@ fn render_inbox_detail(f: &mut Frame, app: &App, area: Rect) {
             ]),
             Line::from(vec![
                 Span::styled("Actions: ", Style::default().fg(Color::DarkGray)),
-                Span::styled("  [a] Approve  ", Style::default().fg(Color::Black).bg(Color::Green).add_modifier(Modifier::BOLD)),
+                Span::styled(
+                    "  [a] Approve  ",
+                    Style::default()
+                        .fg(Color::Black)
+                        .bg(Color::Green)
+                        .add_modifier(Modifier::BOLD),
+                ),
                 Span::raw("   "),
-                Span::styled("  [d] Deny  ", Style::default().fg(Color::White).bg(Color::Red).add_modifier(Modifier::BOLD)),
+                Span::styled(
+                    "  [d] Deny  ",
+                    Style::default()
+                        .fg(Color::White)
+                        .bg(Color::Red)
+                        .add_modifier(Modifier::BOLD),
+                ),
                 Span::raw("   "),
-                Span::styled("  [r] Reply (with text)  ", Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                Span::styled(
+                    "  [r] Reply (with text)  ",
+                    Style::default()
+                        .fg(Color::Black)
+                        .bg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD),
+                ),
                 Span::raw("   "),
-                Span::styled("  [x] Dismiss  ", Style::default().fg(Color::White).bg(Color::DarkGray)),
+                Span::styled(
+                    "  [x] Dismiss  ",
+                    Style::default().fg(Color::White).bg(Color::DarkGray),
+                ),
             ]),
         ];
-        f.render_widget(Paragraph::new(lines).block(block).wrap(Wrap { trim: true }), area);
+        f.render_widget(
+            Paragraph::new(lines).block(block).wrap(Wrap { trim: true }),
+            area,
+        );
     } else {
         let p = Paragraph::new("No pending interactions requiring human action.")
             .style(Style::default().fg(Color::DarkGray))

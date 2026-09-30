@@ -21,8 +21,8 @@ use crate::{
     session::manager::SessionManagerHandle,
     types::{
         Account, AgentEvent, ApiRequest, ApiResponse, Id, InteractionState, Policy,
-        PolicyCondition, PolicyDecision, PolicyScope, Project, SubscriptionFilter,
-        TokenScope, WorkspacePolicy,
+        PolicyCondition, PolicyDecision, PolicyScope, Project, SubscriptionFilter, TokenScope,
+        WorkspacePolicy,
     },
 };
 
@@ -99,7 +99,8 @@ impl IpcServer {
                     let policy = self.policy_engine.clone();
                     tokio::spawn(async move {
                         if let Err(e) =
-                            handle_connection(stream, mgr, acct_mgr, proj_reg, hub, policy, evt_tx).await
+                            handle_connection(stream, mgr, acct_mgr, proj_reg, hub, policy, evt_tx)
+                                .await
                         {
                             warn!("IPC connection error: {e}");
                         }
@@ -152,10 +153,14 @@ pub fn is_mutating_cmd(cmd: &str) -> bool {
 
 /// Optional `launch` options of `session.create`. Unknown fields or values are
 /// rejected rather than silently mapped to some other permission mode.
-fn parse_launch(params: &serde_json::Value) -> Result<Option<crate::agy_launch::AgyLaunchOptions>, String> {
+fn parse_launch(
+    params: &serde_json::Value,
+) -> Result<Option<crate::agy_launch::AgyLaunchOptions>, String> {
     match params.get("launch") {
         None | Some(serde_json::Value::Null) => Ok(None),
-        Some(v) => serde_json::from_value(v.clone()).map(Some).map_err(|e| format!("invalid launch options: {e}")),
+        Some(v) => serde_json::from_value(v.clone())
+            .map(Some)
+            .map_err(|e| format!("invalid launch options: {e}")),
     }
 }
 
@@ -182,7 +187,10 @@ pub async fn dispatch_request(
             return ApiResponse::err(
                 &req.id,
                 "PermissionDenied",
-                format!("Token scope 'read' does not allow mutating command '{}'", req.cmd),
+                format!(
+                    "Token scope 'read' does not allow mutating command '{}'",
+                    req.cmd
+                ),
             );
         }
     }
@@ -266,11 +274,18 @@ async fn handle_connection(
 
             // Historical catch-up replay if since_seq is provided
             if let Some(since) = filter.since_seq {
-                if let Ok(historical) = session_mgr.query_events_since(since, filter.session_id.clone(), None).await {
+                if let Ok(historical) = session_mgr
+                    .query_events_since(since, filter.session_id.clone(), None)
+                    .await
+                {
                     for event in historical {
                         if filter.matches(&event) {
                             let line = serde_json::to_string(&json!({"v": 1, "event": event}))?;
-                            if write_half.write_all(format!("{line}\n").as_bytes()).await.is_err() {
+                            if write_half
+                                .write_all(format!("{line}\n").as_bytes())
+                                .await
+                                .is_err()
+                            {
                                 return Ok(());
                             }
                         }
@@ -285,7 +300,11 @@ async fn handle_connection(
                     Ok(event) => {
                         if filter.matches(&event) {
                             let line = serde_json::to_string(&json!({"v": 1, "event": event}))?;
-                            if write_half.write_all(format!("{line}\n").as_bytes()).await.is_err() {
+                            if write_half
+                                .write_all(format!("{line}\n").as_bytes())
+                                .await
+                                .is_err()
+                            {
                                 break;
                             }
                         }
@@ -317,21 +336,27 @@ async fn handle_connection(
 
 // ── Session commands ──────────────────────────────────────────────────────────
 
-pub async fn handle_session_cmd(
-    req: &ApiRequest,
-    mgr: &SessionManagerHandle,
-) -> ApiResponse {
+pub async fn handle_session_cmd(req: &ApiRequest, mgr: &SessionManagerHandle) -> ApiResponse {
     match req.cmd.as_str() {
         "session.create" => {
-            let task = req.params["task_description"].as_str().unwrap_or("").to_owned();
-            let agent_type = req.params["agent_type"].as_str().unwrap_or("agy").to_owned();
+            let task = req.params["task_description"]
+                .as_str()
+                .unwrap_or("")
+                .to_owned();
+            let agent_type = req.params["agent_type"]
+                .as_str()
+                .unwrap_or("agy")
+                .to_owned();
             let project_id = req.params["project_id"].as_str().map(Id::from);
             let account_id = req.params["account_id"].as_str().map(Id::from);
             let launch = match parse_launch(&req.params) {
                 Ok(l) => l,
                 Err(e) => return ApiResponse::err(&req.id, "ValidationError", e),
             };
-            match mgr.create_with_launch(task, agent_type, project_id, account_id, launch).await {
+            match mgr
+                .create_with_launch(task, agent_type, project_id, account_id, launch)
+                .await
+            {
                 Ok(id) => ApiResponse::ok(&req.id, json!({"session_id": id})),
                 Err(e) => ApiResponse::err(&req.id, classify_error(&e), e.to_string()),
             }
@@ -347,15 +372,24 @@ pub async fn handle_session_cmd(
             }
         }
         "session.create_and_start" => {
-            let task = req.params["task_description"].as_str().unwrap_or("").to_owned();
-            let agent_type = req.params["agent_type"].as_str().unwrap_or("agy").to_owned();
+            let task = req.params["task_description"]
+                .as_str()
+                .unwrap_or("")
+                .to_owned();
+            let agent_type = req.params["agent_type"]
+                .as_str()
+                .unwrap_or("agy")
+                .to_owned();
             let project_id = req.params["project_id"].as_str().map(Id::from);
             let account_id = req.params["account_id"].as_str().map(Id::from);
             let launch = match parse_launch(&req.params) {
                 Ok(l) => l,
                 Err(e) => return ApiResponse::err(&req.id, "ValidationError", e),
             };
-            let id = match mgr.create_with_launch(task, agent_type, project_id, account_id, launch).await {
+            let id = match mgr
+                .create_with_launch(task, agent_type, project_id, account_id, launch)
+                .await
+            {
                 Ok(id) => id,
                 Err(e) => return ApiResponse::err(&req.id, classify_error(&e), e.to_string()),
             };
@@ -405,12 +439,10 @@ pub async fn handle_session_cmd(
                 Err(e) => ApiResponse::err(&req.id, classify_error(&e), e.to_string()),
             }
         }
-        "session.list" => {
-            match mgr.list().await {
-                Ok(sessions) => ApiResponse::ok(&req.id, json!({"sessions": sessions})),
-                Err(e) => ApiResponse::err(&req.id, "InternalError", e.to_string()),
-            }
-        }
+        "session.list" => match mgr.list().await {
+            Ok(sessions) => ApiResponse::ok(&req.id, json!({"sessions": sessions})),
+            Err(e) => ApiResponse::err(&req.id, "InternalError", e.to_string()),
+        },
         "session.get" => {
             let sid = match get_id(&req.params, "session_id") {
                 Ok(id) => id,
@@ -479,15 +511,19 @@ pub async fn handle_session_cmd(
                 Err(e) => return ApiResponse::err(&req.id, "ValidationError", e.to_string()),
             };
             let target_aid = match get_id(&req.params, "target_account_id")
-                .or_else(|_| get_id(&req.params, "account_id")) {
+                .or_else(|_| get_id(&req.params, "account_id"))
+            {
                 Ok(id) => id,
                 Err(e) => return ApiResponse::err(&req.id, "ValidationError", e.to_string()),
             };
             match mgr.switch_account(sid, target_aid).await {
-                Ok(active_id) => ApiResponse::ok(&req.id, json!({
-                    "active_session_id": active_id,
-                    "session_id": active_id,
-                })),
+                Ok(active_id) => ApiResponse::ok(
+                    &req.id,
+                    json!({
+                        "active_session_id": active_id,
+                        "session_id": active_id,
+                    }),
+                ),
                 Err(e) => ApiResponse::err(&req.id, classify_error(&e), e.to_string()),
             }
         }
@@ -497,9 +533,12 @@ pub async fn handle_session_cmd(
                 Err(e) => return ApiResponse::err(&req.id, "ValidationError", e.to_string()),
             };
             match mgr.snapshot(sid).await {
-                Ok(snapshot) => ApiResponse::ok(&req.id, json!({
-                    "snapshot": snapshot,
-                })),
+                Ok(snapshot) => ApiResponse::ok(
+                    &req.id,
+                    json!({
+                        "snapshot": snapshot,
+                    }),
+                ),
                 Err(e) => ApiResponse::err(&req.id, classify_error(&e), e.to_string()),
             }
         }
@@ -508,13 +547,18 @@ pub async fn handle_session_cmd(
                 Ok(id) => id,
                 Err(e) => return ApiResponse::err(&req.id, "ValidationError", e.to_string()),
             };
-            let target_aid = req.params["target_account_id"].as_str().map(Id::from)
+            let target_aid = req.params["target_account_id"]
+                .as_str()
+                .map(Id::from)
                 .or_else(|| req.params["account_id"].as_str().map(Id::from));
             match mgr.handoff(sid, target_aid).await {
-                Ok(successor_id) => ApiResponse::ok(&req.id, json!({
-                    "successor_session_id": successor_id,
-                    "session_id": successor_id,
-                })),
+                Ok(successor_id) => ApiResponse::ok(
+                    &req.id,
+                    json!({
+                        "successor_session_id": successor_id,
+                        "session_id": successor_id,
+                    }),
+                ),
                 Err(e) => ApiResponse::err(&req.id, classify_error(&e), e.to_string()),
             }
         }
@@ -540,12 +584,16 @@ pub async fn handle_account_cmd(
             Err(e) => return ApiResponse::err(&req.id, "ValidationError", e.to_string()),
         };
         let target_aid = match get_id(&req.params, "target_account_id")
-            .or_else(|_| get_id(&req.params, "account_id")) {
+            .or_else(|_| get_id(&req.params, "account_id"))
+        {
             Ok(id) => id,
             Err(e) => return ApiResponse::err(&req.id, "ValidationError", e.to_string()),
         };
         return match session_mgr.switch_account(sid, target_aid).await {
-            Ok(active_id) => ApiResponse::ok(&req.id, json!({"active_session_id": active_id, "session_id": active_id})),
+            Ok(active_id) => ApiResponse::ok(
+                &req.id,
+                json!({"active_session_id": active_id, "session_id": active_id}),
+            ),
             Err(e) => ApiResponse::err(&req.id, classify_error(&e), e.to_string()),
         };
     }
@@ -556,20 +604,38 @@ pub async fn handle_account_cmd(
             let provider = req.params["provider"].as_str().unwrap_or("").to_owned();
             let agent_types: Vec<String> = req.params["agent_types"]
                 .as_array()
-                .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|v| v.as_str().map(String::from))
+                        .collect()
+                })
                 .unwrap_or_default();
-            let credential_ref = req.params["credential_ref"].as_str().unwrap_or("").to_owned();
+            let credential_ref = req.params["credential_ref"]
+                .as_str()
+                .unwrap_or("")
+                .to_owned();
             let concurrency_cap = req.params["concurrency_cap"].as_u64().unwrap_or(2) as u8;
             let tags: Vec<String> = req.params["tags"]
                 .as_array()
-                .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|v| v.as_str().map(String::from))
+                        .collect()
+                })
                 .unwrap_or_default();
             if provider == crate::agy_auth::PROVIDER {
                 if let Err(e) = crate::agy_auth::validate_credential(&credential_ref, &label) {
                     return ApiResponse::err(&req.id, "InvalidCredential", e.to_string());
                 }
             }
-            let account = Account::new(label, provider, agent_types, credential_ref, concurrency_cap, tags);
+            let account = Account::new(
+                label,
+                provider,
+                agent_types,
+                credential_ref,
+                concurrency_cap,
+                tags,
+            );
             match mgr_handle.0.lock().unwrap().register(account) {
                 Ok(id) => ApiResponse::ok(&req.id, json!({"account_id": id})),
                 Err(e) => ApiResponse::err(&req.id, "InternalError", e.to_string()),
@@ -586,7 +652,11 @@ pub async fn handle_account_cmd(
             let agent_type = req.params["agent_type"].as_str();
             let tags: Vec<String> = req.params["tags"]
                 .as_array()
-                .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|v| v.as_str().map(String::from))
+                        .collect()
+                })
                 .unwrap_or_default();
             let list = {
                 let mgr = mgr_handle.0.lock().unwrap();
@@ -653,12 +723,20 @@ async fn remove_account(
     aid: Id,
 ) -> ApiResponse {
     let Some(account) = mgr_handle.0.lock().unwrap().get(&aid).cloned() else {
-        return ApiResponse::err(&req.id, "NotFound", format!("Account \"{}\" does not exist.", aid));
+        return ApiResponse::err(
+            &req.id,
+            "NotFound",
+            format!("Account \"{}\" does not exist.", aid),
+        );
     };
     let live = session_mgr
         .list()
         .await
-        .map(|v| v.iter().filter(|s| s.account_id.as_ref() == Some(&aid) && !s.state.is_terminal()).count())
+        .map(|v| {
+            v.iter()
+                .filter(|s| s.account_id.as_ref() == Some(&aid) && !s.state.is_terminal())
+                .count()
+        })
         .unwrap_or(0);
     let active = live.max(account.active_session_count as usize);
     if active > 0 {
@@ -676,7 +754,13 @@ async fn remove_account(
     let mut staging = if is_agy {
         match crate::agy_auth::stage_account_removal(&aid, &account.credential_ref) {
             Ok(s) => Some(s),
-            Err(e) => return ApiResponse::err(&req.id, "CleanupFailed", format!("Account \"{}\" was not removed: {e}", account.label)),
+            Err(e) => {
+                return ApiResponse::err(
+                    &req.id,
+                    "CleanupFailed",
+                    format!("Account \"{}\" was not removed: {e}", account.label),
+                )
+            }
         }
     } else {
         None
@@ -704,7 +788,9 @@ pub async fn handle_project_cmd(
 ) -> ApiResponse {
     let reg_handle = match reg_opt {
         Some(h) => h,
-        None => return ApiResponse::err(&req.id, "InternalError", "Project registry not available"),
+        None => {
+            return ApiResponse::err(&req.id, "InternalError", "Project registry not available")
+        }
     };
 
     match req.cmd.as_str() {
@@ -714,13 +800,23 @@ pub async fn handle_project_cmd(
             let default_agent_type = req.params["default_agent_type"].as_str().map(String::from);
             let default_account_tags: Vec<String> = req.params["default_account_tags"]
                 .as_array()
-                .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|v| v.as_str().map(String::from))
+                        .collect()
+                })
                 .unwrap_or_default();
             let workspace_policy = match req.params["workspace_policy"].as_str() {
                 Some("worktree_per_session") => WorkspacePolicy::WorktreePerSession,
                 _ => WorkspacePolicy::Shared,
             };
-            let project = Project::new(name, repo_path, default_agent_type, default_account_tags, workspace_policy);
+            let project = Project::new(
+                name,
+                repo_path,
+                default_agent_type,
+                default_account_tags,
+                workspace_policy,
+            );
             match reg_handle.0.lock().unwrap().register(project) {
                 Ok(id) => ApiResponse::ok(&req.id, json!({"project_id": id})),
                 Err(e) => ApiResponse::err(&req.id, "InternalError", e.to_string()),
@@ -829,9 +925,8 @@ pub async fn handle_interaction_cmd(
                 Ok(id) => id,
                 Err(e) => return ApiResponse::err(&req.id, "ValidationError", e.to_string()),
             };
-            let decision: Option<PolicyDecision> = req.params["decision"]
-                .as_str()
-                .and_then(|d| match d {
+            let decision: Option<PolicyDecision> =
+                req.params["decision"].as_str().and_then(|d| match d {
                     "allow" => Some(PolicyDecision::Allow),
                     "deny" => Some(PolicyDecision::Deny),
                     "require_human" => Some(PolicyDecision::RequireHuman),
@@ -840,7 +935,10 @@ pub async fn handle_interaction_cmd(
             let response = req.params["response"].as_str().map(|s| s.to_owned());
             let actor = req.params["actor"].as_str().map(|s| s.to_owned());
 
-            match session_mgr.respond_interaction(iid, decision, response, actor).await {
+            match session_mgr
+                .respond_interaction(iid, decision, response, actor)
+                .await
+            {
                 Ok(interaction) => match serde_json::to_value(interaction) {
                     Ok(v) => ApiResponse::ok(&req.id, v),
                     Err(e) => ApiResponse::err(&req.id, "InternalError", e.to_string()),
@@ -978,7 +1076,9 @@ pub async fn handle_policy_cmd(
                             });
                         let enabled = req.params["enabled"].as_bool();
 
-                        match engine.update_policy(&pid, name, priority, conditions, decision, enabled) {
+                        match engine
+                            .update_policy(&pid, name, priority, conditions, decision, enabled)
+                        {
                             Ok(()) => {
                                 let updated = engine.get_policy(&pid).cloned().unwrap();
                                 ApiResponse::ok(&req.id, serde_json::to_value(updated).unwrap())
@@ -1149,10 +1249,7 @@ pub async fn handle_audit_cmd(
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-async fn send_line(
-    write: &mut tokio::net::unix::OwnedWriteHalf,
-    resp: &ApiResponse,
-) -> Result<()> {
+async fn send_line(write: &mut tokio::net::unix::OwnedWriteHalf, resp: &ApiResponse) -> Result<()> {
     let line = serde_json::to_string(resp)?;
     write.write_all(format!("{line}\n").as_bytes()).await?;
     Ok(())

@@ -151,6 +151,8 @@ The project is successful when, with at least two real adapters connected:
 5. A secret placed in an agent's environment never appears in the event store,
    the audit log or the TUI.
 6. A normal user can launch Antigravity with a single friendly command (`agy "Personal Google"` or `agy`), switch accounts transparently, and authenticate via browser OAuth without manual token management or shell scripting.
-7. All of the above is covered by tests described in
+7. Full-screen ANSI virtual terminal emulation allows interactive terminal agents (such as `agy`) to render cleanly with alternate screen buffers, forward `Esc` directly to the agent PTY, detach using `Ctrl+Q`, and stream without back-pressure deadlocks.
+8. A centralized Settings view unifies configuration, account management, and project management with keyboard navigation and persistence to `~/.config/agentcontrol/settings.json`.
+9. All of the above is covered by tests described in
    [`TESTING.md`](TESTING.md).
 

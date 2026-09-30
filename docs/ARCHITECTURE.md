@@ -202,10 +202,13 @@ agent-specific code.
   - Background process monitor detecting clean exit codes and abnormal crash termination.
 - **Antigravity adapter** (`CompositeAdapterFactory` support for `"agy"` / `"antigravity"`):
   - Resolves binary via `ANTIGRAVITY_BIN`, `AGY_BIN`, `~/.local/bin/agy`, `~/.gemini/antigravity-cli/bin/agy`, avoiding recursive self-invocation.
-  - Spawns interactive Antigravity agent sessions in dedicated workspace environments with OAuth loopback credentials.
+  - **Account Profile Isolation**: Prepares an isolated profile directory at `~/.config/agentcontrol/profiles/<account-id>/` and sets `HOME` to it. The profile contains private tokens and config symlinks, completely isolated from ambient `~/.gemini` defaults.
+  - **Ambient Credential Stripping**: Strips ambient Google environment variables (`GEMINI_API_KEY`, `GOOGLE_API_KEY`, `GOOGLE_APPLICATION_CREDENTIALS`, `GOOGLE_GENAI_USE_VERTEXAI`, `GOOGLE_CLOUD_ACCESS_TOKEN`) so sessions run strictly under the bound account.
+  - **Per-Session Launch Options**: Consumes `AgyLaunchOptions` (`execution_mode`, `permission_mode`, `model`, `working_dir`, `sandbox`), validating values against advertised options of the installed binary.
+  - **Anti-Deadlock PTY Streaming**: Employs non-blocking `try_send` dispatch, 8KB burst read buffers, and 512-item per-session event queues to prevent reader thread deadlocks during large output bursts.
 - **Composite Adapter Factory** (`CompositeAdapterFactory`):
   - Routes `agent_type` string (`claude-code`/`claude`, `generic-pty`/`pty`, `mock`, `agy`/`antigravity`) to the designated factory implementation.
-  - Passes immutable `SessionContext` (containing `workspace_path`, `credential_ref`, `task_description`) to instantiate adapters with strict workspace isolation.
+  - Passes immutable `SessionContext` (containing `workspace_path`, `credential_ref`, `task_description`, and `agent_config`) to instantiate adapters with strict workspace isolation.
 - **Mock adapter**: scripted event sequences for deterministic unit and integration tests.
 
 ### Human Interface Layer (`crates/ac-cli` & `crates/ac-tui`)
@@ -217,7 +220,7 @@ The human interface is split into two complementary layers:
    - **`agy "Personal Google"`**: Launches Antigravity using human-readable account labels. Resolves account via `AccountManager::find_by_label`, checks provider compatibility, verifies availability/cooldown, binds to project workspace, starts the session, and attaches the interactive session monitor.
    - **`agy`**: Intelligent automatic resolution: auto-launches if only 1 account exists, opens interactive terminal account selector if multiple exist, or initiates browser OAuth login if no accounts exist.
    - **`agy account add`**: Automated browser-based OAuth 2.0 loopback authentication on `127.0.0.1:0` with manual code fallback and secure `0600` token storage.
-   - **Interactive Session Controller**: Ratatui-based live session screen with streaming transcripts, state badges, and hotkeys (`[s]` Steer, `[p]` Pause, `[r]` Resume, `[x]` Stop, `[a]` Switch Account).
+   - **Interactive Session Controller**: Ratatui-based live session screen with streaming transcripts, state badges, and hotkeys (`[s]` Steer, `[p]` Pause, `[r]` Resume, `[x]` Stop, `[a]` Switch Account, `[Ctrl+Q]` Detach).
 
 2. **Power-User / Automation Layer (`ac`):**
    - Headless scriptable CLI providing low-level access to all subsystems: `ac session ...`, `ac account ...`, `ac project ...`, `ac interaction ...`, `ac policy ...`, `ac audit ...`, `ac events ...`.
@@ -231,15 +234,19 @@ The Ratatui TUI is the primary operational dashboard for human supervision of ag
   - Terminal key events (`crossterm::event::EventStream`)
   - Real-time daemon event stream (`events.subscribe`)
   - Periodic background polling tick (recovering connection and reconciling in-memory caches)
-- **Modular Views**:
-  - `Dashboard`: System summary cards, AGENTS breakdown, ACCOUNTS overview, SESSIONS inventory with lifecycle badges, inbox alert banner, and direct action hotkeys.
-  - `Sessions`: Full session inventory with task summaries and direct action triggers.
-  - `Session Detail`: In-depth inspection showing workspace boundaries, bound account, live transcript buffer with color-tagged events, and recent session events.
-  - `Inbox`: Unified human interaction queue for agent questions and approval requests, with one-key approval, denial, textual reply, and dismissal.
-  - `Accounts`: Real-time account pool status, provider info, active session counts against concurrency limits, and cooldown timers.
-  - `Projects`: Registered projects, repository paths, workspace isolation policies, and active workspace allocations.
-  - `Activity`: Global event log viewer with real-time streaming, kind/session filters, and payload inspection.
-- **Modal System**: Popups for textual steering input, interaction responses, destructive action confirmation, activity filters, and contextual keyboard shortcuts (`?`).
+- **Streamlined 6-Tab Navigation**:
+  - `1: Dashboard`: System summary cards, AGENTS breakdown, ACCOUNTS overview, SESSIONS inventory with lifecycle badges, inbox alert banner, and quick-launch triggers.
+  - `2: Sessions`: Full session inventory with task summaries, lifecycle badges, and direct action triggers (`Space` run/resume, `w` switch account, `s` steer, `p` pause, `x` stop).
+  - `3: Accounts`: Real-time account pool status, provider info, active session counts against concurrency limits, cooldown timers, and account deletion (`d`).
+  - `4: Activity`: Global event log viewer with real-time streaming, kind/session filters (`/`), and payload inspection.
+  - `5: Agents`: Supported agent types, registered accounts, active sessions, and new session launch modal.
+  - `6: Settings`: Central configuration hub with 9 keyboard-navigable sections (General, Accounts, Projects & Workspaces, Agents, Models, Permissions, Authentication, Terminal, Security). Project and account management is fully embedded here with direct add, remove, and default inspection actions. Persisted to `~/.config/agentcontrol/settings.json`.
+- **Dedicated Agent Terminal & Virtual Emulation (`terminal_buffer.rs`)**:
+  - Full-screen ANSI virtual terminal buffer tracking cursor coordinates, scroll regions, line wraps, colors, and bold/italic styles.
+  - Full alternate screen buffer support (`1049h`/`1049l`) ensuring full-screen interactive programs (like `agy`) render with complete layout fidelity.
+  - Multi-byte UTF-8 stream decoder (`decode_utf8_stream`) ensuring UTF-8 glyphs split across chunk boundaries are never corrupted into `U+FFFD`.
+  - **Transparent Key Forwarding**: `Esc` is forwarded directly to the agent PTY (enabling vi/nano modes, dialog dismissals, and agy prompt interactions), while `Ctrl+Q` cleanly detaches back to the dashboard.
+- **Modal System**: Popups for session creation with Tab directory completion (`n`), textual steering input (`s`), account switching with confirmation (`w`), interaction responses, destructive action confirmation, and contextual shortcuts help (`?`).
 - **Headless testability**: Decoupled UI state (`App`) and render functions allow headless testing with `ratatui::backend::TestBackend`.
 
 ## Cross-cutting concerns

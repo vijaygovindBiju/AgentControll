@@ -1,0 +1,164 @@
+'use strict';
+
+const fs = require('fs');
+const path = require('path');
+const os = require('os');
+const https = require('https');
+const http = require('http');
+const crypto = require('crypto');
+const { execFileSync } = require('child_process');
+const { getTargetTriple, getArchiveName } = require('./platform');
+
+const VERSION = require('../package.json').version;
+const GITHUB_REPO = 'agentcontrol/agentcontrol';
+
+/**
+ * Returns the directory where Agent Control binaries are cached.
+ */
+function getCacheDir(version = VERSION) {
+  const baseCache = process.env.XDG_CACHE_HOME || path.join(os.homedir(), '.cache');
+  return path.join(baseCache, 'agentcontrol', 'bin', `v${version}`);
+}
+
+/**
+ * HTTP GET request helper that follows redirects.
+ */
+function downloadFile(url, destPath, maxRedirects = 5) {
+  return new Promise((resolve, reject) => {
+    if (maxRedirects < 0) {
+      return reject(new Error(`Too many redirects when downloading ${url}`));
+    }
+
+    const client = url.startsWith('https:') ? https : http;
+    const req = client.get(url, (res) => {
+      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+        const redirectUrl = new URL(res.headers.location, url).toString();
+        res.resume(); // Drain stream
+        return resolve(downloadFile(redirectUrl, destPath, maxRedirects - 1));
+      }
+
+      if (res.statusCode !== 200) {
+        res.resume();
+        return reject(new Error(`Download failed with HTTP status ${res.statusCode} from ${url}`));
+      }
+
+      const fileStream = fs.createWriteStream(destPath);
+      res.pipe(fileStream);
+
+      fileStream.on('finish', () => {
+        fileStream.close(resolve);
+      });
+
+      fileStream.on('error', (err) => {
+        fs.unlink(destPath, () => {});
+        reject(err);
+      });
+    });
+
+    req.on('error', (err) => {
+      fs.unlink(destPath, () => {});
+      reject(err);
+    });
+  });
+}
+
+/**
+ * Calculates SHA256 checksum of a file.
+ */
+function getFileSha256(filePath) {
+  return new Promise((resolve, reject) => {
+    const hash = crypto.createHash('sha256');
+    const stream = fs.createReadStream(filePath);
+    stream.on('data', (data) => hash.update(data));
+    stream.on('end', () => resolve(hash.digest('hex')));
+    stream.on('error', reject);
+  });
+}
+
+/**
+ * Ensures the binary exists and is executable.
+ * Downloads from GitHub releases if not already cached.
+ *
+ * @param {string} binaryName Name of the binary (e.g. 'agent-control', 'agentcontrold', 'agy', 'ac')
+ * @returns {Promise<string>} Absolute path to the executable binary
+ */
+async function ensureBinary(binaryName = 'agent-control') {
+  // 1. Check AGENTCONTROL_BIN_DIR override (useful for dev or custom installations)
+  if (process.env.AGENTCONTROL_BIN_DIR) {
+    const overridePath = path.join(process.env.AGENTCONTROL_BIN_DIR, binaryName);
+    if (fs.existsSync(overridePath)) {
+      return overridePath;
+    }
+  }
+
+  // 2. Check local cache directory
+  const cacheDir = getCacheDir(VERSION);
+  const binaryPath = path.join(cacheDir, binaryName);
+
+  if (fs.existsSync(binaryPath)) {
+    try {
+      fs.accessSync(binaryPath, fs.constants.X_OK);
+      return binaryPath;
+    } catch {
+      // If not executable, make it executable
+      fs.chmodSync(binaryPath, 0o755);
+      return binaryPath;
+    }
+  }
+
+  // 3. Need to download archive
+  const targetTriple = getTargetTriple();
+  const archiveName = getArchiveName(VERSION, targetTriple);
+  const baseUrl = process.env.AGENTCONTROL_DOWNLOAD_URL_BASE ||
+    `https://github.com/${GITHUB_REPO}/releases/download/v${VERSION}`;
+  const archiveUrl = `${baseUrl}/${archiveName}`;
+
+  fs.mkdirSync(cacheDir, { recursive: true });
+  const tempArchive = path.join(cacheDir, `${archiveName}.tmp`);
+
+  process.stderr.write(`[agent-control] Downloading Agent Control v${VERSION} for ${targetTriple}...\n`);
+
+  try {
+    await downloadFile(archiveUrl, tempArchive);
+
+    // Extract using system tar
+    process.stderr.write(`[agent-control] Extracting binary archive...\n`);
+    execFileSync('tar', ['-xzf', tempArchive, '-C', cacheDir]);
+
+    // Ensure permissions
+    const binaries = ['agent-control', 'agentcontrold', 'agy', 'ac'];
+    for (const bin of binaries) {
+      const p = path.join(cacheDir, bin);
+      if (fs.existsSync(p)) {
+        fs.chmodSync(p, 0o755);
+      }
+    }
+
+    // Clean up temporary archive
+    try {
+      fs.unlinkSync(tempArchive);
+    } catch {}
+
+    if (!fs.existsSync(binaryPath)) {
+      throw new Error(`Expected binary '${binaryName}' was not found in downloaded release archive.`);
+    }
+
+    process.stderr.write(`[agent-control] Ready.\n`);
+    return binaryPath;
+  } catch (err) {
+    try {
+      if (fs.existsSync(tempArchive)) fs.unlinkSync(tempArchive);
+    } catch {}
+    throw new Error(
+      `Failed to download prebuilt Agent Control binary from ${archiveUrl}:\n${err.message}\n` +
+      `You can build from source using 'cargo build --release' or set AGENTCONTROL_BIN_DIR.`
+    );
+  }
+}
+
+module.exports = {
+  getCacheDir,
+  downloadFile,
+  getFileSha256,
+  ensureBinary,
+};

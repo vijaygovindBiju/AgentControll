@@ -49,8 +49,11 @@ async fn main() -> Result<()> {
     // ── 2. Tracing ────────────────────────────────────────────────────────
     tracing_subscriber::fmt()
         .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_env("AC_LOG")
-                .unwrap_or_else(|_| cfg.log_level.parse().unwrap_or_else(|_| "info".parse().unwrap())),
+            tracing_subscriber::EnvFilter::try_from_env("AC_LOG").unwrap_or_else(|_| {
+                cfg.log_level
+                    .parse()
+                    .unwrap_or_else(|_| "info".parse().unwrap())
+            }),
         )
         .init();
 
@@ -84,7 +87,8 @@ async fn main() -> Result<()> {
 
     let interaction_store = ac_core::interaction_hub::InteractionStore::open(&interactions_db)
         .with_context(|| format!("opening interaction store at {}", interactions_db.display()))?;
-    let interaction_hub = ac_core::interaction_hub::InteractionHub::new(interaction_store, policy_engine)?;
+    let interaction_hub =
+        ac_core::interaction_hub::InteractionHub::new(interaction_store, policy_engine)?;
     let hub_handle = ac_core::interaction_hub::InteractionHubHandle::new(interaction_hub);
 
     // ── 5. DaemonStarted event ────────────────────────────────────────────
@@ -169,7 +173,10 @@ async fn main() -> Result<()> {
         .with_interaction_hub(hub_handle);
 
         tokio::spawn(async move { ws_server.run().await });
-        info!("WebSocket Control API v1 listening on ws://{}", cfg.ws_bind_addr);
+        info!(
+            "WebSocket Control API v1 listening on ws://{}",
+            cfg.ws_bind_addr
+        );
     }
 
     info!("Daemon ready. Listening on {}", cfg.socket_path.display());

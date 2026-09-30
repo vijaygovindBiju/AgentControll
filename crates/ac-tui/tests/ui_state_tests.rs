@@ -4,8 +4,8 @@ use ratatui::{backend::TestBackend, Terminal};
 use serde_json::json;
 
 use ac_core::types::{
-    Account, AgentEvent, AgentSession, EventKind, Id, Interaction,
-    InteractionState, Project, SessionState, WorkspacePolicy,
+    Account, AgentEvent, AgentSession, EventKind, Id, Interaction, InteractionState, Project,
+    SessionState, WorkspacePolicy,
 };
 use ac_tui::{
     app::{AccountOption, App, Modal, StatusType, SwitchModalStep, Tab},
@@ -15,10 +15,22 @@ use ac_tui::{
 fn create_sample_app() -> App {
     let mut app = App::new();
 
-    let s1 = AgentSession::new(Id::from("01HXYZ00000000000000000001"), "Task alpha".into(), "claude-code".into());
-    let mut s2 = AgentSession::new(Id::from("01HXYZ00000000000000000002"), "Task beta".into(), "generic-pty".into());
+    let s1 = AgentSession::new(
+        Id::from("01HXYZ00000000000000000001"),
+        "Task alpha".into(),
+        "claude-code".into(),
+    );
+    let mut s2 = AgentSession::new(
+        Id::from("01HXYZ00000000000000000002"),
+        "Task beta".into(),
+        "generic-pty".into(),
+    );
     s2.state = SessionState::WaitingForHuman;
-    let mut s3 = AgentSession::new(Id::from("01HXYZ00000000000000000003"), "Task gamma".into(), "mock".into());
+    let mut s3 = AgentSession::new(
+        Id::from("01HXYZ00000000000000000003"),
+        "Task gamma".into(),
+        "mock".into(),
+    );
     s3.state = SessionState::Stopped;
 
     app.sessions = vec![s1, s2, s3];
@@ -185,7 +197,9 @@ fn test_state_updates_from_events() {
 
     // Transcript should have recorded the state change
     let transcript = app.session_transcripts.get(&sid.0).unwrap();
-    assert!(transcript.iter().any(|line| line.contains("[STATE] idle -> working")));
+    assert!(transcript
+        .iter()
+        .any(|line| line.contains("[STATE] idle -> working")));
 
     // Apply OutputChunk event
     let out_event = AgentEvent::new(
@@ -197,7 +211,9 @@ fn test_state_updates_from_events() {
     app.apply_event(out_event);
 
     let transcript = app.session_transcripts.get(&sid.0).unwrap();
-    assert!(transcript.iter().any(|line| line.contains("Compiling project crate...")));
+    assert!(transcript
+        .iter()
+        .any(|line| line.contains("Compiling project crate...")));
 
     // Apply SessionStopped event
     let stop_event = AgentEvent::new(
@@ -384,7 +400,10 @@ fn test_switch_account_modal_progression_and_render() {
     );
     app.apply_event(ev);
     assert_eq!(app.sessions[0].state, SessionState::HandedOff);
-    assert_eq!(app.sessions[0].successor_id, Some(Id::from("01HXYZ00000000000000000004")));
+    assert_eq!(
+        app.sessions[0].successor_id,
+        Some(Id::from("01HXYZ00000000000000000004"))
+    );
 }
 
 #[test]
@@ -460,7 +479,9 @@ fn test_session_detail_terminal_buffer_rendering_and_scrolling() {
     assert!(content.contains("Compiling ac-core"));
 
     // Verify Session Info is available in SessionInfo modal
-    app.active_modal = Some(Modal::SessionInfo { session_id: sid.clone() });
+    app.active_modal = Some(Modal::SessionInfo {
+        session_id: sid.clone(),
+    });
     terminal.draw(|f| ui::draw(f, &app)).unwrap();
     let buffer_modal = terminal.backend().buffer().clone();
     let content_modal = format!("{:?}", buffer_modal);
@@ -524,7 +545,8 @@ fn test_remove_session_state_and_modal_rendering() {
 
     // 1. Open session detail and establish terminal buffer
     app.session_detail_id = Some(sid.clone());
-    app.session_terminal_buffers.insert(sid.0.clone(), Default::default());
+    app.session_terminal_buffers
+        .insert(sid.0.clone(), Default::default());
 
     // 2. Render ConfirmRemoveSession modal
     app.active_modal = Some(Modal::ConfirmRemoveSession {
@@ -613,7 +635,9 @@ fn test_agy_session_rendering_flow_and_visual_polish() {
     assert!(gen_content.contains("Generating..."));
 
     // 4. Observe response: AGY outputs text response that wraps
-    let long_response = "Antigravity CLI is Google DeepMind's advanced coding assistant for native environments. ".repeat(3);
+    let long_response =
+        "Antigravity CLI is Google DeepMind's advanced coding assistant for native environments. "
+            .repeat(3);
     let resp_chunk = AgentEvent::new(
         EventKind::AgentOutputReceived,
         Some(sid.clone()),
@@ -646,7 +670,9 @@ fn test_agy_session_rendering_flow_and_visual_polish() {
     app.scroll_session_terminal_up(&sid.0, 5);
     terminal.draw(|f| ui::draw(f, &app)).unwrap();
     let scroll_content = format!("{:?}", terminal.backend().buffer());
-    assert!(scroll_content.contains("SCROLL: 5 lines up") || scroll_content.contains("SCROLL MODE"));
+    assert!(
+        scroll_content.contains("SCROLL: 5 lines up") || scroll_content.contains("SCROLL MODE")
+    );
 
     // Snap back to live
     app.scroll_session_terminal_bottom(&sid.0);
@@ -674,4 +700,3 @@ fn test_agy_session_rendering_flow_and_visual_polish() {
     assert!(reentered_content.contains("● LIVE"));
     assert!(reentered_content.contains("Gemini 3.8 Flash · medium"));
 }
-

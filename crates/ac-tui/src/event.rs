@@ -3,22 +3,37 @@
 use anyhow::Result;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
-use ac_core::types::{Id, PolicyDecision, SessionState};
 use crate::{
     app::{AgyAddStep, AgyLoginTask, AgyLoginUpdate, App, Modal, StatusType, Tab},
     client::ApiClient,
 };
+use ac_core::types::{Id, PolicyDecision, SessionState};
 
 /// Collapse a multi-line user-facing error into one status-bar line.
 pub fn one_line(msg: &str) -> String {
-    msg.split('\n').map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>().join(" ")
+    msg.split('\n')
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 /// Register a freshly saved Antigravity credential; on failure the credential
 /// file is deleted so no partially authenticated account remains.
-async fn register_agy_account(client: &ApiClient, label: &str, credential_ref: &str) -> std::result::Result<Id, String> {
+async fn register_agy_account(
+    client: &ApiClient,
+    label: &str,
+    credential_ref: &str,
+) -> std::result::Result<Id, String> {
     client
-        .register_account(label, ac_core::agy_auth::PROVIDER, &ac_core::agy_auth::AGENT_TYPES, credential_ref, 2, &["google"])
+        .register_account(
+            label,
+            ac_core::agy_auth::PROVIDER,
+            &ac_core::agy_auth::AGENT_TYPES,
+            credential_ref,
+            2,
+            &["google"],
+        )
         .await
         .map_err(|e| {
             ac_core::agy_auth::discard_credential(credential_ref);
@@ -33,7 +48,10 @@ pub fn failure_reason(msg: &str) -> String {
 
 /// Open the "Add Antigravity Account" dialog.
 pub fn open_agy_add_account(app: &mut App) {
-    app.active_modal = Some(Modal::AgyAddAccount { label: String::new(), step: AgyAddStep::Name { error: None } });
+    app.active_modal = Some(Modal::AgyAddAccount {
+        label: String::new(),
+        step: AgyAddStep::Name { error: None },
+    });
 }
 
 /// Start the shared Antigravity browser login in the background. At most one
@@ -52,8 +70,15 @@ pub fn start_agy_browser_login(app: &mut App, client: ApiClient, label: String) 
 /// Both use the same short-lived state + PKCE login; see
 /// `ac_core::agy_auth::finish_login_with_handoff`.
 pub fn start_agy_login(app: &mut App, client: ApiClient, label: String, link: bool) {
-    if app.agy_login.as_ref().is_some_and(|t| !t.abort.is_finished()) {
-        app.set_status("An Antigravity login is already in progress.", StatusType::Warning);
+    if app
+        .agy_login
+        .as_ref()
+        .is_some_and(|t| !t.abort.is_finished())
+    {
+        app.set_status(
+            "An Antigravity login is already in progress.",
+            StatusType::Warning,
+        );
         return;
     }
     let updates: std::sync::Arc<std::sync::Mutex<Vec<AgyLoginUpdate>>> = Default::default();
@@ -67,15 +92,33 @@ pub fn start_agy_login(app: &mut App, client: ApiClient, label: String, link: bo
     let lbl = label.clone();
     let handle = tokio::spawn(async move {
         let result: std::result::Result<(Id, Option<String>), String> = async {
-            let login = ac_core::agy_auth::begin_browser_login().await.map_err(|e| e.to_string())?;
+            let login = ac_core::agy_auth::begin_browser_login()
+                .await
+                .map_err(|e| e.to_string())?;
             let timeout = ac_core::agy_auth::LOGIN_TIMEOUT;
             let (cref, token) = if link {
-                push(AgyLoginUpdate::LinkReady { url: login.authorization_url().to_string() });
-                let rejected = |reason: String| push(AgyLoginUpdate::PasteRejected { reason: one_line(&reason) });
-                ac_core::agy_auth::finish_login_with_handoff(&login, &lbl, timeout, &mut paste_rx, rejected).await
+                push(AgyLoginUpdate::LinkReady {
+                    url: login.authorization_url().to_string(),
+                });
+                let rejected = |reason: String| {
+                    push(AgyLoginUpdate::PasteRejected {
+                        reason: one_line(&reason),
+                    })
+                };
+                ac_core::agy_auth::finish_login_with_handoff(
+                    &login,
+                    &lbl,
+                    timeout,
+                    &mut paste_rx,
+                    rejected,
+                )
+                .await
             } else {
                 let opened = login.open_in_browser();
-                push(AgyLoginUpdate::Waiting { url: login.authorization_url().to_string(), browser_opened: opened });
+                push(AgyLoginUpdate::Waiting {
+                    url: login.authorization_url().to_string(),
+                    browser_opened: opened,
+                });
                 ac_core::agy_auth::finish_browser_login(&login, &lbl, timeout).await
             }
             .map_err(|e| e.to_string())?;
@@ -85,10 +128,15 @@ pub fn start_agy_login(app: &mut App, client: ApiClient, label: String, link: bo
         .await;
         push(match result {
             Ok((account_id, email)) => AgyLoginUpdate::Succeeded { account_id, email },
-            Err(e) => AgyLoginUpdate::Failed { reason: failure_reason(&e) },
+            Err(e) => AgyLoginUpdate::Failed {
+                reason: failure_reason(&e),
+            },
         });
     });
-    app.agy_login = Some(AgyLoginTask { abort: handle.abort_handle(), updates });
+    app.agy_login = Some(AgyLoginTask {
+        abort: handle.abort_handle(),
+        updates,
+    });
     app.agy_login_paste = link.then_some(paste_tx);
     app.active_modal = Some(Modal::AgyAddAccount {
         label,
@@ -128,15 +176,24 @@ fn copy_notice(url: &str) -> String {
 
 /// Apply background login progress to the dialog. Called on every tick.
 pub async fn poll_agy_login(app: &mut App, client: &ApiClient) {
-    let Some(task) = app.agy_login.clone() else { return };
-    let updates: Vec<AgyLoginUpdate> = task.updates.lock().map(|mut v| v.drain(..).collect()).unwrap_or_default();
+    let Some(task) = app.agy_login.clone() else {
+        return;
+    };
+    let updates: Vec<AgyLoginUpdate> = task
+        .updates
+        .lock()
+        .map(|mut v| v.drain(..).collect())
+        .unwrap_or_default();
     for u in updates {
         let label = match &app.active_modal {
             Some(Modal::AgyAddAccount { label, .. }) => label.clone(),
             _ => String::new(),
         };
         let step = match u {
-            AgyLoginUpdate::Waiting { url, browser_opened } => AgyAddStep::Waiting {
+            AgyLoginUpdate::Waiting {
+                url,
+                browser_opened,
+            } => AgyAddStep::Waiting {
                 url,
                 browser_opened,
                 deadline: std::time::Instant::now() + ac_core::agy_auth::LOGIN_TIMEOUT,
@@ -148,7 +205,16 @@ pub async fn poll_agy_login(app: &mut App, client: &ApiClient) {
                 notice: None,
             },
             AgyLoginUpdate::PasteRejected { reason } => match &app.active_modal {
-                Some(Modal::AgyAddAccount { step: AgyAddStep::Link { url, deadline, paste, .. }, .. }) => AgyAddStep::Link {
+                Some(Modal::AgyAddAccount {
+                    step:
+                        AgyAddStep::Link {
+                            url,
+                            deadline,
+                            paste,
+                            ..
+                        },
+                    ..
+                }) => AgyAddStep::Link {
                     url: url.clone(),
                     deadline: *deadline,
                     paste: paste.clone(),
@@ -180,20 +246,29 @@ pub async fn poll_agy_login(app: &mut App, client: &ApiClient) {
 /// Import the machine's existing agy login as a new account.
 async fn import_agy_login(app: &mut App, client: &ApiClient, label: String) {
     let step = match ac_core::agy_auth::detect_local_login() {
-        None => AgyAddStep::Failed { reason: "No valid existing agy login was found on this machine.".into() },
-        Some((_, tok)) => match ac_core::agy_auth::save_new_credential(&label, &tok, "local_import") {
-            Err(e) => AgyAddStep::Failed { reason: failure_reason(&e.to_string()) },
-            Ok(cref) => match register_agy_account(client, &label, &cref).await {
-                Err(e) => AgyAddStep::Failed { reason: e },
-                Ok(account_id) => {
-                    refresh_data(app, client).await;
-                    if let Some(i) = app.accounts.iter().position(|a| a.id == account_id) {
-                        app.selected_account = i;
-                    }
-                    AgyAddStep::Success { account_id, email: tok.email() }
-                }
-            },
+        None => AgyAddStep::Failed {
+            reason: "No valid existing agy login was found on this machine.".into(),
         },
+        Some((_, tok)) => {
+            match ac_core::agy_auth::save_new_credential(&label, &tok, "local_import") {
+                Err(e) => AgyAddStep::Failed {
+                    reason: failure_reason(&e.to_string()),
+                },
+                Ok(cref) => match register_agy_account(client, &label, &cref).await {
+                    Err(e) => AgyAddStep::Failed { reason: e },
+                    Ok(account_id) => {
+                        refresh_data(app, client).await;
+                        if let Some(i) = app.accounts.iter().position(|a| a.id == account_id) {
+                            app.selected_account = i;
+                        }
+                        AgyAddStep::Success {
+                            account_id,
+                            email: tok.email(),
+                        }
+                    }
+                },
+            }
+        }
     };
     app.active_modal = Some(Modal::AgyAddAccount { label, step });
 }
@@ -207,19 +282,30 @@ pub async fn launch_session_and_open(
     account: Option<&Id>,
     launch: Option<&ac_core::agy_launch::AgyLaunchOptions>,
 ) {
-    match client.create_session_with_launch(task_desc, agent_type, None, account, launch).await {
+    match client
+        .create_session_with_launch(task_desc, agent_type, None, account, launch)
+        .await
+    {
         Ok(new_id) => match client.start_session(&new_id).await {
             Ok(()) => {
-                app.set_status(format!("✓ Launched session {} successfully!", new_id.0), StatusType::Success);
+                app.set_status(
+                    format!("✓ Launched session {} successfully!", new_id.0),
+                    StatusType::Success,
+                );
                 refresh_data(app, client).await;
                 app.set_tab(Tab::Sessions);
                 app.session_detail_id = Some(new_id.clone());
                 load_session_history_if_needed(app, client, &new_id).await;
                 if let Ok((cols, rows)) = crossterm::terminal::size() {
-                    let _ = client.resize_session(&new_id, rows.saturating_sub(2), cols).await;
+                    let _ = client
+                        .resize_session(&new_id, rows.saturating_sub(2), cols)
+                        .await;
                 }
             }
-            Err(e) => app.set_status(format!("Created session {} but failed to start: {e}", new_id.0), StatusType::Error),
+            Err(e) => app.set_status(
+                format!("Created session {} but failed to start: {e}", new_id.0),
+                StatusType::Error,
+            ),
         },
         Err(e) => app.set_status(format!("Failed to create session: {e}"), StatusType::Error),
     }
@@ -238,7 +324,10 @@ pub async fn handle_key(app: &mut App, client: &ApiClient, key: KeyEvent) -> Res
     // ── 1. If a Modal dialog is open, route keystrokes to it ────────────────
     if let Some(modal) = app.active_modal.take() {
         match modal {
-            Modal::Steer { session_id, mut input } => match key.code {
+            Modal::Steer {
+                session_id,
+                mut input,
+            } => match key.code {
                 KeyCode::Esc => {
                     app.active_modal = None;
                 }
@@ -246,8 +335,13 @@ pub async fn handle_key(app: &mut App, client: &ApiClient, key: KeyEvent) -> Res
                     app.active_modal = None;
                     if !input.trim().is_empty() {
                         match client.steer_session(&session_id, &input).await {
-                            Ok(()) => app.set_status(format!("Steered session {}", session_id.0), StatusType::Success),
-                            Err(e) => app.set_status(format!("Failed to steer: {e}"), StatusType::Error),
+                            Ok(()) => app.set_status(
+                                format!("Steered session {}", session_id.0),
+                                StatusType::Success,
+                            ),
+                            Err(e) => {
+                                app.set_status(format!("Failed to steer: {e}"), StatusType::Error)
+                            }
                         }
                     }
                 }
@@ -264,7 +358,10 @@ pub async fn handle_key(app: &mut App, client: &ApiClient, key: KeyEvent) -> Res
                 }
             },
 
-            Modal::Reply { interaction_id, mut input } => match key.code {
+            Modal::Reply {
+                interaction_id,
+                mut input,
+            } => match key.code {
                 KeyCode::Esc => {
                     app.active_modal = None;
                 }
@@ -274,27 +371,45 @@ pub async fn handle_key(app: &mut App, client: &ApiClient, key: KeyEvent) -> Res
                         .resolve_interaction(
                             &interaction_id,
                             Some(PolicyDecision::Allow),
-                            if input.trim().is_empty() { None } else { Some(&input) },
+                            if input.trim().is_empty() {
+                                None
+                            } else {
+                                Some(&input)
+                            },
                         )
                         .await
                     {
                         Ok(_) => {
-                            app.set_status(format!("Replied to interaction {}", interaction_id.0), StatusType::Success);
+                            app.set_status(
+                                format!("Replied to interaction {}", interaction_id.0),
+                                StatusType::Success,
+                            );
                             refresh_data(app, client).await;
                         }
-                        Err(e) => app.set_status(format!("Failed to reply: {e}"), StatusType::Error),
+                        Err(e) => {
+                            app.set_status(format!("Failed to reply: {e}"), StatusType::Error)
+                        }
                     }
                 }
                 KeyCode::Backspace => {
                     input.pop();
-                    app.active_modal = Some(Modal::Reply { interaction_id, input });
+                    app.active_modal = Some(Modal::Reply {
+                        interaction_id,
+                        input,
+                    });
                 }
                 KeyCode::Char(c) => {
                     input.push(c);
-                    app.active_modal = Some(Modal::Reply { interaction_id, input });
+                    app.active_modal = Some(Modal::Reply {
+                        interaction_id,
+                        input,
+                    });
                 }
                 _ => {
-                    app.active_modal = Some(Modal::Reply { interaction_id, input });
+                    app.active_modal = Some(Modal::Reply {
+                        interaction_id,
+                        input,
+                    });
                 }
             },
 
@@ -304,10 +419,14 @@ pub async fn handle_key(app: &mut App, client: &ApiClient, key: KeyEvent) -> Res
                     match client.stop_session(&session_id, None).await {
                         Ok(()) => {
                             app.close_session_detail();
-                            app.set_status(format!("Stopped session {}", session_id.0), StatusType::Success);
+                            app.set_status(
+                                format!("Stopped session {}", session_id.0),
+                                StatusType::Success,
+                            );
                             refresh_data(app, client).await;
                         }
-                        Err(e) => app.set_status(format!("Failed to stop session: {e}"), StatusType::Error),
+                        Err(e) => app
+                            .set_status(format!("Failed to stop session: {e}"), StatusType::Error),
                     }
                 }
                 KeyCode::Char('n') | KeyCode::Esc => {
@@ -323,7 +442,9 @@ pub async fn handle_key(app: &mut App, client: &ApiClient, key: KeyEvent) -> Res
             Modal::AgyAddAccount { mut label, step } => match step {
                 AgyAddStep::Name { .. } => match key.code {
                     KeyCode::Esc => close_add_account(app),
-                    KeyCode::Char('o') | KeyCode::Char('O') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                    KeyCode::Char('o') | KeyCode::Char('O')
+                        if key.modifiers.contains(KeyModifiers::CONTROL) =>
+                    {
                         app.active_modal = Some(Modal::AddAccount {
                             label,
                             provider: "claude".into(),
@@ -336,72 +457,143 @@ pub async fn handle_key(app: &mut App, client: &ApiClient, key: KeyEvent) -> Res
                         let name = label.trim().to_string();
                         let error = if name.is_empty() {
                             Some("Account name cannot be empty.".to_string())
-                        } else if app.accounts.iter().any(|a| a.label.eq_ignore_ascii_case(&name)) {
+                        } else if app
+                            .accounts
+                            .iter()
+                            .any(|a| a.label.eq_ignore_ascii_case(&name))
+                        {
                             Some(format!("You already have an account named \"{name}\"."))
                         } else {
                             None
                         };
-                        let step = if error.is_some() { AgyAddStep::Name { error } } else { AgyAddStep::Method };
+                        let step = if error.is_some() {
+                            AgyAddStep::Name { error }
+                        } else {
+                            AgyAddStep::Method
+                        };
                         app.active_modal = Some(Modal::AgyAddAccount { label: name, step });
                     }
                     KeyCode::Backspace => {
                         label.pop();
-                        app.active_modal = Some(Modal::AgyAddAccount { label, step: AgyAddStep::Name { error: None } });
+                        app.active_modal = Some(Modal::AgyAddAccount {
+                            label,
+                            step: AgyAddStep::Name { error: None },
+                        });
                     }
                     KeyCode::Char(c) => {
                         label.push(c);
-                        app.active_modal = Some(Modal::AgyAddAccount { label, step: AgyAddStep::Name { error: None } });
+                        app.active_modal = Some(Modal::AgyAddAccount {
+                            label,
+                            step: AgyAddStep::Name { error: None },
+                        });
                     }
-                    _ => app.active_modal = Some(Modal::AgyAddAccount { label, step: AgyAddStep::Name { error: None } }),
+                    _ => {
+                        app.active_modal = Some(Modal::AgyAddAccount {
+                            label,
+                            step: AgyAddStep::Name { error: None },
+                        })
+                    }
                 },
                 AgyAddStep::Method => match key.code {
                     KeyCode::Up | KeyCode::Down => {
-                        app.agy_add_method = if key.code == KeyCode::Down { (app.agy_add_method + 1) % 3 } else { (app.agy_add_method + 2) % 3 };
-                        app.active_modal = Some(Modal::AgyAddAccount { label, step: AgyAddStep::Method });
+                        app.agy_add_method = if key.code == KeyCode::Down {
+                            (app.agy_add_method + 1) % 3
+                        } else {
+                            (app.agy_add_method + 2) % 3
+                        };
+                        app.active_modal = Some(Modal::AgyAddAccount {
+                            label,
+                            step: AgyAddStep::Method,
+                        });
                     }
                     KeyCode::Enter => match app.agy_add_method {
                         1 => start_agy_login(app, client.clone(), label, true),
                         2 => import_agy_login(app, client, label).await,
                         _ => start_agy_browser_login(app, client.clone(), label),
                     },
-                    KeyCode::Char('l') | KeyCode::Char('L') => start_agy_login(app, client.clone(), label, true),
-                    KeyCode::Char('i') | KeyCode::Char('I') => import_agy_login(app, client, label).await,
+                    KeyCode::Char('l') | KeyCode::Char('L') => {
+                        start_agy_login(app, client.clone(), label, true)
+                    }
+                    KeyCode::Char('i') | KeyCode::Char('I') => {
+                        import_agy_login(app, client, label).await
+                    }
                     KeyCode::Esc => close_add_account(app),
-                    _ => app.active_modal = Some(Modal::AgyAddAccount { label, step: AgyAddStep::Method }),
+                    _ => {
+                        app.active_modal = Some(Modal::AgyAddAccount {
+                            label,
+                            step: AgyAddStep::Method,
+                        })
+                    }
                 },
-                AgyAddStep::Waiting { .. } | AgyAddStep::Link { .. } if key.code == KeyCode::Esc => {
+                AgyAddStep::Waiting { .. } | AgyAddStep::Link { .. }
+                    if key.code == KeyCode::Esc =>
+                {
                     cancel_agy_login(app);
                     close_add_account(app);
-                    app.set_status("Antigravity login cancelled. No credential was saved.", StatusType::Info);
+                    app.set_status(
+                        "Antigravity login cancelled. No credential was saved.",
+                        StatusType::Info,
+                    );
                 }
-                AgyAddStep::Link { url, deadline, mut paste, notice } => {
+                AgyAddStep::Link {
+                    url,
+                    deadline,
+                    mut paste,
+                    notice,
+                } => {
                     let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
                     let mut notice = notice;
                     match key.code {
-                        KeyCode::Char('y') | KeyCode::Char('Y') if ctrl => notice = Some(copy_notice(&url)),
-                        KeyCode::Char('c') | KeyCode::Char('C') if paste.is_empty() && !ctrl => notice = Some(copy_notice(&url)),
+                        KeyCode::Char('y') | KeyCode::Char('Y') if ctrl => {
+                            notice = Some(copy_notice(&url))
+                        }
+                        KeyCode::Char('c') | KeyCode::Char('C') if paste.is_empty() && !ctrl => {
+                            notice = Some(copy_notice(&url))
+                        }
                         KeyCode::Char(c) if !ctrl => paste.push(c),
                         KeyCode::Backspace => {
                             paste.pop();
                         }
                         KeyCode::Enter if !paste.trim().is_empty() => {
-                            let sent = app.agy_login_paste.as_ref().is_some_and(|tx| tx.try_send(std::mem::take(&mut paste)).is_ok());
-                            notice = Some(if sent { "Verifying…".into() } else { "The login is no longer active.".into() });
+                            let sent = app
+                                .agy_login_paste
+                                .as_ref()
+                                .is_some_and(|tx| tx.try_send(std::mem::take(&mut paste)).is_ok());
+                            notice = Some(if sent {
+                                "Verifying…".into()
+                            } else {
+                                "The login is no longer active.".into()
+                            });
                         }
                         _ => {}
                     }
-                    app.active_modal = Some(Modal::AgyAddAccount { label, step: AgyAddStep::Link { url, deadline, paste, notice } });
+                    app.active_modal = Some(Modal::AgyAddAccount {
+                        label,
+                        step: AgyAddStep::Link {
+                            url,
+                            deadline,
+                            paste,
+                            notice,
+                        },
+                    });
                 }
-                AgyAddStep::Failed { .. } if matches!(key.code, KeyCode::Char('r') | KeyCode::Char('R')) => {
+                AgyAddStep::Failed { .. }
+                    if matches!(key.code, KeyCode::Char('r') | KeyCode::Char('R')) =>
+                {
                     let link = app.agy_add_method == 1;
                     start_agy_login(app, client.clone(), label, link);
                 }
                 AgyAddStep::Failed { .. } if key.code == KeyCode::Esc => close_add_account(app),
-                AgyAddStep::Success { account_id, .. } if matches!(key.code, KeyCode::Enter | KeyCode::Esc) => {
+                AgyAddStep::Success { account_id, .. }
+                    if matches!(key.code, KeyCode::Enter | KeyCode::Esc) =>
+                {
                     match app.resume_start_session.take() {
                         Some(mut form) => {
                             let accts = crate::launch::agy_accounts(app);
-                            form.account_index = accts.iter().position(|a| a.id == account_id).unwrap_or(form.account_index);
+                            form.account_index = accts
+                                .iter()
+                                .position(|a| a.id == account_id)
+                                .unwrap_or(form.account_index);
                             form.error = None;
                             crate::launch::open_form(app, form);
                         }
@@ -414,12 +606,20 @@ pub async fn handle_key(app: &mut App, client: &ApiClient, key: KeyEvent) -> Res
                 step => app.active_modal = Some(Modal::AgyAddAccount { label, step }),
             },
 
-            Modal::ConfirmRemoveAccount { account_id, label, provider, active_sessions } => match key.code {
+            Modal::ConfirmRemoveAccount {
+                account_id,
+                label,
+                provider,
+                active_sessions,
+            } => match key.code {
                 KeyCode::Enter if active_sessions == 0 => {
                     app.active_modal = None;
                     match client.remove_account(&account_id).await {
                         Ok(errors) if errors.is_empty() => {
-                            app.set_status(format!("✓ Account \"{label}\" removed"), StatusType::Success);
+                            app.set_status(
+                                format!("✓ Account \"{label}\" removed"),
+                                StatusType::Success,
+                            );
                         }
                         Ok(errors) => {
                             app.set_status(
@@ -427,7 +627,10 @@ pub async fn handle_key(app: &mut App, client: &ApiClient, key: KeyEvent) -> Res
                                 StatusType::Warning,
                             );
                         }
-                        Err(e) => app.set_status(one_line(&format!("Failed to remove account: {e}")), StatusType::Error),
+                        Err(e) => app.set_status(
+                            one_line(&format!("Failed to remove account: {e}")),
+                            StatusType::Error,
+                        ),
                     }
                     refresh_data(app, client).await;
                     if app.selected_account >= app.accounts.len() {
@@ -438,7 +641,12 @@ pub async fn handle_key(app: &mut App, client: &ApiClient, key: KeyEvent) -> Res
                     app.active_modal = None;
                 }
                 _ => {
-                    app.active_modal = Some(Modal::ConfirmRemoveAccount { account_id, label, provider, active_sessions });
+                    app.active_modal = Some(Modal::ConfirmRemoveAccount {
+                        account_id,
+                        label,
+                        provider,
+                        active_sessions,
+                    });
                 }
             },
 
@@ -448,10 +656,16 @@ pub async fn handle_key(app: &mut App, client: &ApiClient, key: KeyEvent) -> Res
                     match client.remove_session(&session_id).await {
                         Ok(()) => {
                             app.remove_session(&session_id.0);
-                            app.set_status(format!("Removed session {}", session_id.0), StatusType::Success);
+                            app.set_status(
+                                format!("Removed session {}", session_id.0),
+                                StatusType::Success,
+                            );
                             refresh_data(app, client).await;
                         }
-                        Err(e) => app.set_status(format!("Failed to remove session: {e}"), StatusType::Error),
+                        Err(e) => app.set_status(
+                            format!("Failed to remove session: {e}"),
+                            StatusType::Error,
+                        ),
                     }
                 }
                 KeyCode::Char('n') | KeyCode::Esc => {
@@ -546,7 +760,11 @@ pub async fn handle_key(app: &mut App, client: &ApiClient, key: KeyEvent) -> Res
 
                             if !chosen_usable {
                                 app.set_status(
-                                    format!("Cannot switch to {}: {}", chosen_label, chosen_reason.as_deref().unwrap_or("account unavailable")),
+                                    format!(
+                                        "Cannot switch to {}: {}",
+                                        chosen_label,
+                                        chosen_reason.as_deref().unwrap_or("account unavailable")
+                                    ),
                                     StatusType::Warning,
                                 );
                                 app.active_modal = Some(Modal::SwitchAccount {
@@ -559,7 +777,10 @@ pub async fn handle_key(app: &mut App, client: &ApiClient, key: KeyEvent) -> Res
                                     step: crate::app::SwitchModalStep::SelectAccount,
                                 });
                             } else if current_account_id.as_ref() == Some(&chosen_account_id) {
-                                app.set_status(format!("Session is already bound to {}", chosen_label), StatusType::Info);
+                                app.set_status(
+                                    format!("Session is already bound to {}", chosen_label),
+                                    StatusType::Info,
+                                );
                                 app.active_modal = None;
                             } else {
                                 app.active_modal = Some(Modal::SwitchAccount {
@@ -572,7 +793,9 @@ pub async fn handle_key(app: &mut App, client: &ApiClient, key: KeyEvent) -> Res
                                     step: crate::app::SwitchModalStep::ConfirmRestart {
                                         target_account_id: chosen_account_id,
                                         target_account_label: chosen_label,
-                                        reason: "This provider requires a controlled session restart.".to_string(),
+                                        reason:
+                                            "This provider requires a controlled session restart."
+                                                .to_string(),
                                     },
                                 });
                             }
@@ -603,7 +826,10 @@ pub async fn handle_key(app: &mut App, client: &ApiClient, key: KeyEvent) -> Res
                             Ok(active_id) => {
                                 app.session_detail_id = Some(active_id.clone());
                                 app.set_status(
-                                    format!("Switched session to {} (active session: {})", target_account_label, active_id.0),
+                                    format!(
+                                        "Switched session to {} (active session: {})",
+                                        target_account_label, active_id.0
+                                    ),
                                     StatusType::Success,
                                 );
                                 refresh_data(app, client).await;
@@ -642,195 +868,259 @@ pub async fn handle_key(app: &mut App, client: &ApiClient, key: KeyEvent) -> Res
                 },
             },
             Modal::AddAccount {
-            mut label,
-            mut provider,
-            mut auth_method,
-            mut token,
-            mut active_field,
-        } => {
-            if key.modifiers.contains(crossterm::event::KeyModifiers::CONTROL)
-                && (key.code == KeyCode::Char('o') || key.code == KeyCode::Char('O'))
-            {
-                if provider == "agy" {
-                    app.active_modal = Some(Modal::AgyAddAccount { label, step: AgyAddStep::Name { error: None } });
-                } else {
-                    app.active_modal = Some(Modal::AddAccount { label, provider, auth_method, token, active_field });
-                }
-                return Ok(());
-            }
-
-            match key.code {
-                KeyCode::Esc => {
-                    app.active_modal = None;
-                }
-                KeyCode::Tab | KeyCode::Down => {
-                    let max_fields = if auth_method == 2 { 3 } else { 4 };
-                    active_field = (active_field + 1) % max_fields;
-                    app.active_modal = Some(Modal::AddAccount {
-                        label,
-                        provider,
-                        auth_method,
-                        token,
-                        active_field,
-                    });
-                }
-                KeyCode::BackTab | KeyCode::Up => {
-                    let max_fields = if auth_method == 2 { 3 } else { 4 };
-                    active_field = if active_field == 0 {
-                        max_fields - 1
+                mut label,
+                mut provider,
+                mut auth_method,
+                mut token,
+                mut active_field,
+            } => {
+                if key
+                    .modifiers
+                    .contains(crossterm::event::KeyModifiers::CONTROL)
+                    && (key.code == KeyCode::Char('o') || key.code == KeyCode::Char('O'))
+                {
+                    if provider == "agy" {
+                        app.active_modal = Some(Modal::AgyAddAccount {
+                            label,
+                            step: AgyAddStep::Name { error: None },
+                        });
                     } else {
-                        active_field - 1
-                    };
-                    app.active_modal = Some(Modal::AddAccount {
-                        label,
-                        provider,
-                        auth_method,
-                        token,
-                        active_field,
-                    });
-                }
-                KeyCode::Left if active_field == 2 => {
-                    auth_method = if auth_method == 0 { 2 } else { auth_method - 1 };
-                    app.active_modal = Some(Modal::AddAccount {
-                        label,
-                        provider,
-                        auth_method,
-                        token,
-                        active_field,
-                    });
-                }
-                KeyCode::Right if active_field == 2 => {
-                    auth_method = (auth_method + 1) % 3;
-                    app.active_modal = Some(Modal::AddAccount {
-                        label,
-                        provider,
-                        auth_method,
-                        token,
-                        active_field,
-                    });
-                }
-                KeyCode::Char(' ') if active_field == 1 => {
-                    provider = match provider.as_str() {
-                        "agy" => "claude".to_string(),
-                        "claude" => "pty".to_string(),
-                        _ => "agy".to_string(),
-                    };
-                    app.active_modal = Some(Modal::AddAccount {
-                        label,
-                        provider,
-                        auth_method,
-                        token,
-                        active_field,
-                    });
-                }
-                KeyCode::Char(' ') if active_field == 2 => {
-                    auth_method = (auth_method + 1) % 3;
-                    app.active_modal = Some(Modal::AddAccount {
-                        label,
-                        provider,
-                        auth_method,
-                        token,
-                        active_field,
-                    });
-                }
-                KeyCode::Backspace => {
-                    match active_field {
-                        0 => { label.pop(); }
-                        3 => { token.pop(); }
-                        _ => {}
+                        app.active_modal = Some(Modal::AddAccount {
+                            label,
+                            provider,
+                            auth_method,
+                            token,
+                            active_field,
+                        });
                     }
-                    app.active_modal = Some(Modal::AddAccount {
-                        label,
-                        provider,
-                        auth_method,
-                        token,
-                        active_field,
-                    });
+                    return Ok(());
                 }
-                KeyCode::Char(c) => {
-                    match active_field {
-                        0 => { label.push(c); }
-                        1 => {
-                            if c == 'c' || c == 'C' { provider = "claude".to_string(); }
-                            else if c == 'a' || c == 'A' { provider = "agy".to_string(); }
-                            else if c == 'p' || c == 'P' { provider = "pty".to_string(); }
-                        }
-                        2 => {
-                            if c == '1' { auth_method = 0; }
-                            else if c == '2' { auth_method = 1; }
-                            else if c == '3' { auth_method = 2; }
-                            else if (c == 'o' || c == 'O') && provider == "agy" {
-                                app.active_modal = Some(Modal::AgyAddAccount { label, step: AgyAddStep::Name { error: None } });
-                                return Ok(());
+
+                match key.code {
+                    KeyCode::Esc => {
+                        app.active_modal = None;
+                    }
+                    KeyCode::Tab | KeyCode::Down => {
+                        let max_fields = if auth_method == 2 { 3 } else { 4 };
+                        active_field = (active_field + 1) % max_fields;
+                        app.active_modal = Some(Modal::AddAccount {
+                            label,
+                            provider,
+                            auth_method,
+                            token,
+                            active_field,
+                        });
+                    }
+                    KeyCode::BackTab | KeyCode::Up => {
+                        let max_fields = if auth_method == 2 { 3 } else { 4 };
+                        active_field = if active_field == 0 {
+                            max_fields - 1
+                        } else {
+                            active_field - 1
+                        };
+                        app.active_modal = Some(Modal::AddAccount {
+                            label,
+                            provider,
+                            auth_method,
+                            token,
+                            active_field,
+                        });
+                    }
+                    KeyCode::Left if active_field == 2 => {
+                        auth_method = if auth_method == 0 { 2 } else { auth_method - 1 };
+                        app.active_modal = Some(Modal::AddAccount {
+                            label,
+                            provider,
+                            auth_method,
+                            token,
+                            active_field,
+                        });
+                    }
+                    KeyCode::Right if active_field == 2 => {
+                        auth_method = (auth_method + 1) % 3;
+                        app.active_modal = Some(Modal::AddAccount {
+                            label,
+                            provider,
+                            auth_method,
+                            token,
+                            active_field,
+                        });
+                    }
+                    KeyCode::Char(' ') if active_field == 1 => {
+                        provider = match provider.as_str() {
+                            "agy" => "claude".to_string(),
+                            "claude" => "pty".to_string(),
+                            _ => "agy".to_string(),
+                        };
+                        app.active_modal = Some(Modal::AddAccount {
+                            label,
+                            provider,
+                            auth_method,
+                            token,
+                            active_field,
+                        });
+                    }
+                    KeyCode::Char(' ') if active_field == 2 => {
+                        auth_method = (auth_method + 1) % 3;
+                        app.active_modal = Some(Modal::AddAccount {
+                            label,
+                            provider,
+                            auth_method,
+                            token,
+                            active_field,
+                        });
+                    }
+                    KeyCode::Backspace => {
+                        match active_field {
+                            0 => {
+                                label.pop();
                             }
+                            3 => {
+                                token.pop();
+                            }
+                            _ => {}
                         }
-                        3 => { token.push(c); }
-                        _ => {}
+                        app.active_modal = Some(Modal::AddAccount {
+                            label,
+                            provider,
+                            auth_method,
+                            token,
+                            active_field,
+                        });
                     }
-                    app.active_modal = Some(Modal::AddAccount {
-                        label,
-                        provider,
-                        auth_method,
-                        token,
-                        active_field,
-                    });
-                }
-                KeyCode::Enter if provider == "agy" => {
-                    app.active_modal = Some(Modal::AgyAddAccount { label, step: AgyAddStep::Name { error: None } });
-                }
-                KeyCode::Enter => {
-                    if auth_method != 1 {
-                        app.set_status("Only Token / Key is supported for this provider.", StatusType::Error);
-                        app.active_modal = Some(Modal::AddAccount { label, provider, auth_method, token, active_field });
-                        return Ok(());
-                    }
-                    let cred_id = ulid::Ulid::new().to_string();
-                    let token_data = if token.trim().is_empty() { None } else { Some(token.trim().to_string()) };
-                    let default_label = if provider == "claude" { "Claude Account".to_string() } else { "Personal Google".to_string() };
-                    let final_label = if label.trim().is_empty() {
-                        default_label
-                    } else {
-                        label.trim().to_string()
-                    };
-
-                    match ac_core::credentials::save_credential(
-                        &provider,
-                        &cred_id,
-                        &final_label,
-                        "api_token",
-                        token_data,
-                    ) {
-                        Ok(cred_ref) => {
-                            let agent_types: Vec<&str> = match provider.as_str() {
-                                "claude" => vec!["claude", "claude-code"],
-                                _ => vec!["pty", "generic-pty"],
-                            };
-
-                            match client.register_account(
-                                &final_label,
-                                &provider,
-                                &agent_types,
-                                &cred_ref,
-                                2,
-                                &[],
-                            ).await {
-                                Ok(_) => {
-                                    app.active_modal = None;
-                                    app.set_status(format!("✓ Account \"{}\" added successfully!", final_label), StatusType::Success);
-                                    refresh_data(app, client).await;
-                                }
-                                Err(e) => {
-                                    app.set_status(format!("Failed to register account: {}", e), StatusType::Error);
+                    KeyCode::Char(c) => {
+                        match active_field {
+                            0 => {
+                                label.push(c);
+                            }
+                            1 => {
+                                if c == 'c' || c == 'C' {
+                                    provider = "claude".to_string();
+                                } else if c == 'a' || c == 'A' {
+                                    provider = "agy".to_string();
+                                } else if c == 'p' || c == 'P' {
+                                    provider = "pty".to_string();
                                 }
                             }
+                            2 => {
+                                if c == '1' {
+                                    auth_method = 0;
+                                } else if c == '2' {
+                                    auth_method = 1;
+                                } else if c == '3' {
+                                    auth_method = 2;
+                                } else if (c == 'o' || c == 'O') && provider == "agy" {
+                                    app.active_modal = Some(Modal::AgyAddAccount {
+                                        label,
+                                        step: AgyAddStep::Name { error: None },
+                                    });
+                                    return Ok(());
+                                }
+                            }
+                            3 => {
+                                token.push(c);
+                            }
+                            _ => {}
                         }
-                        Err(e) => {
-                            app.set_status(format!("Failed to save credential: {}", e), StatusType::Error);
+                        app.active_modal = Some(Modal::AddAccount {
+                            label,
+                            provider,
+                            auth_method,
+                            token,
+                            active_field,
+                        });
+                    }
+                    KeyCode::Enter if provider == "agy" => {
+                        app.active_modal = Some(Modal::AgyAddAccount {
+                            label,
+                            step: AgyAddStep::Name { error: None },
+                        });
+                    }
+                    KeyCode::Enter => {
+                        if auth_method != 1 {
+                            app.set_status(
+                                "Only Token / Key is supported for this provider.",
+                                StatusType::Error,
+                            );
+                            app.active_modal = Some(Modal::AddAccount {
+                                label,
+                                provider,
+                                auth_method,
+                                token,
+                                active_field,
+                            });
+                            return Ok(());
+                        }
+                        let cred_id = ulid::Ulid::new().to_string();
+                        let token_data = if token.trim().is_empty() {
+                            None
+                        } else {
+                            Some(token.trim().to_string())
+                        };
+                        let default_label = if provider == "claude" {
+                            "Claude Account".to_string()
+                        } else {
+                            "Personal Google".to_string()
+                        };
+                        let final_label = if label.trim().is_empty() {
+                            default_label
+                        } else {
+                            label.trim().to_string()
+                        };
+
+                        match ac_core::credentials::save_credential(
+                            &provider,
+                            &cred_id,
+                            &final_label,
+                            "api_token",
+                            token_data,
+                        ) {
+                            Ok(cred_ref) => {
+                                let agent_types: Vec<&str> = match provider.as_str() {
+                                    "claude" => vec!["claude", "claude-code"],
+                                    _ => vec!["pty", "generic-pty"],
+                                };
+
+                                match client
+                                    .register_account(
+                                        &final_label,
+                                        &provider,
+                                        &agent_types,
+                                        &cred_ref,
+                                        2,
+                                        &[],
+                                    )
+                                    .await
+                                {
+                                    Ok(_) => {
+                                        app.active_modal = None;
+                                        app.set_status(
+                                            format!(
+                                                "✓ Account \"{}\" added successfully!",
+                                                final_label
+                                            ),
+                                            StatusType::Success,
+                                        );
+                                        refresh_data(app, client).await;
+                                    }
+                                    Err(e) => {
+                                        app.set_status(
+                                            format!("Failed to register account: {}", e),
+                                            StatusType::Error,
+                                        );
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                app.set_status(
+                                    format!("Failed to save credential: {}", e),
+                                    StatusType::Error,
+                                );
+                            }
                         }
                     }
+                    _ => {}
                 }
-                _ => {}
-            }
             }
 
             Modal::NewSession {
@@ -850,7 +1140,11 @@ pub async fn handle_key(app: &mut App, client: &ApiClient, key: KeyEvent) -> Res
                     });
                 }
                 KeyCode::BackTab | KeyCode::Up => {
-                    active_field = if active_field == 0 { 1 } else { active_field - 1 };
+                    active_field = if active_field == 0 {
+                        1
+                    } else {
+                        active_field - 1
+                    };
                     app.active_modal = Some(Modal::NewSession {
                         account_index,
                         session_name,
@@ -934,7 +1228,15 @@ pub async fn handle_key(app: &mut App, client: &ApiClient, key: KeyEvent) -> Res
                     };
 
                     let task_desc = format!("[interactive] {}", session_title);
-                    launch_session_and_open(app, client, &task_desc, agent_type, chosen_acct.as_ref(), None).await;
+                    launch_session_and_open(
+                        app,
+                        client,
+                        &task_desc,
+                        agent_type,
+                        chosen_acct.as_ref(),
+                        None,
+                    )
+                    .await;
                 }
                 _ => {
                     app.active_modal = Some(Modal::NewSession {
@@ -945,17 +1247,30 @@ pub async fn handle_key(app: &mut App, client: &ApiClient, key: KeyEvent) -> Res
                 }
             },
 
-            Modal::CommandPalette { session_id, mut selected_index } => match key.code {
+            Modal::CommandPalette {
+                session_id,
+                mut selected_index,
+            } => match key.code {
                 KeyCode::Esc => {
                     app.active_modal = None;
                 }
                 KeyCode::Up | KeyCode::Char('k') => {
-                    selected_index = if selected_index == 0 { 8 } else { selected_index - 1 };
-                    app.active_modal = Some(Modal::CommandPalette { session_id, selected_index });
+                    selected_index = if selected_index == 0 {
+                        8
+                    } else {
+                        selected_index - 1
+                    };
+                    app.active_modal = Some(Modal::CommandPalette {
+                        session_id,
+                        selected_index,
+                    });
                 }
                 KeyCode::Down | KeyCode::Char('j') => {
                     selected_index = (selected_index + 1) % 9;
-                    app.active_modal = Some(Modal::CommandPalette { session_id, selected_index });
+                    app.active_modal = Some(Modal::CommandPalette {
+                        session_id,
+                        selected_index,
+                    });
                 }
                 KeyCode::Enter => {
                     app.active_modal = None;
@@ -964,13 +1279,19 @@ pub async fn handle_key(app: &mut App, client: &ApiClient, key: KeyEvent) -> Res
                             // Pause
                             let sid = session_id.clone();
                             match client.pause_session(&sid).await {
-                                Ok(()) => app.set_status(format!("Paused session {}", sid.0), StatusType::Success),
-                                Err(e) => app.set_status(format!("Failed to pause: {e}"), StatusType::Error),
+                                Ok(()) => app.set_status(
+                                    format!("Paused session {}", sid.0),
+                                    StatusType::Success,
+                                ),
+                                Err(e) => app
+                                    .set_status(format!("Failed to pause: {e}"), StatusType::Error),
                             }
                         }
                         1 => {
                             // Resume
-                            if let Some(s) = app.sessions.iter().find(|s| s.id == session_id).cloned() {
+                            if let Some(s) =
+                                app.sessions.iter().find(|s| s.id == session_id).cloned()
+                            {
                                 handle_session_resume_or_run(app, client, &s).await;
                             }
                         }
@@ -997,7 +1318,10 @@ pub async fn handle_key(app: &mut App, client: &ApiClient, key: KeyEvent) -> Res
                         }
                         7 => {
                             // Copy Session ID
-                            app.set_status(format!("Session ID: {}", session_id.0), StatusType::Info);
+                            app.set_status(
+                                format!("Session ID: {}", session_id.0),
+                                StatusType::Info,
+                            );
                         }
                         8 => {
                             // Return to Sessions
@@ -1008,11 +1332,18 @@ pub async fn handle_key(app: &mut App, client: &ApiClient, key: KeyEvent) -> Res
                     }
                 }
                 _ => {
-                    app.active_modal = Some(Modal::CommandPalette { session_id, selected_index });
+                    app.active_modal = Some(Modal::CommandPalette {
+                        session_id,
+                        selected_index,
+                    });
                 }
             },
 
-            Modal::Approval { interaction_id, tool_name: _, prompt: _ } => match key.code {
+            Modal::Approval {
+                interaction_id,
+                tool_name: _,
+                prompt: _,
+            } => match key.code {
                 KeyCode::Char('a') | KeyCode::Char('A') | KeyCode::Enter => {
                     app.active_modal = None;
                     match client
@@ -1023,7 +1354,9 @@ pub async fn handle_key(app: &mut App, client: &ApiClient, key: KeyEvent) -> Res
                             app.set_status("Approved execution", StatusType::Success);
                             refresh_data(app, client).await;
                         }
-                        Err(e) => app.set_status(format!("Approval failed: {e}"), StatusType::Error),
+                        Err(e) => {
+                            app.set_status(format!("Approval failed: {e}"), StatusType::Error)
+                        }
                     }
                 }
                 KeyCode::Char('d') | KeyCode::Char('D') => {
@@ -1064,19 +1397,47 @@ pub async fn handle_key(app: &mut App, client: &ApiClient, key: KeyEvent) -> Res
                 }
                 KeyCode::Tab | KeyCode::Down => {
                     active_field = (active_field + 1) % 5;
-                    app.active_modal = Some(Modal::RegisterProject { name, repo_path, policy_index, active_field, error: None });
+                    app.active_modal = Some(Modal::RegisterProject {
+                        name,
+                        repo_path,
+                        policy_index,
+                        active_field,
+                        error: None,
+                    });
                 }
                 KeyCode::BackTab | KeyCode::Up => {
-                    active_field = if active_field == 0 { 4 } else { active_field - 1 };
-                    app.active_modal = Some(Modal::RegisterProject { name, repo_path, policy_index, active_field, error: None });
+                    active_field = if active_field == 0 {
+                        4
+                    } else {
+                        active_field - 1
+                    };
+                    app.active_modal = Some(Modal::RegisterProject {
+                        name,
+                        repo_path,
+                        policy_index,
+                        active_field,
+                        error: None,
+                    });
                 }
                 KeyCode::Left | KeyCode::Right if active_field == 2 => {
                     policy_index = (policy_index + 1) % 3;
-                    app.active_modal = Some(Modal::RegisterProject { name, repo_path, policy_index, active_field, error: None });
+                    app.active_modal = Some(Modal::RegisterProject {
+                        name,
+                        repo_path,
+                        policy_index,
+                        active_field,
+                        error: None,
+                    });
                 }
                 KeyCode::Left | KeyCode::Right if active_field == 3 || active_field == 4 => {
                     active_field = if active_field == 3 { 4 } else { 3 };
-                    app.active_modal = Some(Modal::RegisterProject { name, repo_path, policy_index, active_field, error: None });
+                    app.active_modal = Some(Modal::RegisterProject {
+                        name,
+                        repo_path,
+                        policy_index,
+                        active_field,
+                        error: None,
+                    });
                 }
                 KeyCode::Backspace => {
                     if active_field == 0 {
@@ -1084,15 +1445,33 @@ pub async fn handle_key(app: &mut App, client: &ApiClient, key: KeyEvent) -> Res
                     } else if active_field == 1 {
                         repo_path.pop();
                     }
-                    app.active_modal = Some(Modal::RegisterProject { name, repo_path, policy_index, active_field, error: None });
+                    app.active_modal = Some(Modal::RegisterProject {
+                        name,
+                        repo_path,
+                        policy_index,
+                        active_field,
+                        error: None,
+                    });
                 }
                 KeyCode::Char(c) if active_field == 0 => {
                     name.push(c);
-                    app.active_modal = Some(Modal::RegisterProject { name, repo_path, policy_index, active_field, error: None });
+                    app.active_modal = Some(Modal::RegisterProject {
+                        name,
+                        repo_path,
+                        policy_index,
+                        active_field,
+                        error: None,
+                    });
                 }
                 KeyCode::Char(c) if active_field == 1 => {
                     repo_path.push(c);
-                    app.active_modal = Some(Modal::RegisterProject { name, repo_path, policy_index, active_field, error: None });
+                    app.active_modal = Some(Modal::RegisterProject {
+                        name,
+                        repo_path,
+                        policy_index,
+                        active_field,
+                        error: None,
+                    });
                 }
                 KeyCode::Enter => {
                     if active_field == 4 {
@@ -1102,23 +1481,51 @@ pub async fn handle_key(app: &mut App, client: &ApiClient, key: KeyEvent) -> Res
                     let trimmed_name = name.trim().to_string();
                     let trimmed_repo = repo_path.trim().to_string();
                     if trimmed_name.is_empty() {
-                        app.active_modal = Some(Modal::RegisterProject { name, repo_path, policy_index, active_field: 0, error: Some("Project name cannot be empty".into()) });
+                        app.active_modal = Some(Modal::RegisterProject {
+                            name,
+                            repo_path,
+                            policy_index,
+                            active_field: 0,
+                            error: Some("Project name cannot be empty".into()),
+                        });
                         return Ok(());
                     }
                     if trimmed_repo.is_empty() {
-                        app.active_modal = Some(Modal::RegisterProject { name, repo_path, policy_index, active_field: 1, error: Some("Repository path cannot be empty".into()) });
+                        app.active_modal = Some(Modal::RegisterProject {
+                            name,
+                            repo_path,
+                            policy_index,
+                            active_field: 1,
+                            error: Some("Repository path cannot be empty".into()),
+                        });
                         return Ok(());
                     }
-                    let policies = ["isolated-worktree", "read-only-workspace", "current-working-dir"];
+                    let policies = [
+                        "isolated-worktree",
+                        "read-only-workspace",
+                        "current-working-dir",
+                    ];
                     let pol = policies.get(policy_index).copied();
-                    match client.register_project(&trimmed_name, &trimmed_repo, Some("agy"), &[], pol).await {
+                    match client
+                        .register_project(&trimmed_name, &trimmed_repo, Some("agy"), &[], pol)
+                        .await
+                    {
                         Ok(pid) => {
                             app.active_modal = None;
-                            app.set_status(format!("Project '{}' registered ({})", trimmed_name, pid.0), StatusType::Success);
+                            app.set_status(
+                                format!("Project '{}' registered ({})", trimmed_name, pid.0),
+                                StatusType::Success,
+                            );
                             refresh_data(app, client).await;
                         }
                         Err(e) => {
-                            app.active_modal = Some(Modal::RegisterProject { name, repo_path, policy_index, active_field, error: Some(format!("{e}")) });
+                            app.active_modal = Some(Modal::RegisterProject {
+                                name,
+                                repo_path,
+                                policy_index,
+                                active_field,
+                                error: Some(format!("{e}")),
+                            });
                         }
                     }
                 }
@@ -1130,11 +1537,17 @@ pub async fn handle_key(app: &mut App, client: &ApiClient, key: KeyEvent) -> Res
                     app.active_modal = None;
                     match client.remove_project(&project_id).await {
                         Ok(()) => {
-                            app.set_status(format!("Project '{name}' removed"), StatusType::Success);
+                            app.set_status(
+                                format!("Project '{name}' removed"),
+                                StatusType::Success,
+                            );
                             refresh_data(app, client).await;
                         }
                         Err(e) => {
-                            app.set_status(format!("Failed to remove project: {e}"), StatusType::Error);
+                            app.set_status(
+                                format!("Failed to remove project: {e}"),
+                                StatusType::Error,
+                            );
                         }
                     }
                 }
@@ -1144,7 +1557,10 @@ pub async fn handle_key(app: &mut App, client: &ApiClient, key: KeyEvent) -> Res
                 _ => {}
             },
 
-            Modal::SetDefaultWorkingDir { mut input, error: _ } => match key.code {
+            Modal::SetDefaultWorkingDir {
+                mut input,
+                error: _,
+            } => match key.code {
                 KeyCode::Esc => {
                     app.active_modal = None;
                 }
@@ -1158,20 +1574,28 @@ pub async fn handle_key(app: &mut App, client: &ApiClient, key: KeyEvent) -> Res
                 }
                 KeyCode::Enter => {
                     let trimmed = input.trim();
-                    let home = std::env::var("HOME").map(std::path::PathBuf::from).unwrap_or_else(|_| std::path::PathBuf::from("/"));
+                    let home = std::env::var("HOME")
+                        .map(std::path::PathBuf::from)
+                        .unwrap_or_else(|_| std::path::PathBuf::from("/"));
                     let cwd = std::env::current_dir().unwrap_or_else(|_| home.clone());
                     let resolved = ac_core::agy_launch::resolve_dir_input(trimmed, &cwd, &home);
                     if !resolved.is_dir() {
                         app.active_modal = Some(Modal::SetDefaultWorkingDir {
                             input,
-                            error: Some(format!("Directory does not exist: {}", resolved.display())),
+                            error: Some(format!(
+                                "Directory does not exist: {}",
+                                resolved.display()
+                            )),
                         });
                         return Ok(());
                     }
                     app.active_modal = None;
                     app.user_settings.default_working_dir = Some(trimmed.to_string());
                     let _ = app.user_settings.save();
-                    app.set_status(format!("Default working directory set to: {trimmed}"), StatusType::Success);
+                    app.set_status(
+                        format!("Default working directory set to: {trimmed}"),
+                        StatusType::Success,
+                    );
                 }
                 _ => {}
             },
@@ -1206,7 +1630,8 @@ pub async fn handle_key(app: &mut App, client: &ApiClient, key: KeyEvent) -> Res
             .unwrap_or(false);
 
         // Command palette shortcut: Ctrl+P or F1
-        if (key.modifiers.contains(KeyModifiers::CONTROL) && (key.code == KeyCode::Char('p') || key.code == KeyCode::Char('P')))
+        if (key.modifiers.contains(KeyModifiers::CONTROL)
+            && (key.code == KeyCode::Char('p') || key.code == KeyCode::Char('P')))
             || key.code == KeyCode::F(1)
         {
             app.active_modal = Some(Modal::CommandPalette {
@@ -1218,8 +1643,14 @@ pub async fn handle_key(app: &mut App, client: &ApiClient, key: KeyEvent) -> Res
 
         // A full-screen program (alternate screen) has no local scrollback:
         // page keys go to the program itself, as in a normal terminal.
-        if app.session_in_alt_screen(&detail_id.0) && matches!(key.code, KeyCode::PageUp | KeyCode::PageDown) {
-            let seq = if key.code == KeyCode::PageUp { "\x1b[5~" } else { "\x1b[6~" };
+        if app.session_in_alt_screen(&detail_id.0)
+            && matches!(key.code, KeyCode::PageUp | KeyCode::PageDown)
+        {
+            let seq = if key.code == KeyCode::PageUp {
+                "\x1b[5~"
+            } else {
+                "\x1b[6~"
+            };
             let _ = client.send_input(&detail_id, seq).await;
             return Ok(());
         }
@@ -1453,7 +1884,9 @@ pub async fn handle_key(app: &mut App, client: &ApiClient, key: KeyEvent) -> Res
                 if let Some(ref sid) = app.session_detail_id.clone() {
                     load_session_history_if_needed(app, client, sid).await;
                     if let Ok((cols, rows)) = crossterm::terminal::size() {
-                        let _ = client.resize_session(sid, rows.saturating_sub(2), cols).await;
+                        let _ = client
+                            .resize_session(sid, rows.saturating_sub(2), cols)
+                            .await;
                     }
                 }
             }
@@ -1484,7 +1917,9 @@ pub async fn handle_key(app: &mut App, client: &ApiClient, key: KeyEvent) -> Res
                 if let Some(ref sid) = app.session_detail_id.clone() {
                     load_session_history_if_needed(app, client, sid).await;
                     if let Ok((cols, rows)) = crossterm::terminal::size() {
-                        let _ = client.resize_session(sid, rows.saturating_sub(2), cols).await;
+                        let _ = client
+                            .resize_session(sid, rows.saturating_sub(2), cols)
+                            .await;
                     }
                 }
             }
@@ -1503,8 +1938,12 @@ pub async fn handle_key(app: &mut App, client: &ApiClient, key: KeyEvent) -> Res
                 if let Some(s) = app.selected_session() {
                     let sid = s.id.clone();
                     match client.pause_session(&sid).await {
-                        Ok(()) => app.set_status(format!("Paused session {}", sid.0), StatusType::Success),
-                        Err(e) => app.set_status(format!("Failed to pause: {e}"), StatusType::Error),
+                        Ok(()) => {
+                            app.set_status(format!("Paused session {}", sid.0), StatusType::Success)
+                        }
+                        Err(e) => {
+                            app.set_status(format!("Failed to pause: {e}"), StatusType::Error)
+                        }
                     }
                 }
             }
@@ -1541,7 +1980,8 @@ pub async fn handle_key(app: &mut App, client: &ApiClient, key: KeyEvent) -> Res
             }
             KeyCode::Char('d') | KeyCode::Char('D') | KeyCode::Delete => {
                 if let Some(acct) = app.selected_account().cloned() {
-                    let active = active_sessions_for_account(app, &acct.id).max(acct.active_session_count as usize);
+                    let active = active_sessions_for_account(app, &acct.id)
+                        .max(acct.active_session_count as usize);
                     app.active_modal = Some(Modal::ConfirmRemoveAccount {
                         account_id: acct.id,
                         label: acct.label,
@@ -1554,7 +1994,10 @@ pub async fn handle_key(app: &mut App, client: &ApiClient, key: KeyEvent) -> Res
                 if let Some(label) = app.selected_account().map(|a| a.label.clone()) {
                     app.user_settings.default_account = Some(label.clone());
                     let _ = app.user_settings.save();
-                    app.set_status(format!("Default account set to: {}", label), StatusType::Success);
+                    app.set_status(
+                        format!("Default account set to: {}", label),
+                        StatusType::Success,
+                    );
                 }
             }
             _ => {}
@@ -1603,63 +2046,146 @@ pub async fn handle_key(app: &mut App, client: &ApiClient, key: KeyEvent) -> Res
                         crate::app::SettingsSection::General => match key.code {
                             KeyCode::Up | KeyCode::Char('k') => app.prev_row(),
                             KeyCode::Down | KeyCode::Char('j') => app.next_row(),
-                            KeyCode::Left | KeyCode::Right | KeyCode::Char(' ') | KeyCode::Enter => {
+                            KeyCode::Left
+                            | KeyCode::Right
+                            | KeyCode::Char(' ')
+                            | KeyCode::Enter => {
                                 let fwd = key.code != KeyCode::Left;
                                 match app.settings_general_item {
                                     0 => {
                                         let agents = ["Antigravity", "Claude Code", "Generic PTY"];
-                                        let cur = agents.iter().position(|a| *a == app.user_settings.default_agent).unwrap_or(0);
-                                        let next = if fwd { (cur + 1) % agents.len() } else { (cur + agents.len() - 1) % agents.len() };
+                                        let cur = agents
+                                            .iter()
+                                            .position(|a| *a == app.user_settings.default_agent)
+                                            .unwrap_or(0);
+                                        let next = if fwd {
+                                            (cur + 1) % agents.len()
+                                        } else {
+                                            (cur + agents.len() - 1) % agents.len()
+                                        };
                                         app.user_settings.default_agent = agents[next].to_string();
                                         let _ = app.user_settings.save();
-                                        app.set_status(format!("Default agent set to {}", app.user_settings.default_agent), StatusType::Success);
+                                        app.set_status(
+                                            format!(
+                                                "Default agent set to {}",
+                                                app.user_settings.default_agent
+                                            ),
+                                            StatusType::Success,
+                                        );
                                     }
                                     1 => {
                                         let mut labels = vec![None];
-                                        labels.extend(app.accounts.iter().map(|a| Some(a.label.clone())));
-                                        let cur = labels.iter().position(|l| *l == app.user_settings.default_account).unwrap_or(0);
-                                        let next = if fwd { (cur + 1) % labels.len() } else { (cur + labels.len() - 1) % labels.len() };
+                                        labels.extend(
+                                            app.accounts.iter().map(|a| Some(a.label.clone())),
+                                        );
+                                        let cur = labels
+                                            .iter()
+                                            .position(|l| *l == app.user_settings.default_account)
+                                            .unwrap_or(0);
+                                        let next = if fwd {
+                                            (cur + 1) % labels.len()
+                                        } else {
+                                            (cur + labels.len() - 1) % labels.len()
+                                        };
                                         app.user_settings.default_account = labels[next].clone();
                                         let _ = app.user_settings.save();
-                                        let name = app.user_settings.default_account.as_deref().unwrap_or("None");
-                                        app.set_status(format!("Default account set to {name}"), StatusType::Success);
+                                        let name = app
+                                            .user_settings
+                                            .default_account
+                                            .as_deref()
+                                            .unwrap_or("None");
+                                        app.set_status(
+                                            format!("Default account set to {name}"),
+                                            StatusType::Success,
+                                        );
                                     }
                                     2 => {
                                         app.active_modal = Some(Modal::SetDefaultWorkingDir {
-                                            input: app.user_settings.default_working_dir.clone().unwrap_or_default(),
+                                            input: app
+                                                .user_settings
+                                                .default_working_dir
+                                                .clone()
+                                                .unwrap_or_default(),
                                             error: None,
                                         });
                                     }
                                     3 => {
                                         let modes = ac_core::agy_launch::AgyExecutionMode::ALL;
-                                        let cur = modes.iter().position(|m| *m == app.user_settings.default_execution_mode).unwrap_or(0);
-                                        let next = if fwd { (cur + 1) % modes.len() } else { (cur + modes.len() - 1) % modes.len() };
+                                        let cur = modes
+                                            .iter()
+                                            .position(|m| {
+                                                *m == app.user_settings.default_execution_mode
+                                            })
+                                            .unwrap_or(0);
+                                        let next = if fwd {
+                                            (cur + 1) % modes.len()
+                                        } else {
+                                            (cur + modes.len() - 1) % modes.len()
+                                        };
                                         app.user_settings.default_execution_mode = modes[next];
                                         let _ = app.user_settings.save();
-                                        app.set_status(format!("Default execution mode: {}", app.user_settings.default_execution_mode.label()), StatusType::Success);
+                                        app.set_status(
+                                            format!(
+                                                "Default execution mode: {}",
+                                                app.user_settings.default_execution_mode.label()
+                                            ),
+                                            StatusType::Success,
+                                        );
                                     }
                                     4 => {
                                         let perms = ac_core::agy_launch::AgyPermissionMode::ALL;
-                                        let cur = perms.iter().position(|p| *p == app.user_settings.default_permission_mode).unwrap_or(0);
-                                        let next = if fwd { (cur + 1) % perms.len() } else { (cur + perms.len() - 1) % perms.len() };
+                                        let cur = perms
+                                            .iter()
+                                            .position(|p| {
+                                                *p == app.user_settings.default_permission_mode
+                                            })
+                                            .unwrap_or(0);
+                                        let next = if fwd {
+                                            (cur + 1) % perms.len()
+                                        } else {
+                                            (cur + perms.len() - 1) % perms.len()
+                                        };
                                         app.user_settings.default_permission_mode = perms[next];
                                         let _ = app.user_settings.save();
-                                        app.set_status(format!("Default permission mode: {}", app.user_settings.default_permission_mode.label()), StatusType::Success);
+                                        app.set_status(
+                                            format!(
+                                                "Default permission mode: {}",
+                                                app.user_settings.default_permission_mode.label()
+                                            ),
+                                            StatusType::Success,
+                                        );
                                     }
                                     5 => {
                                         let themes = ["Default", "Dark", "High-Contrast"];
-                                        let cur = themes.iter().position(|t| *t == app.user_settings.terminal_theme).unwrap_or(0);
-                                        let next = if fwd { (cur + 1) % themes.len() } else { (cur + themes.len() - 1) % themes.len() };
+                                        let cur = themes
+                                            .iter()
+                                            .position(|t| *t == app.user_settings.terminal_theme)
+                                            .unwrap_or(0);
+                                        let next = if fwd {
+                                            (cur + 1) % themes.len()
+                                        } else {
+                                            (cur + themes.len() - 1) % themes.len()
+                                        };
                                         app.user_settings.terminal_theme = themes[next].to_string();
                                         let _ = app.user_settings.save();
-                                        app.set_status(format!("Theme set to {}", app.user_settings.terminal_theme), StatusType::Success);
+                                        app.set_status(
+                                            format!(
+                                                "Theme set to {}",
+                                                app.user_settings.terminal_theme
+                                            ),
+                                            StatusType::Success,
+                                        );
                                     }
                                     _ => {}
                                 }
                             }
                             KeyCode::Char('w') | KeyCode::Char('W') => {
                                 app.active_modal = Some(Modal::SetDefaultWorkingDir {
-                                    input: app.user_settings.default_working_dir.clone().unwrap_or_default(),
+                                    input: app
+                                        .user_settings
+                                        .default_working_dir
+                                        .clone()
+                                        .unwrap_or_default(),
                                     error: None,
                                 });
                             }
@@ -1672,8 +2198,11 @@ pub async fn handle_key(app: &mut App, client: &ApiClient, key: KeyEvent) -> Res
                                 open_agy_add_account(app);
                             }
                             KeyCode::Char('d') | KeyCode::Char('D') | KeyCode::Delete => {
-                                if let Some(acct) = app.accounts.get(app.settings_account_selected).cloned() {
-                                    let active = active_sessions_for_account(app, &acct.id).max(acct.active_session_count as usize);
+                                if let Some(acct) =
+                                    app.accounts.get(app.settings_account_selected).cloned()
+                                {
+                                    let active = active_sessions_for_account(app, &acct.id)
+                                        .max(acct.active_session_count as usize);
                                     app.active_modal = Some(Modal::ConfirmRemoveAccount {
                                         account_id: acct.id,
                                         label: acct.label,
@@ -1683,10 +2212,14 @@ pub async fn handle_key(app: &mut App, client: &ApiClient, key: KeyEvent) -> Res
                                 }
                             }
                             KeyCode::Char('s') | KeyCode::Char('S') => {
-                                if let Some(acct) = app.accounts.get(app.settings_account_selected) {
+                                if let Some(acct) = app.accounts.get(app.settings_account_selected)
+                                {
                                     app.user_settings.default_account = Some(acct.label.clone());
                                     let _ = app.user_settings.save();
-                                    app.set_status(format!("Default account set to: {}", acct.label), StatusType::Success);
+                                    app.set_status(
+                                        format!("Default account set to: {}", acct.label),
+                                        StatusType::Success,
+                                    );
                                 }
                             }
                             KeyCode::Char('r') | KeyCode::Char('R') => {
@@ -1708,7 +2241,9 @@ pub async fn handle_key(app: &mut App, client: &ApiClient, key: KeyEvent) -> Res
                                 });
                             }
                             KeyCode::Char('d') | KeyCode::Char('D') | KeyCode::Delete => {
-                                if let Some(p) = app.projects.get(app.settings_project_selected).cloned() {
+                                if let Some(p) =
+                                    app.projects.get(app.settings_project_selected).cloned()
+                                {
                                     app.active_modal = Some(Modal::ConfirmRemoveProject {
                                         project_id: p.id,
                                         name: p.name,
@@ -1719,12 +2254,19 @@ pub async fn handle_key(app: &mut App, client: &ApiClient, key: KeyEvent) -> Res
                                 if let Some(p) = app.projects.get(app.settings_project_selected) {
                                     app.user_settings.default_project = Some(p.name.clone());
                                     let _ = app.user_settings.save();
-                                    app.set_status(format!("Default project set to: {}", p.name), StatusType::Success);
+                                    app.set_status(
+                                        format!("Default project set to: {}", p.name),
+                                        StatusType::Success,
+                                    );
                                 }
                             }
                             KeyCode::Char('w') | KeyCode::Char('W') => {
                                 app.active_modal = Some(Modal::SetDefaultWorkingDir {
-                                    input: app.user_settings.default_working_dir.clone().unwrap_or_default(),
+                                    input: app
+                                        .user_settings
+                                        .default_working_dir
+                                        .clone()
+                                        .unwrap_or_default(),
                                     error: None,
                                 });
                             }
@@ -1741,24 +2283,47 @@ pub async fn handle_key(app: &mut App, client: &ApiClient, key: KeyEvent) -> Res
                                 app.selected_agent = cur;
                                 app.user_settings.default_agent = agents[cur].to_string();
                                 let _ = app.user_settings.save();
-                                app.set_status(format!("Default agent set to {}", agents[cur]), StatusType::Success);
+                                app.set_status(
+                                    format!("Default agent set to {}", agents[cur]),
+                                    StatusType::Success,
+                                );
                             }
                             _ => {}
                         },
                         crate::app::SettingsSection::Permissions => match key.code {
                             KeyCode::Char('1') => {
                                 let modes = ac_core::agy_launch::AgyExecutionMode::ALL;
-                                let cur = modes.iter().position(|m| *m == app.user_settings.default_execution_mode).unwrap_or(0);
-                                app.user_settings.default_execution_mode = modes[(cur + 1) % modes.len()];
+                                let cur = modes
+                                    .iter()
+                                    .position(|m| *m == app.user_settings.default_execution_mode)
+                                    .unwrap_or(0);
+                                app.user_settings.default_execution_mode =
+                                    modes[(cur + 1) % modes.len()];
                                 let _ = app.user_settings.save();
-                                app.set_status(format!("Default execution mode: {}", app.user_settings.default_execution_mode.label()), StatusType::Success);
+                                app.set_status(
+                                    format!(
+                                        "Default execution mode: {}",
+                                        app.user_settings.default_execution_mode.label()
+                                    ),
+                                    StatusType::Success,
+                                );
                             }
                             KeyCode::Char('2') => {
                                 let perms = ac_core::agy_launch::AgyPermissionMode::ALL;
-                                let cur = perms.iter().position(|p| *p == app.user_settings.default_permission_mode).unwrap_or(0);
-                                app.user_settings.default_permission_mode = perms[(cur + 1) % perms.len()];
+                                let cur = perms
+                                    .iter()
+                                    .position(|p| *p == app.user_settings.default_permission_mode)
+                                    .unwrap_or(0);
+                                app.user_settings.default_permission_mode =
+                                    perms[(cur + 1) % perms.len()];
                                 let _ = app.user_settings.save();
-                                app.set_status(format!("Default permission mode: {}", app.user_settings.default_permission_mode.label()), StatusType::Success);
+                                app.set_status(
+                                    format!(
+                                        "Default permission mode: {}",
+                                        app.user_settings.default_permission_mode.label()
+                                    ),
+                                    StatusType::Success,
+                                );
                             }
                             _ => {}
                         },
@@ -1774,12 +2339,22 @@ pub async fn handle_key(app: &mut App, client: &ApiClient, key: KeyEvent) -> Res
                             _ => {}
                         },
                         crate::app::SettingsSection::Terminal => match key.code {
-                            KeyCode::Left | KeyCode::Right | KeyCode::Char(' ') | KeyCode::Enter => {
+                            KeyCode::Left
+                            | KeyCode::Right
+                            | KeyCode::Char(' ')
+                            | KeyCode::Enter => {
                                 let themes = ["Default", "Dark", "High-Contrast"];
-                                let cur = themes.iter().position(|t| *t == app.user_settings.terminal_theme).unwrap_or(0);
-                                app.user_settings.terminal_theme = themes[(cur + 1) % themes.len()].to_string();
+                                let cur = themes
+                                    .iter()
+                                    .position(|t| *t == app.user_settings.terminal_theme)
+                                    .unwrap_or(0);
+                                app.user_settings.terminal_theme =
+                                    themes[(cur + 1) % themes.len()].to_string();
                                 let _ = app.user_settings.save();
-                                app.set_status(format!("Theme set to {}", app.user_settings.terminal_theme), StatusType::Success);
+                                app.set_status(
+                                    format!("Theme set to {}", app.user_settings.terminal_theme),
+                                    StatusType::Success,
+                                );
                             }
                             _ => {}
                         },
@@ -1859,7 +2434,10 @@ async fn open_switch_account_modal(app: &mut App, client: &ApiClient) {
         let current_account_id = s.account_id.clone();
         let current_account_label = app.account_label(current_account_id.as_ref());
 
-        match client.query_account_availability(Some(&agent_type), &[]).await {
+        match client
+            .query_account_availability(Some(&agent_type), &[])
+            .await
+        {
             Ok(avail_list) => {
                 let options: Vec<crate::app::AccountOption> = avail_list
                     .into_iter()
@@ -1940,7 +2518,9 @@ async fn handle_session_resume_or_run(
                         StatusType::Error,
                     ),
                 },
-                Err(e) => app.set_status(format!("Failed to re-run session: {e}"), StatusType::Error),
+                Err(e) => {
+                    app.set_status(format!("Failed to re-run session: {e}"), StatusType::Error)
+                }
             }
         }
         _ => {

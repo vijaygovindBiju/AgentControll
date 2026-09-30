@@ -155,7 +155,10 @@ async fn approval_denied_by_policy_session_remains_working() {
     ];
 
     let (mgr, mut rx) = make_manager_with_hub(store, hub_handle.clone(), script);
-    let sid = mgr.create("task deploy".into(), "mock".into()).await.unwrap();
+    let sid = mgr
+        .create("task deploy".into(), "mock".into())
+        .await
+        .unwrap();
     mgr.start(sid.clone()).await.unwrap();
 
     let event = wait_for_event(&mut rx, |e| {
@@ -245,7 +248,10 @@ async fn human_approval_flow_resumes_session() {
     ];
 
     let (mgr, mut rx) = make_manager_with_hub(store, hub_handle.clone(), script);
-    let sid = mgr.create("task write".into(), "mock".into()).await.unwrap();
+    let sid = mgr
+        .create("task write".into(), "mock".into())
+        .await
+        .unwrap();
     mgr.start(sid.clone()).await.unwrap();
 
     // Session transitions Working -> WaitingForHuman
@@ -320,7 +326,10 @@ async fn human_question_flow_resumes_session() {
     ];
 
     let (mgr, mut rx) = make_manager_with_hub(store, hub_handle.clone(), script);
-    let sid = mgr.create("task question".into(), "mock".into()).await.unwrap();
+    let sid = mgr
+        .create("task question".into(), "mock".into())
+        .await
+        .unwrap();
     mgr.start(sid.clone()).await.unwrap();
 
     // Session transitions Working -> WaitingForHuman
@@ -381,7 +390,10 @@ async fn dismiss_interaction_resumes_session() {
     ];
 
     let (mgr, mut rx) = make_manager_with_hub(store, hub_handle.clone(), script);
-    let sid = mgr.create("task dismiss".into(), "mock".into()).await.unwrap();
+    let sid = mgr
+        .create("task dismiss".into(), "mock".into())
+        .await
+        .unwrap();
     mgr.start(sid.clone()).await.unwrap();
 
     wait_for_event(&mut rx, |e| {
@@ -430,7 +442,10 @@ async fn stopping_session_expires_pending_interactions() {
     ];
 
     let (mgr, mut rx) = make_manager_with_hub(store, hub_handle.clone(), script);
-    let sid = mgr.create("task stop expire".into(), "mock".into()).await.unwrap();
+    let sid = mgr
+        .create("task stop expire".into(), "mock".into())
+        .await
+        .unwrap();
     mgr.start(sid.clone()).await.unwrap();
 
     wait_for_event(&mut rx, |e| {
@@ -446,7 +461,9 @@ async fn stopping_session_expires_pending_interactions() {
     };
 
     // Stop session while interaction is still pending
-    mgr.stop(sid.clone(), Some("User cancelled".into())).await.unwrap();
+    mgr.stop(sid.clone(), Some("User cancelled".into()))
+        .await
+        .unwrap();
 
     // Verify interaction expired event emitted
     let expired_event = wait_for_event(&mut rx, |e| {
@@ -482,7 +499,10 @@ async fn multiple_pending_interactions_session_stays_waiting_until_all_resolved(
     ];
 
     let (mgr, mut rx) = make_manager_with_hub(store, hub_handle.clone(), script);
-    let sid = mgr.create("task multi".into(), "mock".into()).await.unwrap();
+    let sid = mgr
+        .create("task multi".into(), "mock".into())
+        .await
+        .unwrap();
     mgr.start(sid.clone()).await.unwrap();
 
     // Wait until waiting_for_human
@@ -601,7 +621,10 @@ async fn ipc_policy_and_interaction_roundtrip() {
     let resp_line = reader.next_line().await.unwrap().unwrap();
     let resp: ApiResponse = serde_json::from_str(&resp_line).unwrap();
     assert!(resp.ok);
-    let pol_id = resp.result.unwrap()["policy_id"].as_str().unwrap().to_owned();
+    let pol_id = resp.result.unwrap()["policy_id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
 
     // 2. Test policy evaluation via IPC
     let req_test = ApiRequest {
@@ -640,7 +663,10 @@ async fn ipc_policy_and_interaction_roundtrip() {
     let resp_line = reader.next_line().await.unwrap().unwrap();
     let resp: ApiResponse = serde_json::from_str(&resp_line).unwrap();
     assert!(resp.ok);
-    let session_id = resp.result.unwrap()["session_id"].as_str().unwrap().to_owned();
+    let session_id = resp.result.unwrap()["session_id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
 
     // Wait for the question to be raised and session to transition to waiting_for_human
     tokio::time::sleep(Duration::from_millis(80)).await;
@@ -660,7 +686,10 @@ async fn ipc_policy_and_interaction_roundtrip() {
     let resp_line = reader.next_line().await.unwrap().unwrap();
     let resp: ApiResponse = serde_json::from_str(&resp_line).unwrap();
     assert!(resp.ok);
-    let interactions = resp.result.unwrap()["interactions"].as_array().unwrap().clone();
+    let interactions = resp.result.unwrap()["interactions"]
+        .as_array()
+        .unwrap()
+        .clone();
     assert_eq!(interactions.len(), 1);
     let interaction_id = interactions[0]["id"].as_str().unwrap().to_owned();
     assert_eq!(interactions[0]["prompt"], "What is your username?");
@@ -700,7 +729,10 @@ async fn ipc_policy_and_interaction_roundtrip() {
     let resp_line = reader.next_line().await.unwrap().unwrap();
     let resp: ApiResponse = serde_json::from_str(&resp_line).unwrap();
     assert!(resp.ok);
-    let audit_entries = resp.result.unwrap()["audit_entries"].as_array().unwrap().clone();
+    let audit_entries = resp.result.unwrap()["audit_entries"]
+        .as_array()
+        .unwrap()
+        .clone();
     assert!(!audit_entries.is_empty(), "Audit log should have entries");
 
     // 7. Delete the policy via IPC

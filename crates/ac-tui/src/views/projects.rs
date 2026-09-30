@@ -22,10 +22,21 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
 
 fn render_projects_table(f: &mut Frame, app: &App, area: Rect) {
     let header_cells = [
-        "PROJECT ID", "NAME", "REPO PATH", "WORKSPACE POLICY", "DEFAULT TAGS", "ACTIVE SESSIONS",
+        "PROJECT ID",
+        "NAME",
+        "REPO PATH",
+        "WORKSPACE POLICY",
+        "DEFAULT TAGS",
+        "ACTIVE SESSIONS",
     ]
     .iter()
-    .map(|h| Cell::from(*h).style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)));
+    .map(|h| {
+        Cell::from(*h).style(
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        )
+    });
     let header = Row::new(header_cells).height(1).bottom_margin(1);
 
     let rows = app.projects.iter().enumerate().map(|(idx, p)| {
@@ -56,7 +67,9 @@ fn render_projects_table(f: &mut Frame, app: &App, area: Rect) {
 
         let row_cells = vec![
             Cell::from(pid).style(if is_selected {
-                Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD)
             } else {
                 Style::default().fg(Color::White)
             }),
@@ -87,7 +100,9 @@ fn render_projects_table(f: &mut Frame, app: &App, area: Rect) {
             .border_style(Style::default().fg(Color::Cyan))
             .title(Span::styled(
                 format!(" Projects ({}) ", app.projects.len()),
-                Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
             )),
     );
 
@@ -98,7 +113,10 @@ fn render_project_detail(f: &mut Frame, app: &App, area: Rect) {
     let block = Block::default()
         .borders(Borders::ALL)
         .border_style(Style::default().fg(Color::DarkGray))
-        .title(Span::styled(" Selected Project Details ", Style::default().fg(Color::Gray)));
+        .title(Span::styled(
+            " Selected Project Details ",
+            Style::default().fg(Color::Gray),
+        ));
 
     if let Some(p) = app.projects.get(app.selected_project) {
         let active_sessions: Vec<_> = app
@@ -116,13 +134,21 @@ fn render_project_detail(f: &mut Frame, app: &App, area: Rect) {
         let lines = vec![
             Line::from(vec![
                 Span::styled("Project ID: ", Style::default().fg(Color::DarkGray)),
-                Span::styled(&p.id.0, Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                Span::styled(
+                    &p.id.0,
+                    Style::default()
+                        .fg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD),
+                ),
                 Span::raw("    "),
                 Span::styled("Name: ", Style::default().fg(Color::DarkGray)),
                 Span::styled(&p.name, Style::default().fg(Color::White)),
                 Span::raw("    "),
                 Span::styled("Workspace Policy: ", Style::default().fg(Color::DarkGray)),
-                Span::styled(format!("{}", p.workspace_policy), Style::default().fg(Color::Yellow)),
+                Span::styled(
+                    format!("{}", p.workspace_policy),
+                    Style::default().fg(Color::Yellow),
+                ),
             ]),
             Line::from(vec![
                 Span::styled("Repository Path: ", Style::default().fg(Color::DarkGray)),

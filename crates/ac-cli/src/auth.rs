@@ -8,8 +8,8 @@
 use anyhow::{Context, Result};
 use std::io::{self, BufRead, Write};
 
-use ac_core::{agy_auth, types::Id};
 use crate::client::DaemonClient;
+use ac_core::{agy_auth, types::Id};
 
 /// Read one line from stdin. Returns `None` on EOF.
 pub fn read_line() -> Result<Option<String>> {
@@ -23,10 +23,16 @@ pub fn read_line() -> Result<Option<String>> {
 ///
 /// `paste_mode` (`--cli`) skips opening a browser: the user opens the URL on
 /// any machine and pastes the final redirect address back.
-pub async fn browser_login(label: &str, paste_mode: bool) -> std::result::Result<(String, agy_auth::AgyToken), agy_auth::AgyAuthError> {
+pub async fn browser_login(
+    label: &str,
+    paste_mode: bool,
+) -> std::result::Result<(String, agy_auth::AgyToken), agy_auth::AgyAuthError> {
     let login = agy_auth::begin_browser_login().await?;
     if paste_mode {
-        println!("\nOpen this URL in a browser and sign in:\n\n  {}\n", login.authorization_url());
+        println!(
+            "\nOpen this URL in a browser and sign in:\n\n  {}\n",
+            login.authorization_url()
+        );
         print!("Then paste the full address from the browser's address bar:\n> ");
         let _ = io::stdout().flush();
         let pasted = read_line().ok().flatten().unwrap_or_default();
@@ -38,9 +44,15 @@ pub async fn browser_login(label: &str, paste_mode: bool) -> std::result::Result
     if login.open_in_browser() {
         println!("Opening your default browser for Google sign-in...");
     } else {
-        println!("Unable to open your default browser.\n\nOpen this URL manually:\n  {}\n", login.authorization_url());
+        println!(
+            "Unable to open your default browser.\n\nOpen this URL manually:\n  {}\n",
+            login.authorization_url()
+        );
     }
-    println!("Waiting for browser authentication (up to {} minutes; Ctrl+C to cancel)...", agy_auth::LOGIN_TIMEOUT.as_secs() / 60);
+    println!(
+        "Waiting for browser authentication (up to {} minutes; Ctrl+C to cancel)...",
+        agy_auth::LOGIN_TIMEOUT.as_secs() / 60
+    );
     agy_auth::finish_browser_login(&login, label, agy_auth::LOGIN_TIMEOUT).await
 }
 
@@ -84,12 +96,24 @@ pub async fn run_add_account_flow(
             }
         }
     } else {
-        let tok = detected.map(|(_, t)| t).context("No local agy login found")?;
-        (agy_auth::save_new_credential(&label, &tok, "local_import")?, tok)
+        let tok = detected
+            .map(|(_, t)| t)
+            .context("No local agy login found")?;
+        (
+            agy_auth::save_new_credential(&label, &tok, "local_import")?,
+            tok,
+        )
     };
 
     let account_id = match client
-        .register_account(&label, agy_auth::PROVIDER, &agy_auth::AGENT_TYPES, &credential_ref, 2, &["google"])
+        .register_account(
+            &label,
+            agy_auth::PROVIDER,
+            &agy_auth::AGENT_TYPES,
+            &credential_ref,
+            2,
+            &["google"],
+        )
         .await
     {
         Ok(id) => id,
@@ -115,7 +139,9 @@ pub fn prompt_choice(max: usize) -> Result<Option<usize>> {
     loop {
         print!("\nSelect [1-{max}] (q to cancel): ");
         io::stdout().flush()?;
-        let Some(line) = read_line()? else { return Ok(None) };
+        let Some(line) = read_line()? else {
+            return Ok(None);
+        };
         match crate::launcher::parse_selection(&line, max) {
             Ok(Some(n)) => return Ok(Some(n)),
             Ok(None) => return Ok(None),
@@ -145,7 +171,10 @@ async fn prompt_for_label(client: &DaemonClient) -> Result<String> {
             println!("Account name cannot be empty. Please enter a valid name.\n");
             continue;
         }
-        if existing_accounts.iter().any(|a| a.label.eq_ignore_ascii_case(&label)) {
+        if existing_accounts
+            .iter()
+            .any(|a| a.label.eq_ignore_ascii_case(&label))
+        {
             println!("\nYou already have an account named \"{label}\".\n\nChoose another name:");
             continue;
         }

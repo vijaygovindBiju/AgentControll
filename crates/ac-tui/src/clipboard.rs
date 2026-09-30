@@ -17,9 +17,15 @@ fn base64(data: &[u8]) -> String {
     const T: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut out = String::with_capacity(data.len().div_ceil(3) * 4);
     for c in data.chunks(3) {
-        let n = (c[0] as u32) << 16 | (*c.get(1).unwrap_or(&0) as u32) << 8 | *c.get(2).unwrap_or(&0) as u32;
+        let n = (c[0] as u32) << 16
+            | (*c.get(1).unwrap_or(&0) as u32) << 8
+            | *c.get(2).unwrap_or(&0) as u32;
         for i in 0..4 {
-            out.push(if i <= c.len() { T[(n >> (18 - 6 * i) & 63) as usize] as char } else { '=' });
+            out.push(if i <= c.len() {
+                T[(n >> (18 - 6 * i) & 63) as usize] as char
+            } else {
+                '='
+            });
         }
     }
     out
@@ -33,7 +39,9 @@ pub fn osc52(text: &str) -> String {
 /// Copy `text` to the clipboard. Returns true if a local clipboard tool accepted it.
 pub fn copy(text: &str) -> bool {
     let mut out = std::io::stdout();
-    let _ = out.write_all(osc52(text).as_bytes()).and_then(|_| out.flush());
+    let _ = out
+        .write_all(osc52(text).as_bytes())
+        .and_then(|_| out.flush());
     TOOLS.iter().any(|(cmd, args)| {
         let Ok(mut child) = std::process::Command::new(cmd)
             .args(*args)
@@ -44,7 +52,10 @@ pub fn copy(text: &str) -> bool {
         else {
             return false;
         };
-        let wrote = child.stdin.take().is_some_and(|mut s| s.write_all(text.as_bytes()).is_ok());
+        let wrote = child
+            .stdin
+            .take()
+            .is_some_and(|mut s| s.write_all(text.as_bytes()).is_ok());
         wrote && child.wait().map(|s| s.success()).unwrap_or(false)
     })
 }

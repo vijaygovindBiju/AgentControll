@@ -34,12 +34,18 @@ Session Manager
   ├─ State Machine: Idle → Starting
   ├─ emits StateChanged(Idle→Starting) → Event Store
   │
-  ├─ constructs SessionContext (session_id, task_description, agent_type, workspace_path, credential_ref)
-  ├─ resolves adapter via CompositeAdapterFactory (ClaudeAdapter, GenericPtyAdapter, MockAdapter)
+  ├─ constructs SessionContext (session_id, task_description, agent_type, workspace_path, credential_ref, agent_config)
+  ├─ parses optional AgyLaunchOptions (execution_mode, permission_mode, model, working_dir, sandbox)
+  ├─ for Antigravity:
+  │     prepares isolated profile directory ~/.config/agentcontrol/profiles/<account-id>/
+  │     strips ambient Google environment variables (GEMINI_API_KEY, GOOGLE_APPLICATION_CREDENTIALS, etc.)
+  │     sets HOME = ~/.config/agentcontrol/profiles/<account-id>/
+  ├─ resolves adapter via CompositeAdapterFactory (ClaudeAdapter, GenericPtyAdapter, AntigravityAdapter, MockAdapter)
   ├─ spawns adapter process with:
-  │     cwd  = workspace.path (validated on-disk directory boundary)
-  │     env  = resolved credentials (e.g. ANTHROPIC_API_KEY, never stored in event log or SQLite)
-  │     args = task.description, session.id
+  │     cwd  = resolved working_dir or workspace.path (validated on-disk directory boundary)
+  │     env  = resolved credentials and isolated HOME (never stored in event log or SQLite)
+  │     args = task.description, session.id, and validated CLI flags (--mode=..., --dangerously-skip-permissions, etc.)
+  │     PTY  = 8KB read buffers, non-blocking try_send, 512-channel queue to prevent deadlocks
   │
   ▼
 Adapter process starts
@@ -413,10 +419,13 @@ Control API
   ▼
 TUI Client (ApiClient)
   ├─ on StateChanged: updates in-memory session.state, refreshes state badge color
-  ├─ on OutputChunk: appends stdout line to session live transcript buffer
-  ├─ on InteractionCreated: inserts pending interaction into Inbox table and triggers alert banner
+  ├─ on OutputChunk: decodes multibyte UTF-8 stream without glyph loss, updates ANSI virtual terminal buffer (terminal_buffer.rs) tracking cursor, scroll regions, colors, and alternate screen
+  ├─ on InteractionCreated: triggers alert banner and inserts pending prompt
   ├─ on Interaction*Resolved: marks interaction resolved, updates session state
   ├─ on AgentSteeringReceived: appends steering note to session transcript buffer
+  ├─ on key event:
+  │     if in session terminal: Esc forwarded directly to agent PTY; Ctrl+Q detaches to dashboard
+  │     otherwise: routes to active tab / modal
   └─ renders updated frame to terminal without requiring manual user refresh
 ```
 
@@ -451,12 +460,16 @@ Launcher Client (crates/ac-cli)
   │     prompt friendly label
   │     bind ephemeral loopback listener 127.0.0.1:0
   │     open system browser to OAuth authorization URL
-  │     await callback or manual authorization code fallback
-  │     save credentials to ~/.config/agentcontrol/credentials/ (mode 0600)
+  │     await callback or manual authorization code / pasted redirect fallback
+  │     save credentials to ~/.config/agentcontrol/credentials/agy_<id>.json (mode 0600)
   │     register account with credential_ref = "ref:antigravity:<id>"
   │
+  ├─ [Profile Isolation & Launch]:
+  │     prepares ~/.config/agentcontrol/profiles/<account-id>/ with private token
+  │     strips ambient Google environment variables
+  │     passes validated launch options (mode, permissions, model, working dir)
   ├─ creates & starts session via session.create & session.start
-  └─ opens Interactive Session Controller (Ratatui transcript & controls)
+  └─ opens Interactive Session Controller (Ratatui ANSI terminal, [Esc] PTY pass-through, [Ctrl+Q] Detach)
 ```
 
 ---

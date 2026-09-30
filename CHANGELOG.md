@@ -71,3 +71,21 @@ Initial production-ready release of Agent Control — the multi-account supervis
 - High-throughput batch ingestion (`EventStore::append_batch`) yielding >72,000 events/second.
 - Performance benchmark demonstrating recovery of 10,000 sessions from 100,000 events in ~808 milliseconds (beating the < 5.0-second threshold).
 - Diagnostic integrity and replay CLI subcommands (`ac event verify` and `ac event replay`).
+
+#### User Experience Layer & Multi-Account UX
+- Two-layer CLI architecture: `agent-control` and `agy` for normal developers, `ac` for power-user scripting and automation.
+- `agy "Account Label"` direct launcher with automatic daemon spawning, friendly account label resolution, and interactive session attachment.
+- Automatic interactive account selector for `agy` with cooldown tracking and concurrency limit displays.
+- Automated OAuth 2.0 PKCE loopback authentication on `127.0.0.1:0` (`agy account add`) with manual code and pasted-redirect callback fallbacks.
+- Secure `0600` credential file persistence (`~/.config/agentcontrol/credentials/agy_<id>.json`) referenced solely by `ref:antigravity:<id>`.
+
+#### Post-v1 Hardening & Interactive Terminal Ergonomics
+- Dedicated Agent Terminal view with full ANSI virtual screen buffer ([`terminal_buffer.rs`](file:///media/pirate/Shared/currently%20working/AgentControll/crates/ac-tui/src/terminal_buffer.rs)) supporting alternate screen buffers (`1049h`/`1049l`), cursor positioning, scroll regions, and truecolor ANSI rendering.
+- Multi-byte UTF-8 stream decoder (`decode_utf8_stream`) ensuring UTF-8 glyphs split across chunk boundaries are never corrupted into `U+FFFD`.
+- Anti-deadlock PTY architecture: non-blocking `try_send` dispatch, 8KB burst read buffers, and 512-item per-session event queues eliminating reader thread deadlocks during large generation bursts.
+- Transparent key forwarding: `Esc` is forwarded directly to the agent PTY (for vi/nano modes, dialog dismissals, and agy prompt interactions), while `Ctrl+Q` cleanly detaches back to the supervisor dashboard.
+- Streamlined 6-tab navigation (`1: Dashboard`, `2: Sessions`, `3: Accounts`, `4: Activity`, `5: Agents`, `6: Settings`).
+- Centralized Settings hub with 9 keyboard-navigable sections (General, Accounts, Projects & Workspaces, Agents, Models, Permissions, Authentication, Terminal, Security), persistent to `~/.config/agentcontrol/settings.json`.
+- Decoupled Antigravity execution modes (`Default`, `Accept Edits`, `Plan`) from permission boundaries (`Normal`, `Dangerously Skip Permissions` with a strict confirmation modal).
+- Interactive session launch modal (`n`) with shell-style `Tab` directory path completion and interactive filtering.
+- Isolated account profiles (`~/.config/agentcontrol/profiles/<account-id>/`) with `HOME` redirection and ambient Google credential stripping.

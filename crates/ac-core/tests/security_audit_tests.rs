@@ -17,8 +17,8 @@ use ac_core::{
     project_registry::{ProjectRegistry, ProjectRegistryHandle, ProjectStore},
     session::manager::{SessionManager, SessionManagerHandle},
     types::{
-        Account, AgentEvent, ApiRequest, Id, Policy, PolicyCondition, PolicyDecision,
-        PolicyScope, Project, TokenScope, WorkspacePolicy,
+        Account, AgentEvent, ApiRequest, Id, Policy, PolicyCondition, PolicyDecision, PolicyScope,
+        Project, TokenScope, WorkspacePolicy,
     },
 };
 use serde_json::json;
@@ -228,22 +228,70 @@ async fn test_security_t2_socket_permissions_and_token_scope_enforcement() {
 
     // 2. Verify all mutating commands are rejected under TokenScope::Read
     let mutating_commands = vec![
-        ("session.create", json!({"task_description": "t", "agent_type": "mock"})),
-        ("session.start", json!({"session_id": "01J7ABCDEF0123456789ABCDEF"})),
-        ("session.pause", json!({"session_id": "01J7ABCDEF0123456789ABCDEF"})),
-        ("session.resume", json!({"session_id": "01J7ABCDEF0123456789ABCDEF"})),
-        ("session.stop", json!({"session_id": "01J7ABCDEF0123456789ABCDEF"})),
-        ("session.steer", json!({"session_id": "01J7ABCDEF0123456789ABCDEF", "message": "msg"})),
-        ("session.select_account", json!({"session_id": "01J7ABCDEF0123456789ABCDEF", "account_id": "01J7ABCDEF0123456789ABCDEF"})),
-        ("session.switch_account", json!({"session_id": "01J7ABCDEF0123456789ABCDEF", "target_account_id": "01J7ABCDEF0123456789ABCDEF"})),
-        ("session.handoff", json!({"session_id": "01J7ABCDEF0123456789ABCDEF"})),
-        ("account.register", json!({"label": "hacker", "provider": "p", "credential_ref": "c"})),
-        ("account.disable", json!({"account_id": "01J7ABCDEF0123456789ABCDEF"})),
-        ("account.remove", json!({"account_id": "01J7ABCDEF0123456789ABCDEF"})),
-        ("project.register", json!({"name": "evil", "repo_path": "/tmp"})),
-        ("project.remove", json!({"project_id": "01J7ABCDEF0123456789ABCDEF"})),
-        ("interaction.reply", json!({"interaction_id": "01J7ABCDEF0123456789ABCDEF", "decision": "allow"})),
-        ("policy.create", json!({"name": "bypass", "conditions": [], "decision": "allow"})),
+        (
+            "session.create",
+            json!({"task_description": "t", "agent_type": "mock"}),
+        ),
+        (
+            "session.start",
+            json!({"session_id": "01J7ABCDEF0123456789ABCDEF"}),
+        ),
+        (
+            "session.pause",
+            json!({"session_id": "01J7ABCDEF0123456789ABCDEF"}),
+        ),
+        (
+            "session.resume",
+            json!({"session_id": "01J7ABCDEF0123456789ABCDEF"}),
+        ),
+        (
+            "session.stop",
+            json!({"session_id": "01J7ABCDEF0123456789ABCDEF"}),
+        ),
+        (
+            "session.steer",
+            json!({"session_id": "01J7ABCDEF0123456789ABCDEF", "message": "msg"}),
+        ),
+        (
+            "session.select_account",
+            json!({"session_id": "01J7ABCDEF0123456789ABCDEF", "account_id": "01J7ABCDEF0123456789ABCDEF"}),
+        ),
+        (
+            "session.switch_account",
+            json!({"session_id": "01J7ABCDEF0123456789ABCDEF", "target_account_id": "01J7ABCDEF0123456789ABCDEF"}),
+        ),
+        (
+            "session.handoff",
+            json!({"session_id": "01J7ABCDEF0123456789ABCDEF"}),
+        ),
+        (
+            "account.register",
+            json!({"label": "hacker", "provider": "p", "credential_ref": "c"}),
+        ),
+        (
+            "account.disable",
+            json!({"account_id": "01J7ABCDEF0123456789ABCDEF"}),
+        ),
+        (
+            "account.remove",
+            json!({"account_id": "01J7ABCDEF0123456789ABCDEF"}),
+        ),
+        (
+            "project.register",
+            json!({"name": "evil", "repo_path": "/tmp"}),
+        ),
+        (
+            "project.remove",
+            json!({"project_id": "01J7ABCDEF0123456789ABCDEF"}),
+        ),
+        (
+            "interaction.reply",
+            json!({"interaction_id": "01J7ABCDEF0123456789ABCDEF", "decision": "allow"}),
+        ),
+        (
+            "policy.create",
+            json!({"name": "bypass", "conditions": [], "decision": "allow"}),
+        ),
     ];
 
     for (cmd, params) in mutating_commands {
@@ -351,7 +399,13 @@ async fn test_security_t4_workspace_boundary_validation() {
         .resolve_workspace(&pid, &sid)
         .unwrap();
 
-    let ws = proj.0.lock().unwrap().get_workspace(&ws_id).cloned().unwrap();
+    let ws = proj
+        .0
+        .lock()
+        .unwrap()
+        .get_workspace(&ws_id)
+        .cloned()
+        .unwrap();
     assert!(
         ws.path.starts_with(repo_dir.to_str().unwrap()),
         "Worktree path must remain strictly within project directory!"
@@ -365,7 +419,8 @@ async fn test_security_t5_injection_and_hostile_input_immunity() {
     let (mgr, _acct, _proj, _int, _pol, _tx, _dir) = setup_security_harness().await;
 
     // Hostile task descriptions with shell metacharacters and SQL injection
-    let hostile_task = "'; DROP TABLE events; DROP TABLE sessions; echo $(whoami); | cat /etc/shadow";
+    let hostile_task =
+        "'; DROP TABLE events; DROP TABLE sessions; echo $(whoami); | cat /etc/shadow";
 
     let sid = mgr
         .create_with_context(hostile_task.into(), "mock".into(), None, None)

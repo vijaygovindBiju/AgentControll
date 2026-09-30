@@ -34,13 +34,23 @@ fn render_filter_bar(f: &mut Frame, app: &App, area: Rect) {
 
     let p = Paragraph::new(Line::from(vec![
         Span::styled(" ", Style::default()),
-        Span::styled(filter_text, Style::default().fg(if app.activity_filter.is_some() { Color::Yellow } else { Color::DarkGray })),
+        Span::styled(
+            filter_text,
+            Style::default().fg(if app.activity_filter.is_some() {
+                Color::Yellow
+            } else {
+                Color::DarkGray
+            }),
+        ),
     ]))
     .block(
         Block::default()
             .borders(Borders::ALL)
             .border_style(Style::default().fg(Color::DarkGray))
-            .title(Span::styled(" Filter Activity ", Style::default().fg(Color::Gray))),
+            .title(Span::styled(
+                " Filter Activity ",
+                Style::default().fg(Color::Gray),
+            )),
     );
     f.render_widget(p, area);
 }
@@ -48,7 +58,13 @@ fn render_filter_bar(f: &mut Frame, app: &App, area: Rect) {
 fn render_activity_table(f: &mut Frame, app: &App, area: Rect) {
     let header_cells = ["SEQ", "TIME", "KIND", "SESSION", "TRIGGERED BY", "PAYLOAD"]
         .iter()
-        .map(|h| Cell::from(*h).style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)));
+        .map(|h| {
+            Cell::from(*h).style(
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            )
+        });
     let header = Row::new(header_cells).height(1).bottom_margin(1);
 
     let events = app.filtered_events();
@@ -83,9 +99,13 @@ fn render_activity_table(f: &mut Frame, app: &App, area: Rect) {
         let time_str = e.timestamp.format("%H:%M:%S").to_string();
 
         let (kind_color, is_bold) = match e.kind {
-            ac_core::types::EventKind::SessionCrashed | ac_core::types::EventKind::SessionFailed => (Color::Red, true),
-            ac_core::types::EventKind::ApprovalRequested | ac_core::types::EventKind::AgentQuestion => (Color::Yellow, true),
-            ac_core::types::EventKind::SessionStarted | ac_core::types::EventKind::SessionReady => (Color::Green, false),
+            ac_core::types::EventKind::SessionCrashed
+            | ac_core::types::EventKind::SessionFailed => (Color::Red, true),
+            ac_core::types::EventKind::ApprovalRequested
+            | ac_core::types::EventKind::AgentQuestion => (Color::Yellow, true),
+            ac_core::types::EventKind::SessionStarted | ac_core::types::EventKind::SessionReady => {
+                (Color::Green, false)
+            }
             ac_core::types::EventKind::StateChanged => (Color::Cyan, false),
             _ => (Color::White, false),
         };
@@ -99,7 +119,11 @@ fn render_activity_table(f: &mut Frame, app: &App, area: Rect) {
             Cell::from(format!("{}", e.seq)).style(Style::default().fg(Color::DarkGray)),
             Cell::from(time_str).style(Style::default().fg(Color::Gray)),
             Cell::from(format!("{}", e.kind)).style(kind_style),
-            Cell::from(sid).style(if is_selected { Style::default().fg(Color::Cyan) } else { Style::default() }),
+            Cell::from(sid).style(if is_selected {
+                Style::default().fg(Color::Cyan)
+            } else {
+                Style::default()
+            }),
             Cell::from(e.triggered_by.clone()).style(Style::default().fg(Color::DarkGray)),
             Cell::from(payload_trunc),
         ];
@@ -124,7 +148,9 @@ fn render_activity_table(f: &mut Frame, app: &App, area: Rect) {
             .border_style(Style::default().fg(Color::Cyan))
             .title(Span::styled(
                 format!(" Activity Stream ({} events) ", events.len()),
-                Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
             )),
     );
 
@@ -135,7 +161,10 @@ fn render_event_detail(f: &mut Frame, app: &App, area: Rect) {
     let block = Block::default()
         .borders(Borders::ALL)
         .border_style(Style::default().fg(Color::DarkGray))
-        .title(Span::styled(" Event Payload Detail ", Style::default().fg(Color::Gray)));
+        .title(Span::styled(
+            " Event Payload Detail ",
+            Style::default().fg(Color::Gray),
+        ));
 
     let events = app.filtered_events();
     if let Some(e) = events.get(app.selected_event) {
@@ -159,7 +188,12 @@ fn render_event_detail(f: &mut Frame, app: &App, area: Rect) {
                 Span::styled(formatted_payload, Style::default().fg(Color::White)),
             ]),
         ];
-        f.render_widget(Paragraph::new(lines).block(block).wrap(Wrap { trim: false }), area);
+        f.render_widget(
+            Paragraph::new(lines)
+                .block(block)
+                .wrap(Wrap { trim: false }),
+            area,
+        );
     } else {
         let p = Paragraph::new("No event selected.")
             .style(Style::default().fg(Color::DarkGray))

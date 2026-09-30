@@ -14,9 +14,15 @@ use crate::types::{AgentSession, SessionState};
 #[derive(Debug, PartialEq, Eq)]
 pub enum TransitionResult {
     /// Transition was valid; state was updated.
-    Changed { from: SessionState, to: SessionState },
+    Changed {
+        from: SessionState,
+        to: SessionState,
+    },
     /// Transition was invalid for the current state; state unchanged.
-    Rejected { current: SessionState, attempted: SessionState },
+    Rejected {
+        current: SessionState,
+        attempted: SessionState,
+    },
 }
 
 /// The set of transitions that the state machine enforces.
@@ -61,7 +67,7 @@ pub fn is_valid_transition(from: &SessionState, to: &SessionState) -> bool {
         // Restart cycle
         | (Crashed, Restarting)
         | (Restarting, Starting)
-        | (Crashed, Failed)   // restart limit exceeded
+        | (Crashed, Failed) // restart limit exceeded
     )
 }
 
@@ -244,7 +250,7 @@ mod tests {
         use SessionState::*;
         let valid_edges = vec![
             (Idle, Starting),
-            (Idle, Stopped),  // direct stop of unstarted session
+            (Idle, Stopped), // direct stop of unstarted session
             (Starting, Working),
             (Starting, Failed),
             (Working, WaitingForHuman),

@@ -22,10 +22,22 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
 
 fn render_accounts_table(f: &mut Frame, app: &App, area: Rect) {
     let header_cells = [
-        "ACCOUNT ID", "LABEL", "PROVIDER", "STATE", "LOAD / CAP", "AGENT TYPES", "TAGS",
+        "ACCOUNT ID",
+        "LABEL",
+        "PROVIDER",
+        "STATE",
+        "LOAD / CAP",
+        "AGENT TYPES",
+        "TAGS",
     ]
     .iter()
-    .map(|h| Cell::from(*h).style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)));
+    .map(|h| {
+        Cell::from(*h).style(
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        )
+    });
     let header = Row::new(header_cells).height(1).bottom_margin(1);
 
     let rows = app.accounts.iter().enumerate().map(|(idx, a)| {
@@ -52,7 +64,9 @@ fn render_accounts_table(f: &mut Frame, app: &App, area: Rect) {
 
         let row_cells = vec![
             Cell::from(aid).style(if is_selected {
-                Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD)
             } else {
                 Style::default().fg(Color::White)
             }),
@@ -85,7 +99,9 @@ fn render_accounts_table(f: &mut Frame, app: &App, area: Rect) {
             .border_style(Style::default().fg(Color::Cyan))
             .title(Span::styled(
                 format!(" Accounts ({}) ", app.accounts.len()),
-                Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
             )),
     );
 
@@ -96,7 +112,10 @@ fn render_account_detail(f: &mut Frame, app: &App, area: Rect) {
     let block = Block::default()
         .borders(Borders::ALL)
         .border_style(Style::default().fg(Color::DarkGray))
-        .title(Span::styled(" Selected Account Details ", Style::default().fg(Color::Gray)));
+        .title(Span::styled(
+            " Selected Account Details ",
+            Style::default().fg(Color::Gray),
+        ));
 
     if let Some(a) = app.accounts.get(app.selected_account) {
         let cooldown_str = a
@@ -107,7 +126,12 @@ fn render_account_detail(f: &mut Frame, app: &App, area: Rect) {
         let lines = vec![
             Line::from(vec![
                 Span::styled("Account ID: ", Style::default().fg(Color::DarkGray)),
-                Span::styled(&a.id.0, Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                Span::styled(
+                    &a.id.0,
+                    Style::default()
+                        .fg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD),
+                ),
                 Span::raw("    "),
                 Span::styled("Label: ", Style::default().fg(Color::DarkGray)),
                 Span::styled(&a.label, Style::default().fg(Color::White)),
@@ -126,7 +150,10 @@ fn render_account_detail(f: &mut Frame, app: &App, area: Rect) {
                 Span::styled(cooldown_str, Style::default().fg(Color::Yellow)),
                 Span::raw("    "),
                 Span::styled("Concurrency: ", Style::default().fg(Color::DarkGray)),
-                Span::styled(format!("{}/{}", a.active_session_count, a.concurrency_cap), Style::default().fg(Color::White)),
+                Span::styled(
+                    format!("{}/{}", a.active_session_count, a.concurrency_cap),
+                    Style::default().fg(Color::White),
+                ),
             ]),
         ];
         f.render_widget(Paragraph::new(lines).block(block), area);

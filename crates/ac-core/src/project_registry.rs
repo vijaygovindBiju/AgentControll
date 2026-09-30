@@ -112,7 +112,8 @@ impl ProjectStore {
     }
 
     pub fn delete_project(&self, id: &Id) -> Result<()> {
-        self.conn.execute("DELETE FROM projects WHERE id=?1", params![id.0])?;
+        self.conn
+            .execute("DELETE FROM projects WHERE id=?1", params![id.0])?;
         Ok(())
     }
 
@@ -195,10 +196,8 @@ fn row_to_project(row: &rusqlite::Row<'_>) -> rusqlite::Result<Project> {
     let created_at_str: String = row.get(7)?;
     let updated_at_str: String = row.get(8)?;
 
-    let default_account_tags: Vec<String> =
-        serde_json::from_str(&tags_str).unwrap_or_default();
-    let workspace_policy: WorkspacePolicy =
-        serde_json::from_str(&policy_str).unwrap_or_default();
+    let default_account_tags: Vec<String> = serde_json::from_str(&tags_str).unwrap_or_default();
+    let workspace_policy: WorkspacePolicy = serde_json::from_str(&policy_str).unwrap_or_default();
     let created_at = chrono::DateTime::parse_from_rfc3339(&created_at_str)
         .map(|d| d.with_timezone(&Utc))
         .unwrap_or_else(|_| Utc::now());
@@ -229,8 +228,7 @@ fn row_to_workspace(row: &rusqlite::Row<'_>) -> rusqlite::Result<Workspace> {
     let created_at_str: String = row.get(6)?;
     let reclaimed_at_str: Option<String> = row.get(7)?;
 
-    let kind: WorkspaceKind =
-        serde_json::from_str(&kind_str).unwrap_or(WorkspaceKind::Shared);
+    let kind: WorkspaceKind = serde_json::from_str(&kind_str).unwrap_or(WorkspaceKind::Shared);
     let created_at = chrono::DateTime::parse_from_rfc3339(&created_at_str)
         .map(|d| d.with_timezone(&Utc))
         .unwrap_or_else(|_| Utc::now());
@@ -280,7 +278,11 @@ impl ProjectRegistry {
             projects.len(),
             workspaces.len()
         );
-        Ok(Self { projects, workspaces, store })
+        Ok(Self {
+            projects,
+            workspaces,
+            store,
+        })
     }
 
     // ── Project CRUD ──────────────────────────────────────────────────────
@@ -303,14 +305,26 @@ impl ProjectRegistry {
         v
     }
 
-    pub fn update(&mut self, id: &Id, name: Option<String>, default_agent_type: Option<Option<String>>, default_account_tags: Option<Vec<String>>) -> Result<()> {
+    pub fn update(
+        &mut self,
+        id: &Id,
+        name: Option<String>,
+        default_agent_type: Option<Option<String>>,
+        default_account_tags: Option<Vec<String>>,
+    ) -> Result<()> {
         let project = self
             .projects
             .get_mut(&id.0)
             .ok_or_else(|| anyhow::anyhow!("Project not found: {}", id))?;
-        if let Some(n) = name { project.name = n; }
-        if let Some(dat) = default_agent_type { project.default_agent_type = dat; }
-        if let Some(tags) = default_account_tags { project.default_account_tags = tags; }
+        if let Some(n) = name {
+            project.name = n;
+        }
+        if let Some(dat) = default_agent_type {
+            project.default_agent_type = dat;
+        }
+        if let Some(tags) = default_account_tags {
+            project.default_account_tags = tags;
+        }
         project.updated_at = Utc::now();
         self.store.update_project(project)?;
         Ok(())
@@ -318,7 +332,9 @@ impl ProjectRegistry {
 
     pub fn remove(&mut self, id: &Id) -> Result<()> {
         // Check for bound workspaces with active sessions
-        let has_active = self.workspaces.values()
+        let has_active = self
+            .workspaces
+            .values()
             .any(|w| &w.project_id == id && w.session_id.is_some() && w.reclaimed_at.is_none());
         if has_active {
             bail!("Cannot remove project {} with active sessions", id);
@@ -339,11 +355,7 @@ impl ProjectRegistry {
     /// - `WorktreePerSession` policy: creates a new workspace record bound to
     ///   `session_id`. The path is `<repo_path>/.worktrees/<session_id>`.
     ///   Actual git worktree creation is deferred to Phase 4.
-    pub fn resolve_workspace(
-        &mut self,
-        project_id: &Id,
-        session_id: &Id,
-    ) -> Result<Id> {
+    pub fn resolve_workspace(&mut self, project_id: &Id, session_id: &Id) -> Result<Id> {
         let project = self
             .projects
             .get(&project_id.0)
@@ -378,10 +390,7 @@ impl ProjectRegistry {
                 Ok(ws_id)
             }
             WorkspacePolicy::WorktreePerSession => {
-                let path = format!(
-                    "{}/.worktrees/{}",
-                    project.repo_path, session_id.0
-                );
+                let path = format!("{}/.worktrees/{}", project.repo_path, session_id.0);
                 let ws = Workspace {
                     id: Id::new(),
                     project_id: project_id.clone(),
@@ -423,7 +432,9 @@ impl ProjectRegistry {
 
     /// List workspaces for a project.
     pub fn workspaces_for(&self, project_id: &Id) -> Vec<&Workspace> {
-        let mut v: Vec<&Workspace> = self.workspaces.values()
+        let mut v: Vec<&Workspace> = self
+            .workspaces
+            .values()
             .filter(|w| &w.project_id == project_id)
             .collect();
         v.sort_by_key(|w| w.created_at);
@@ -477,15 +488,19 @@ mod tests {
     #[test]
     fn list_projects() {
         let mut reg = registry();
-        reg.register(make_project("p1", WorkspacePolicy::Shared)).unwrap();
-        reg.register(make_project("p2", WorkspacePolicy::Shared)).unwrap();
+        reg.register(make_project("p1", WorkspacePolicy::Shared))
+            .unwrap();
+        reg.register(make_project("p2", WorkspacePolicy::Shared))
+            .unwrap();
         assert_eq!(reg.list().len(), 2);
     }
 
     #[test]
     fn remove_project() {
         let mut reg = registry();
-        let id = reg.register(make_project("p", WorkspacePolicy::Shared)).unwrap();
+        let id = reg
+            .register(make_project("p", WorkspacePolicy::Shared))
+            .unwrap();
         reg.remove(&id).unwrap();
         assert!(reg.get(&id).is_none());
     }
@@ -493,7 +508,9 @@ mod tests {
     #[test]
     fn shared_workspace_reused() {
         let mut reg = registry();
-        let pid = reg.register(make_project("p", WorkspacePolicy::Shared)).unwrap();
+        let pid = reg
+            .register(make_project("p", WorkspacePolicy::Shared))
+            .unwrap();
         let s1 = Id::new();
         let s2 = Id::new();
         let w1 = reg.resolve_workspace(&pid, &s1).unwrap();
@@ -511,7 +528,10 @@ mod tests {
         let s2 = Id::new();
         let w1 = reg.resolve_workspace(&pid, &s1).unwrap();
         let w2 = reg.resolve_workspace(&pid, &s2).unwrap();
-        assert_ne!(w1, w2, "WorktreePerSession should create a new workspace per session");
+        assert_ne!(
+            w1, w2,
+            "WorktreePerSession should create a new workspace per session"
+        );
     }
 
     #[test]
@@ -558,7 +578,9 @@ mod tests {
         {
             let store = ProjectStore::open(&db).unwrap();
             let mut reg = ProjectRegistry::new(store).unwrap();
-            pid = reg.register(make_project("persisted", WorkspacePolicy::Shared)).unwrap();
+            pid = reg
+                .register(make_project("persisted", WorkspacePolicy::Shared))
+                .unwrap();
             reg.resolve_workspace(&pid, &Id::new()).unwrap();
         }
         {

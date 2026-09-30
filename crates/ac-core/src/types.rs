@@ -80,9 +80,7 @@ impl SessionState {
     pub fn is_terminal(&self) -> bool {
         matches!(
             self,
-            SessionState::Stopped
-                | SessionState::HandedOff
-                | SessionState::Failed
+            SessionState::Stopped | SessionState::HandedOff | SessionState::Failed
         )
     }
 }
@@ -402,8 +400,16 @@ impl SubscriptionFilter {
             }
         }
         if let Some(expected_aid) = &self.account_id {
-            let aid_in_payload = event.payload.get("account_id").and_then(|v| v.as_str())
-                .or_else(|| event.payload.get("target_account_id").and_then(|v| v.as_str()));
+            let aid_in_payload = event
+                .payload
+                .get("account_id")
+                .and_then(|v| v.as_str())
+                .or_else(|| {
+                    event
+                        .payload
+                        .get("target_account_id")
+                        .and_then(|v| v.as_str())
+                });
             if aid_in_payload != Some(&expected_aid.0) {
                 return false;
             }
@@ -1071,18 +1077,14 @@ impl PolicyCondition {
     /// Evaluate whether this condition matches the given context.
     pub fn matches(&self, tool_name: Option<&str>, agent_type: Option<&str>) -> bool {
         match self {
-            PolicyCondition::ToolNameEquals(name) => {
-                tool_name.map(|t| t == name).unwrap_or(false)
-            }
+            PolicyCondition::ToolNameEquals(name) => tool_name.map(|t| t == name).unwrap_or(false),
             PolicyCondition::ToolNamePrefix(prefix) => {
                 tool_name.map(|t| t.starts_with(prefix)).unwrap_or(false)
             }
-            PolicyCondition::AgentTypeEquals(at) => {
-                agent_type.map(|a| a == at).unwrap_or(false)
-            }
-            PolicyCondition::ToolNameIn(names) => {
-                tool_name.map(|t| names.iter().any(|n| n == t)).unwrap_or(false)
-            }
+            PolicyCondition::AgentTypeEquals(at) => agent_type.map(|a| a == at).unwrap_or(false),
+            PolicyCondition::ToolNameIn(names) => tool_name
+                .map(|t| names.iter().any(|n| n == t))
+                .unwrap_or(false),
         }
     }
 }

@@ -38,11 +38,7 @@ pub enum AgyExecutionMode {
 }
 
 impl AgyExecutionMode {
-    pub const ALL: [Self; 3] = [
-        Self::Default,
-        Self::AcceptEdits,
-        Self::Plan,
-    ];
+    pub const ALL: [Self; 3] = [Self::Default, Self::AcceptEdits, Self::Plan];
 
     pub fn label(self) -> &'static str {
         match self {
@@ -55,7 +51,9 @@ impl AgyExecutionMode {
     pub fn description(self) -> &'static str {
         match self {
             Self::Default => "Standard AGY flow with normal prompt and review",
-            Self::AcceptEdits => "Auto-approve file edits, prompt for commands (--mode=accept-edits)",
+            Self::AcceptEdits => {
+                "Auto-approve file edits, prompt for commands (--mode=accept-edits)"
+            }
             Self::Plan => "Research and plan only, no file edits (--mode=plan)",
         }
     }
@@ -99,10 +97,7 @@ pub enum AgyPermissionMode {
 }
 
 impl AgyPermissionMode {
-    pub const ALL: [Self; 2] = [
-        Self::Normal,
-        Self::DangerouslySkipPermissions,
-    ];
+    pub const ALL: [Self; 2] = [Self::Normal, Self::DangerouslySkipPermissions];
 
     pub fn label(self) -> &'static str {
         match self {
@@ -114,7 +109,9 @@ impl AgyPermissionMode {
     pub fn description(self) -> &'static str {
         match self {
             Self::Normal => "Asks before file changes and commands",
-            Self::DangerouslySkipPermissions => "Auto-approve tool actions without prompting (--dangerously-skip-permissions)",
+            Self::DangerouslySkipPermissions => {
+                "Auto-approve tool actions without prompting (--dangerously-skip-permissions)"
+            }
         }
     }
 
@@ -178,7 +175,9 @@ impl AgyLaunchOptions {
                 return Err(format!("working directory must be an absolute path: {d}"));
             }
             if !p.is_dir() {
-                return Err(format!("working directory does not exist or is not a directory: {d}"));
+                return Err(format!(
+                    "working directory does not exist or is not a directory: {d}"
+                ));
             }
         }
         Ok(())
@@ -206,7 +205,9 @@ impl AgyLaunchOptions {
     /// Read options from a session's `agent_config`; anything unparsable means defaults.
     /// Also supports legacy payload shapes with `permission_mode` holding execution modes.
     pub fn from_agent_config(cfg: Option<&serde_json::Value>) -> Self {
-        let Some(v) = cfg else { return Self::default(); };
+        let Some(v) = cfg else {
+            return Self::default();
+        };
 
         // If direct deserialization succeeds, use it
         if let Ok(opts) = serde_json::from_value::<AgyLaunchOptions>(v.clone()) {
@@ -224,7 +225,9 @@ impl AgyLaunchOptions {
             };
         } else if let Some(perm_val) = v.get("permission_mode").and_then(|s| s.as_str()) {
             match perm_val {
-                "accept-edits" | "accept_edits" => opts.execution_mode = AgyExecutionMode::AcceptEdits,
+                "accept-edits" | "accept_edits" => {
+                    opts.execution_mode = AgyExecutionMode::AcceptEdits
+                }
                 "plan" => opts.execution_mode = AgyExecutionMode::Plan,
                 "sandbox" => opts.sandbox = true,
                 "dangerously-skip-permissions" | "dangerously_skip_permissions" => {
@@ -264,7 +267,8 @@ fn is_valid_model_id(m: &str) -> bool {
     !m.is_empty()
         && m.len() <= 128
         && !m.starts_with('-')
-        && m.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_'))
+        && m.chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_'))
 }
 
 /// Execution modes supported by the installed agy (cached for the process).
@@ -300,7 +304,10 @@ fn usage_strings_from_binary(bin: &Path) -> Option<String> {
         r"Set the agent execution mode for this session \([a-z%, -]{1,80}\)|'(?:accept-edits|plan)': |Run in a sandbox with terminal restrictions|dangerously-skip-permissions|Auto-approve all tool permission requests",
     )
     .ok()?;
-    let found: Vec<String> = re.find_iter(&bytes).map(|m| String::from_utf8_lossy(m.as_bytes()).into_owned()).collect();
+    let found: Vec<String> = re
+        .find_iter(&bytes)
+        .map(|m| String::from_utf8_lossy(m.as_bytes()).into_owned())
+        .collect();
     Some(found.join("\n"))
 }
 
@@ -318,7 +325,10 @@ pub fn parse_models(output: &str) -> Vec<AgyModel> {
         .filter_map(|l| {
             let (id, name) = l.split_once('\t')?;
             let id = id.trim();
-            is_valid_model_id(id).then(|| AgyModel { id: id.to_string(), name: name.trim().to_string() })
+            is_valid_model_id(id).then(|| AgyModel {
+                id: id.to_string(),
+                name: name.trim().to_string(),
+            })
         })
         .collect()
 }
@@ -327,10 +337,20 @@ pub fn parse_models(output: &str) -> Vec<AgyModel> {
 /// account's isolated profile (same preparation as a session launch; the
 /// credential is validated first and never passed on the command line).
 #[cfg(unix)]
-pub fn list_models(account_id: &Id, cred_ref: &str, timeout: Duration) -> Result<Vec<AgyModel>, String> {
+pub fn list_models(
+    account_id: &Id,
+    cred_ref: &str,
+    timeout: Duration,
+) -> Result<Vec<AgyModel>, String> {
     use std::io::Read;
-    let envs = crate::agy_auth::prepare_profile(account_id, cred_ref)
-        .map_err(|e| e.to_string().split('\n').map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>().join(" "))?;
+    let envs = crate::agy_auth::prepare_profile(account_id, cred_ref).map_err(|e| {
+        e.to_string()
+            .split('\n')
+            .map(str::trim)
+            .filter(|l| !l.is_empty())
+            .collect::<Vec<_>>()
+            .join(" ")
+    })?;
     let mut cmd = std::process::Command::new(crate::adapter::resolve_real_antigravity_bin());
     cmd.arg("models")
         .stdin(std::process::Stdio::null())
@@ -343,12 +363,16 @@ pub fn list_models(account_id: &Id, cred_ref: &str, timeout: Duration) -> Result
     if let Some(home) = std::env::var_os("HOME") {
         cmd.current_dir(home);
     }
-    let mut child = cmd.spawn().map_err(|e| format!("could not run agy: {}", e.kind()))?;
+    let mut child = cmd
+        .spawn()
+        .map_err(|e| format!("could not run agy: {}", e.kind()))?;
     let deadline = std::time::Instant::now() + timeout;
     loop {
         match child.try_wait() {
             Ok(Some(_)) => break,
-            Ok(None) if std::time::Instant::now() < deadline => std::thread::sleep(Duration::from_millis(100)),
+            Ok(None) if std::time::Instant::now() < deadline => {
+                std::thread::sleep(Duration::from_millis(100))
+            }
             _ => {
                 let _ = child.kill();
                 let _ = child.wait();
@@ -380,7 +404,11 @@ pub fn resolve_dir_input(input: &str, cwd: &Path, home: &Path) -> PathBuf {
         cwd.to_path_buf()
     } else {
         let p = Path::new(input);
-        if p.is_absolute() { p.to_path_buf() } else { cwd.join(p) }
+        if p.is_absolute() {
+            p.to_path_buf()
+        } else {
+            cwd.join(p)
+        }
     };
     let mut out = PathBuf::new();
     for c in raw.components() {
@@ -403,10 +431,22 @@ mod tests {
 
     #[test]
     fn modes_follow_usage_text() {
-        assert_eq!(AgyExecutionMode::supported_in_usage(HELP), AgyExecutionMode::ALL.to_vec());
-        assert_eq!(AgyExecutionMode::supported_in_usage(""), vec![AgyExecutionMode::Default]);
-        assert_eq!(AgyPermissionMode::supported_in_usage(HELP), AgyPermissionMode::ALL.to_vec());
-        assert_eq!(AgyPermissionMode::supported_in_usage(""), vec![AgyPermissionMode::Normal]);
+        assert_eq!(
+            AgyExecutionMode::supported_in_usage(HELP),
+            AgyExecutionMode::ALL.to_vec()
+        );
+        assert_eq!(
+            AgyExecutionMode::supported_in_usage(""),
+            vec![AgyExecutionMode::Default]
+        );
+        assert_eq!(
+            AgyPermissionMode::supported_in_usage(HELP),
+            AgyPermissionMode::ALL.to_vec()
+        );
+        assert_eq!(
+            AgyPermissionMode::supported_in_usage(""),
+            vec![AgyPermissionMode::Normal]
+        );
 
         let only_plan = "Set the agent execution mode for this session (plan)";
         assert_eq!(
@@ -422,11 +462,17 @@ mod tests {
         assert_eq!(AgyPermissionMode::default(), AgyPermissionMode::Normal);
 
         assert_eq!(AgyExecutionMode::Default.flag(), None);
-        assert_eq!(AgyExecutionMode::AcceptEdits.flag(), Some("--mode=accept-edits"));
+        assert_eq!(
+            AgyExecutionMode::AcceptEdits.flag(),
+            Some("--mode=accept-edits")
+        );
         assert_eq!(AgyExecutionMode::Plan.flag(), Some("--mode=plan"));
 
         assert_eq!(AgyPermissionMode::Normal.flag(), None);
-        assert_eq!(AgyPermissionMode::DangerouslySkipPermissions.flag(), Some("--dangerously-skip-permissions"));
+        assert_eq!(
+            AgyPermissionMode::DangerouslySkipPermissions.flag(),
+            Some("--dangerously-skip-permissions")
+        );
 
         let opts = AgyLaunchOptions {
             execution_mode: AgyExecutionMode::AcceptEdits,
@@ -453,23 +499,46 @@ mod tests {
             model: Some("gemini-3.8-flash-medium".into()),
             working_dir: None,
         };
-        assert_eq!(plan_with_model.args(), vec!["--mode=plan", "--model", "gemini-3.8-flash-medium"]);
+        assert_eq!(
+            plan_with_model.args(),
+            vec!["--mode=plan", "--model", "gemini-3.8-flash-medium"]
+        );
 
         // Unparsable config never turns into a dangerous launch
-        assert_eq!(AgyLaunchOptions::from_agent_config(Some(&serde_json::json!({"execution_mode": "bogus"}))), AgyLaunchOptions::default());
-        assert_eq!(AgyLaunchOptions::from_agent_config(None), AgyLaunchOptions::default());
+        assert_eq!(
+            AgyLaunchOptions::from_agent_config(Some(
+                &serde_json::json!({"execution_mode": "bogus"})
+            )),
+            AgyLaunchOptions::default()
+        );
+        assert_eq!(
+            AgyLaunchOptions::from_agent_config(None),
+            AgyLaunchOptions::default()
+        );
     }
 
     #[test]
     fn validation_rejects_bad_models_and_dirs() {
-        let bad = AgyLaunchOptions { model: Some("--dangerously-skip-permissions".into()), ..Default::default() };
+        let bad = AgyLaunchOptions {
+            model: Some("--dangerously-skip-permissions".into()),
+            ..Default::default()
+        };
         assert!(bad.validate().is_err());
         assert!(bad.args().is_empty());
-        let rel = AgyLaunchOptions { working_dir: Some("relative/dir".into()), ..Default::default() };
+        let rel = AgyLaunchOptions {
+            working_dir: Some("relative/dir".into()),
+            ..Default::default()
+        };
         assert!(rel.validate().is_err());
-        let missing = AgyLaunchOptions { working_dir: Some("/definitely/not/here".into()), ..Default::default() };
+        let missing = AgyLaunchOptions {
+            working_dir: Some("/definitely/not/here".into()),
+            ..Default::default()
+        };
         assert!(missing.validate().is_err());
-        let ok = AgyLaunchOptions { working_dir: Some(std::env::temp_dir().display().to_string()), ..Default::default() };
+        let ok = AgyLaunchOptions {
+            working_dir: Some(std::env::temp_dir().display().to_string()),
+            ..Default::default()
+        };
         assert!(ok.validate().is_ok());
     }
 
@@ -485,10 +554,22 @@ mod tests {
     fn resolve_dir_variants() {
         let cwd = Path::new("/work/here");
         let home = Path::new("/home/u");
-        assert_eq!(resolve_dir_input("~/projects/", cwd, home), PathBuf::from("/home/u/projects"));
+        assert_eq!(
+            resolve_dir_input("~/projects/", cwd, home),
+            PathBuf::from("/home/u/projects")
+        );
         assert_eq!(resolve_dir_input("~", cwd, home), PathBuf::from("/home/u"));
-        assert_eq!(resolve_dir_input("/abs/x", cwd, home), PathBuf::from("/abs/x"));
-        assert_eq!(resolve_dir_input("sub/../other", cwd, home), PathBuf::from("/work/here/other"));
-        assert_eq!(resolve_dir_input("", cwd, home), PathBuf::from("/work/here"));
+        assert_eq!(
+            resolve_dir_input("/abs/x", cwd, home),
+            PathBuf::from("/abs/x")
+        );
+        assert_eq!(
+            resolve_dir_input("sub/../other", cwd, home),
+            PathBuf::from("/work/here/other")
+        );
+        assert_eq!(
+            resolve_dir_input("", cwd, home),
+            PathBuf::from("/work/here")
+        );
     }
 }

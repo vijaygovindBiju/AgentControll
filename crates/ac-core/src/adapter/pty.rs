@@ -177,9 +177,17 @@ fn write_pty(w: &Arc<Mutex<Box<dyn Write + Send>>>, bytes: &[u8], pid: Option<u3
             pid,
             bytes.len(),
             started.elapsed(),
-            if bytes.ends_with(b"\r") || bytes.ends_with(b"\n") { " [ends with newline/CR]" } else { "" }
+            if bytes.ends_with(b"\r") || bytes.ends_with(b"\n") {
+                " [ends with newline/CR]"
+            } else {
+                ""
+            }
         ),
-        Err(e) => warn!("PTY stdin (pid={:?}): write of {} byte(s) failed: {e}", pid, bytes.len()),
+        Err(e) => warn!(
+            "PTY stdin (pid={:?}): write of {} byte(s) failed: {e}",
+            pid,
+            bytes.len()
+        ),
     }
 }
 
@@ -207,7 +215,10 @@ impl GenericPtyAdapter {
         if let Some(ref ws) = ctx.workspace_path {
             let p = PathBuf::from(ws);
             if !p.exists() || !p.is_dir() {
-                bail!("Workspace path does not exist or is not a directory: {}", ws);
+                bail!(
+                    "Workspace path does not exist or is not a directory: {}",
+                    ws
+                );
             }
         }
 
@@ -237,7 +248,10 @@ impl GenericPtyAdapter {
             cmd.env(k, v);
         }
 
-        let mut child = pair.slave.spawn_command(cmd).context("spawning PTY child process")?;
+        let mut child = pair
+            .slave
+            .spawn_command(cmd)
+            .context("spawning PTY child process")?;
         drop(pair.slave); // Crucial: close slave in parent so master gets EOF on child exit
 
         let child_pid = child.process_id();
@@ -249,7 +263,10 @@ impl GenericPtyAdapter {
             ctx.workspace_path,
             config.envs.keys().collect::<Vec<_>>()
         );
-        let reader = pair.master.try_clone_reader().context("cloning PTY reader")?;
+        let reader = pair
+            .master
+            .try_clone_reader()
+            .context("cloning PTY reader")?;
         let writer = pair.master.take_writer().context("taking PTY writer")?;
         let writer = Arc::new(Mutex::new(writer));
         let master = Arc::new(Mutex::new(pair.master));
@@ -265,7 +282,10 @@ impl GenericPtyAdapter {
                 match cmd {
                     AgentCommand::Input { data } => {
                         let w = writer_cmd.clone();
-                        let _ = tokio::task::spawn_blocking(move || write_pty(&w, data.as_bytes(), child_pid)).await;
+                        let _ = tokio::task::spawn_blocking(move || {
+                            write_pty(&w, data.as_bytes(), child_pid)
+                        })
+                        .await;
                     }
                     AgentCommand::Resize { rows, cols } => {
                         let m = master_cmd.clone();
@@ -277,7 +297,13 @@ impl GenericPtyAdapter {
                                     pixel_width: 0,
                                     pixel_height: 0,
                                 });
-                                debug!("PTY resize (pid={:?}) to {}x{}: {:?}", child_pid, cols, rows, res.err());
+                                debug!(
+                                    "PTY resize (pid={:?}) to {}x{}: {:?}",
+                                    child_pid,
+                                    cols,
+                                    rows,
+                                    res.err()
+                                );
                             }
                         })
                         .await;
@@ -291,12 +317,18 @@ impl GenericPtyAdapter {
                             "n\r\n".to_string()
                         };
                         let w = writer_cmd.clone();
-                        let _ = tokio::task::spawn_blocking(move || write_pty(&w, text.as_bytes(), child_pid)).await;
+                        let _ = tokio::task::spawn_blocking(move || {
+                            write_pty(&w, text.as_bytes(), child_pid)
+                        })
+                        .await;
                     }
                     AgentCommand::Steer { message } => {
                         let text = format!("{}\r\n", message);
                         let w = writer_cmd.clone();
-                        let _ = tokio::task::spawn_blocking(move || write_pty(&w, text.as_bytes(), child_pid)).await;
+                        let _ = tokio::task::spawn_blocking(move || {
+                            write_pty(&w, text.as_bytes(), child_pid)
+                        })
+                        .await;
                     }
                     AgentCommand::Pause => {
                         #[cfg(unix)]
@@ -382,17 +414,28 @@ impl GenericPtyAdapter {
                     Ok(n) => {
                         total_bytes += n as u64;
                         total_chunks += 1;
-                        trace!("PTY stdout (pid={:?}): chunk #{} of {} byte(s)", child_pid, total_chunks, n);
+                        trace!(
+                            "PTY stdout (pid={:?}): chunk #{} of {} byte(s)",
+                            child_pid,
+                            total_chunks,
+                            n
+                        );
                         if last_report.elapsed() >= Duration::from_secs(2) {
                             debug!(
                                 "PTY stdout (pid={:?}): {} bytes / {} chunks so far, {} dropped",
-                                child_pid, total_bytes, total_chunks, dropped_chunks.load(Ordering::Relaxed)
+                                child_pid,
+                                total_bytes,
+                                total_chunks,
+                                dropped_chunks.load(Ordering::Relaxed)
                             );
                             last_report = std::time::Instant::now();
                         }
                         let queries = detect_terminal_queries(&buf[..n]);
                         if !queries.is_empty() {
-                            debug!("PTY stdout (pid={:?}): child sent terminal queries {:?}", child_pid, queries);
+                            debug!(
+                                "PTY stdout (pid={:?}): child sent terminal queries {:?}",
+                                child_pid, queries
+                            );
                         }
                         let chunk = decode_utf8_stream(&mut utf8_carry, &buf[..n]);
                         if chunk.is_empty() {
@@ -435,9 +478,8 @@ impl GenericPtyAdapter {
                                         let _ = event_tx_reader.blocking_send(AdapterEvent::Ready);
                                     }
                                     PtyPatternKind::ApprovalRequested { tool_name } => {
-                                        let tname = tool_name
-                                            .clone()
-                                            .unwrap_or_else(|| "command".into());
+                                        let tname =
+                                            tool_name.clone().unwrap_or_else(|| "command".into());
                                         let prompt = captures
                                             .get(0)
                                             .map(|m| m.as_str().to_string())
@@ -454,9 +496,8 @@ impl GenericPtyAdapter {
                                             .get(0)
                                             .map(|m| m.as_str().to_string())
                                             .unwrap_or_default();
-                                        let _ = event_tx_reader.blocking_send(
-                                            AdapterEvent::QuestionRaised { prompt },
-                                        );
+                                        let _ = event_tx_reader
+                                            .blocking_send(AdapterEvent::QuestionRaised { prompt });
                                     }
                                     PtyPatternKind::RateLimitSignal { back_off_secs } => {
                                         let _ = event_tx_reader.blocking_send(
@@ -616,7 +657,8 @@ mod tests {
 
         let start = std::time::Instant::now();
         while start.elapsed() < Duration::from_secs(3) {
-            if let Ok(Some(evt)) = tokio::time::timeout(Duration::from_millis(200), rx.recv()).await {
+            if let Ok(Some(evt)) = tokio::time::timeout(Duration::from_millis(200), rx.recv()).await
+            {
                 match evt {
                     AdapterEvent::Ready => got_ready = true,
                     AdapterEvent::OutputChunk { text, confidence } => {
@@ -659,7 +701,11 @@ mod tests {
                 _ => {}
             }
         }
-        assert!(out.contains("AFTER_CAP_MARKER"), "reader stopped after {} bytes", out.len());
+        assert!(
+            out.contains("AFTER_CAP_MARKER"),
+            "reader stopped after {} bytes",
+            out.len()
+        );
     }
 
     #[tokio::test]
@@ -673,7 +719,8 @@ mod tests {
         let mut got_crashed = false;
         let start = std::time::Instant::now();
         while start.elapsed() < Duration::from_secs(3) {
-            if let Ok(Some(evt)) = tokio::time::timeout(Duration::from_millis(200), rx.recv()).await {
+            if let Ok(Some(evt)) = tokio::time::timeout(Duration::from_millis(200), rx.recv()).await
+            {
                 if let AdapterEvent::Crashed { exit_code, .. } = evt {
                     assert_eq!(exit_code, Some(42));
                     got_crashed = true;
@@ -699,7 +746,8 @@ mod tests {
         let mut output_pwd = String::new();
         let start = std::time::Instant::now();
         while start.elapsed() < Duration::from_secs(3) {
-            if let Ok(Some(evt)) = tokio::time::timeout(Duration::from_millis(200), rx.recv()).await {
+            if let Ok(Some(evt)) = tokio::time::timeout(Duration::from_millis(200), rx.recv()).await
+            {
                 match evt {
                     AdapterEvent::OutputChunk { text, .. } => {
                         output_pwd.push_str(&text);
@@ -750,7 +798,8 @@ mod tests {
         let mut got_approval_req = false;
         let start = std::time::Instant::now();
         while start.elapsed() < Duration::from_secs(3) {
-            if let Ok(Some(evt)) = tokio::time::timeout(Duration::from_millis(200), rx.recv()).await {
+            if let Ok(Some(evt)) = tokio::time::timeout(Duration::from_millis(200), rx.recv()).await
+            {
                 if let AdapterEvent::ApprovalRequested { tool_name, prompt } = evt {
                     assert_eq!(tool_name, "bash");
                     assert!(prompt.contains("Do you want to run"));
@@ -771,7 +820,8 @@ mod tests {
         // Now verify output contains the answer
         let mut got_answer = false;
         while start.elapsed() < Duration::from_secs(3) {
-            if let Ok(Some(evt)) = tokio::time::timeout(Duration::from_millis(200), rx.recv()).await {
+            if let Ok(Some(evt)) = tokio::time::timeout(Duration::from_millis(200), rx.recv()).await
+            {
                 if let AdapterEvent::OutputChunk { text, .. } = evt {
                     if text.contains("answer was yes_sure") {
                         got_answer = true;
@@ -807,8 +857,12 @@ mod tests {
         let mut exited = false;
         let start = std::time::Instant::now();
         while start.elapsed() < Duration::from_secs(3) {
-            if let Ok(Some(evt)) = tokio::time::timeout(Duration::from_millis(200), rx.recv()).await {
-                if matches!(evt, AdapterEvent::Completed { .. } | AdapterEvent::Crashed { .. }) {
+            if let Ok(Some(evt)) = tokio::time::timeout(Duration::from_millis(200), rx.recv()).await
+            {
+                if matches!(
+                    evt,
+                    AdapterEvent::Completed { .. } | AdapterEvent::Crashed { .. }
+                ) {
                     exited = true;
                     break;
                 }
@@ -849,7 +903,8 @@ mod tests {
         let mut got_stderr = false;
         let start = std::time::Instant::now();
         while start.elapsed() < Duration::from_secs(3) {
-            if let Ok(Some(evt)) = tokio::time::timeout(Duration::from_millis(200), rx.recv()).await {
+            if let Ok(Some(evt)) = tokio::time::timeout(Duration::from_millis(200), rx.recv()).await
+            {
                 if let AdapterEvent::OutputChunk { text, .. } = evt {
                     if text.contains("error message on stderr") {
                         got_stderr = true;
@@ -871,7 +926,10 @@ mod tests {
                 "-c",
                 "echo 'Please choose target branch?'; sleep 0.05; echo 'Rate limit exceeded 429'",
             ])
-            .with_pattern(r"Please choose target branch\?", PtyPatternKind::QuestionRaised)
+            .with_pattern(
+                r"Please choose target branch\?",
+                PtyPatternKind::QuestionRaised,
+            )
             .unwrap()
             .with_pattern(
                 r"Rate limit exceeded",
@@ -888,7 +946,8 @@ mod tests {
 
         let start = std::time::Instant::now();
         while start.elapsed() < Duration::from_secs(3) {
-            if let Ok(Some(evt)) = tokio::time::timeout(Duration::from_millis(200), rx.recv()).await {
+            if let Ok(Some(evt)) = tokio::time::timeout(Duration::from_millis(200), rx.recv()).await
+            {
                 match evt {
                     AdapterEvent::QuestionRaised { prompt } => {
                         if prompt.contains("Please choose target branch") {

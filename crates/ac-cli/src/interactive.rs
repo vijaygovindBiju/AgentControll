@@ -34,12 +34,14 @@ use std::{
 };
 use tokio::sync::mpsc;
 
-use ac_core::types::{Account, AgentEvent, EventKind, Id, SessionState};
 use crate::client::DaemonClient;
+use ac_core::types::{Account, AgentEvent, EventKind, Id, SessionState};
 
 #[derive(Debug, Clone)]
 pub enum InteractiveModal {
-    Steer { input: String },
+    Steer {
+        input: String,
+    },
     SwitchAccount {
         options: Vec<Account>,
         selected_index: usize,
@@ -119,7 +121,11 @@ pub async fn attach_interactive(
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    let mut state = InteractiveSessionState::new(session_id.clone(), account_label.clone(), agent_type.clone());
+    let mut state = InteractiveSessionState::new(
+        session_id.clone(),
+        account_label.clone(),
+        agent_type.clone(),
+    );
 
     // Subscribe to event stream
     let mut rx = client.subscribe_events(Some(session_id.clone())).await?;
@@ -285,7 +291,8 @@ async fn handle_key_event(
                             let target_label = target.label.clone();
                             state.modal = None;
 
-                            state.status_message = Some(format!("Switching to {}...", target_label));
+                            state.status_message =
+                                Some(format!("Switching to {}...", target_label));
 
                             match client.switch_account(&state.session_id, &target_id).await {
                                 Ok(successor_id) => {
@@ -296,15 +303,19 @@ async fn handle_key_event(
                                         "\n--- Switched to account {} (workspace & project files preserved) ---\n",
                                         target_label
                                     ));
-                                    state.status_message = Some(format!("Switched to {}", target_label));
+                                    state.status_message =
+                                        Some(format!("Switched to {}", target_label));
 
                                     // Resubscribe to new session
-                                    if let Ok(new_rx) = client.subscribe_events(Some(successor_id)).await {
+                                    if let Ok(new_rx) =
+                                        client.subscribe_events(Some(successor_id)).await
+                                    {
                                         *rx = new_rx;
                                     }
                                 }
                                 Err(e) => {
-                                    state.status_message = Some(format!("Account switch failed: {e}"));
+                                    state.status_message =
+                                        Some(format!("Account switch failed: {e}"));
                                 }
                             }
                         }
@@ -338,28 +349,29 @@ async fn handle_key_event(
             state.should_quit = true;
         }
         KeyCode::Char('s') => {
-            state.modal = Some(InteractiveModal::Steer { input: String::new() });
+            state.modal = Some(InteractiveModal::Steer {
+                input: String::new(),
+            });
         }
-        KeyCode::Char('p') => {
-            match client.pause_session(&state.session_id).await {
-                Ok(()) => {
-                    state.state = SessionState::Paused;
-                    state.status_message = Some("Session paused.".into());
-                }
-                Err(e) => state.status_message = Some(format!("Failed to pause: {e}")),
+        KeyCode::Char('p') => match client.pause_session(&state.session_id).await {
+            Ok(()) => {
+                state.state = SessionState::Paused;
+                state.status_message = Some("Session paused.".into());
             }
-        }
-        KeyCode::Char('r') => {
-            match client.resume_session(&state.session_id).await {
-                Ok(()) => {
-                    state.state = SessionState::Working;
-                    state.status_message = Some("Session resumed.".into());
-                }
-                Err(e) => state.status_message = Some(format!("Failed to resume: {e}")),
+            Err(e) => state.status_message = Some(format!("Failed to pause: {e}")),
+        },
+        KeyCode::Char('r') => match client.resume_session(&state.session_id).await {
+            Ok(()) => {
+                state.state = SessionState::Working;
+                state.status_message = Some("Session resumed.".into());
             }
-        }
+            Err(e) => state.status_message = Some(format!("Failed to resume: {e}")),
+        },
         KeyCode::Char('x') => {
-            match client.stop_session(&state.session_id, Some("Stopped by user")).await {
+            match client
+                .stop_session(&state.session_id, Some("Stopped by user"))
+                .await
+            {
                 Ok(()) => {
                     state.state = SessionState::Stopped;
                     state.status_message = Some("Session stopped.".into());
@@ -401,7 +413,9 @@ fn render_ui(f: &mut Frame, state: &InteractiveSessionState) {
         .border_style(Style::default().fg(Color::Cyan))
         .title(Span::styled(
             " Antigravity ",
-            Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
         ));
     f.render_widget(block, area);
 
@@ -424,26 +438,64 @@ fn render_ui(f: &mut Frame, state: &InteractiveSessionState) {
 
     // 1. Header Area
     let state_badge = match state.state {
-        SessionState::Working => Span::styled(" WORKING ", Style::default().fg(Color::Black).bg(Color::Green).add_modifier(Modifier::BOLD)),
-        SessionState::Paused => Span::styled(" PAUSED ", Style::default().fg(Color::White).bg(Color::Blue).add_modifier(Modifier::BOLD)),
-        SessionState::WaitingForHuman => Span::styled(" WAITING FOR HUMAN ", Style::default().fg(Color::Black).bg(Color::Yellow).add_modifier(Modifier::BOLD)),
-        SessionState::Stopped => Span::styled(" STOPPED ", Style::default().fg(Color::Gray).bg(Color::Reset)),
-        SessionState::Crashed => Span::styled(" CRASHED ", Style::default().fg(Color::White).bg(Color::Red).add_modifier(Modifier::BOLD)),
-        _ => Span::styled(format!(" {:?} ", state.state).to_uppercase(), Style::default().fg(Color::Cyan)),
+        SessionState::Working => Span::styled(
+            " WORKING ",
+            Style::default()
+                .fg(Color::Black)
+                .bg(Color::Green)
+                .add_modifier(Modifier::BOLD),
+        ),
+        SessionState::Paused => Span::styled(
+            " PAUSED ",
+            Style::default()
+                .fg(Color::White)
+                .bg(Color::Blue)
+                .add_modifier(Modifier::BOLD),
+        ),
+        SessionState::WaitingForHuman => Span::styled(
+            " WAITING FOR HUMAN ",
+            Style::default()
+                .fg(Color::Black)
+                .bg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        ),
+        SessionState::Stopped => Span::styled(
+            " STOPPED ",
+            Style::default().fg(Color::Gray).bg(Color::Reset),
+        ),
+        SessionState::Crashed => Span::styled(
+            " CRASHED ",
+            Style::default()
+                .fg(Color::White)
+                .bg(Color::Red)
+                .add_modifier(Modifier::BOLD),
+        ),
+        _ => Span::styled(
+            format!(" {:?} ", state.state).to_uppercase(),
+            Style::default().fg(Color::Cyan),
+        ),
     };
 
     let header_lines = vec![
         Line::from(vec![
             Span::styled("Account: ", Style::default().fg(Color::DarkGray)),
-            Span::styled(&state.account_label, Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                &state.account_label,
+                Style::default()
+                    .fg(Color::White)
+                    .add_modifier(Modifier::BOLD),
+            ),
         ]),
         Line::from(vec![
             Span::styled("State:   ", Style::default().fg(Color::DarkGray)),
             state_badge,
         ]),
     ];
-    let header_p = Paragraph::new(header_lines)
-        .block(Block::default().borders(Borders::BOTTOM).border_style(Style::default().fg(Color::DarkGray)));
+    let header_p = Paragraph::new(header_lines).block(
+        Block::default()
+            .borders(Borders::BOTTOM)
+            .border_style(Style::default().fg(Color::DarkGray)),
+    );
     f.render_widget(header_p, layout[0]);
 
     // 2. Transcript Area
@@ -472,20 +524,54 @@ fn render_ui(f: &mut Frame, state: &InteractiveSessionState) {
 
     // 4. Footer Shortcuts
     let shortcuts_p = Paragraph::new(Line::from(vec![
-        Span::styled("[s]", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            "[s]",
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        ),
         Span::raw(" Steer  "),
-        Span::styled("[p]", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            "[p]",
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        ),
         Span::raw(" Pause  "),
-        Span::styled("[r]", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            "[r]",
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        ),
         Span::raw(" Resume  "),
-        Span::styled("[x]", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            "[x]",
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        ),
         Span::raw(" Stop  "),
-        Span::styled("[a]", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            "[a]",
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        ),
         Span::raw(" Switch Account  "),
-        Span::styled("[q]", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            "[q]",
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        ),
         Span::raw(" Quit"),
     ]))
-    .block(Block::default().borders(Borders::TOP).border_style(Style::default().fg(Color::DarkGray)));
+    .block(
+        Block::default()
+            .borders(Borders::TOP)
+            .border_style(Style::default().fg(Color::DarkGray)),
+    );
     f.render_widget(shortcuts_p, layout[3]);
 
     // ── Render Modals if active ─────────────────────────────────────────────
@@ -496,11 +582,22 @@ fn render_ui(f: &mut Frame, state: &InteractiveSessionState) {
                 f.render_widget(Clear, modal_area);
 
                 let p = Paragraph::new(vec![
-                    Line::from(Span::styled("Enter instruction to inject:", Style::default().fg(Color::White))),
+                    Line::from(Span::styled(
+                        "Enter instruction to inject:",
+                        Style::default().fg(Color::White),
+                    )),
                     Line::from(""),
-                    Line::from(Span::styled(format!("> {input}_"), Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))),
+                    Line::from(Span::styled(
+                        format!("> {input}_"),
+                        Style::default()
+                            .fg(Color::Yellow)
+                            .add_modifier(Modifier::BOLD),
+                    )),
                     Line::from(""),
-                    Line::from(Span::styled("[Enter] Send   [Esc] Cancel", Style::default().fg(Color::DarkGray))),
+                    Line::from(Span::styled(
+                        "[Enter] Send   [Esc] Cancel",
+                        Style::default().fg(Color::DarkGray),
+                    )),
                 ])
                 .block(
                     Block::default()
@@ -523,10 +620,20 @@ fn render_ui(f: &mut Frame, state: &InteractiveSessionState) {
                     let mut lines = vec![
                         Line::from(vec![
                             Span::styled("Current account: ", Style::default().fg(Color::DarkGray)),
-                            Span::styled(&state.account_label, Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+                            Span::styled(
+                                &state.account_label,
+                                Style::default()
+                                    .fg(Color::White)
+                                    .add_modifier(Modifier::BOLD),
+                            ),
                         ]),
                         Line::from(""),
-                        Line::from(Span::styled("Switch to:", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))),
+                        Line::from(Span::styled(
+                            "Switch to:",
+                            Style::default()
+                                .fg(Color::Yellow)
+                                .add_modifier(Modifier::BOLD),
+                        )),
                         Line::from(""),
                     ];
 
@@ -534,7 +641,9 @@ fn render_ui(f: &mut Frame, state: &InteractiveSessionState) {
                         let is_sel = i == *selected_index;
                         let prefix = if is_sel { "> " } else { "  " };
                         let style = if is_sel {
-                            Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
+                            Style::default()
+                                .fg(Color::Cyan)
+                                .add_modifier(Modifier::BOLD)
                         } else {
                             Style::default().fg(Color::White)
                         };
@@ -560,7 +669,12 @@ fn render_ui(f: &mut Frame, state: &InteractiveSessionState) {
                 } else {
                     let target = &options[*selected_index];
                     let lines = vec![
-                        Line::from(Span::styled("Switching account...", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))),
+                        Line::from(Span::styled(
+                            "Switching account...",
+                            Style::default()
+                                .fg(Color::Yellow)
+                                .add_modifier(Modifier::BOLD),
+                        )),
                         Line::from(""),
                         Line::from("This provider requires restarting the agent."),
                         Line::from(Span::styled(
@@ -570,15 +684,27 @@ fn render_ui(f: &mut Frame, state: &InteractiveSessionState) {
                         Line::from(""),
                         Line::from(vec![
                             Span::raw("Switch from "),
-                            Span::styled(&state.account_label, Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+                            Span::styled(
+                                &state.account_label,
+                                Style::default()
+                                    .fg(Color::White)
+                                    .add_modifier(Modifier::BOLD),
+                            ),
                             Span::raw(" to "),
-                            Span::styled(&target.label, Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                            Span::styled(
+                                &target.label,
+                                Style::default()
+                                    .fg(Color::Cyan)
+                                    .add_modifier(Modifier::BOLD),
+                            ),
                             Span::raw("?"),
                         ]),
                         Line::from(""),
                         Line::from(Span::styled(
                             "Continue? [Y/n]",
-                            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+                            Style::default()
+                                .fg(Color::Yellow)
+                                .add_modifier(Modifier::BOLD),
                         )),
                     ];
 

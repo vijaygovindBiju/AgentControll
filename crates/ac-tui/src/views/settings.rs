@@ -26,14 +26,28 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
 
 fn render_sections_list(f: &mut Frame, app: &App, area: Rect) {
     let is_focused = !app.settings_focus_panel;
-    let border_color = if is_focused { Color::Cyan } else { Color::DarkGray };
+    let border_color = if is_focused {
+        Color::Cyan
+    } else {
+        Color::DarkGray
+    };
 
     let block = Block::default()
         .borders(Borders::ALL)
         .border_style(Style::default().fg(border_color))
         .title(Span::styled(
-            if is_focused { " ▸ Settings " } else { " Settings " },
-            Style::default().fg(if is_focused { Color::Cyan } else { Color::White }).add_modifier(Modifier::BOLD),
+            if is_focused {
+                " ▸ Settings "
+            } else {
+                " Settings "
+            },
+            Style::default()
+                .fg(if is_focused {
+                    Color::Cyan
+                } else {
+                    Color::White
+                })
+                .add_modifier(Modifier::BOLD),
         ));
 
     let mut lines = vec![Line::from("")];
@@ -42,9 +56,13 @@ fn render_sections_list(f: &mut Frame, app: &App, area: Rect) {
         let prefix = if is_selected { " > " } else { "   " };
         let style = if is_selected {
             if is_focused {
-                Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD | Modifier::REVERSED)
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD | Modifier::REVERSED)
             } else {
-                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD)
             }
         } else {
             Style::default().fg(Color::White)
@@ -58,9 +76,15 @@ fn render_sections_list(f: &mut Frame, app: &App, area: Rect) {
     }
 
     let hint = if is_focused {
-        Line::from(Span::styled(" ↑↓/jk select\n Enter/→ focus", Style::default().fg(Color::DarkGray)))
+        Line::from(Span::styled(
+            " ↑↓/jk select\n Enter/→ focus",
+            Style::default().fg(Color::DarkGray),
+        ))
     } else {
-        Line::from(Span::styled(" Esc/← return", Style::default().fg(Color::DarkGray)))
+        Line::from(Span::styled(
+            " Esc/← return",
+            Style::default().fg(Color::DarkGray),
+        ))
     };
     lines.push(Line::from(""));
     lines.push(hint);
@@ -88,16 +112,41 @@ fn render_general_section(f: &mut Frame, app: &App, area: Rect) {
     let is_focused = app.settings_focus_panel;
     let block = Block::default()
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(if is_focused { Color::Cyan } else { Color::DarkGray }))
-        .title(Span::styled(" ⚙ General Settings & Global Defaults ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)));
+        .border_style(Style::default().fg(if is_focused {
+            Color::Cyan
+        } else {
+            Color::DarkGray
+        }))
+        .title(Span::styled(
+            " ⚙ General Settings & Global Defaults ",
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        ));
 
     let dim = Style::default().fg(Color::DarkGray);
     let item = |idx: usize, label: &'static str, val: String, desc: &'static str| {
         let focused = is_focused && app.settings_general_item == idx;
         vec![
             Line::from(vec![
-                Span::styled(if focused { " > " } else { "   " }, Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-                Span::styled(label, if focused { Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD) } else { Style::default().fg(Color::White).add_modifier(Modifier::BOLD) }),
+                Span::styled(
+                    if focused { " > " } else { "   " },
+                    Style::default()
+                        .fg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(
+                    label,
+                    if focused {
+                        Style::default()
+                            .fg(Color::Yellow)
+                            .add_modifier(Modifier::BOLD)
+                    } else {
+                        Style::default()
+                            .fg(Color::White)
+                            .add_modifier(Modifier::BOLD)
+                    },
+                ),
                 Span::styled(" : ", dim),
                 Span::styled(val, Style::default().fg(Color::Cyan)),
                 Span::styled(if focused { "   [←/→ change]" } else { "" }, dim),
@@ -107,27 +156,82 @@ fn render_general_section(f: &mut Frame, app: &App, area: Rect) {
         ]
     };
 
-    let default_acc_label = app.user_settings.default_account.as_deref().unwrap_or("None (manual selection)");
-    let default_dir_label = app.user_settings.default_working_dir.as_deref().unwrap_or("None (current process dir)");
+    let default_acc_label = app
+        .user_settings
+        .default_account
+        .as_deref()
+        .unwrap_or("None (manual selection)");
+    let default_dir_label = app
+        .user_settings
+        .default_working_dir
+        .as_deref()
+        .unwrap_or("None (current process dir)");
 
     let mut lines = vec![
         Line::from(""),
-        Line::from(Span::styled(" Global defaults applied when starting new agent sessions:", Style::default().fg(Color::White))),
+        Line::from(Span::styled(
+            " Global defaults applied when starting new agent sessions:",
+            Style::default().fg(Color::White),
+        )),
         Line::from(""),
     ];
 
-    lines.extend(item(0, "Default Agent", app.user_settings.default_agent.clone(), "Agent engine selected when creating a new session"));
-    lines.extend(item(1, "Default Account", default_acc_label.to_string(), "Pre-selected account on the launch screen"));
-    lines.extend(item(2, "Default Working Dir", default_dir_label.to_string(), "Pre-filled working directory for sessions (press 'w' to edit)"));
-    lines.extend(item(3, "Default Execution Mode", app.user_settings.default_execution_mode.label().to_string(), "Standard AGY execution mode (Default, Accept Edits, Plan)"));
-    lines.extend(item(4, "Default Permission Mode", app.user_settings.default_permission_mode.label().to_string(), "Normal AGY permissions or Dangerously Skip Permissions"));
-    lines.extend(item(5, "Terminal Theme", app.user_settings.terminal_theme.clone(), "Interface color palette and accent style"));
+    lines.extend(item(
+        0,
+        "Default Agent",
+        app.user_settings.default_agent.clone(),
+        "Agent engine selected when creating a new session",
+    ));
+    lines.extend(item(
+        1,
+        "Default Account",
+        default_acc_label.to_string(),
+        "Pre-selected account on the launch screen",
+    ));
+    lines.extend(item(
+        2,
+        "Default Working Dir",
+        default_dir_label.to_string(),
+        "Pre-filled working directory for sessions (press 'w' to edit)",
+    ));
+    lines.extend(item(
+        3,
+        "Default Execution Mode",
+        app.user_settings.default_execution_mode.label().to_string(),
+        "Standard AGY execution mode (Default, Accept Edits, Plan)",
+    ));
+    lines.extend(item(
+        4,
+        "Default Permission Mode",
+        app.user_settings
+            .default_permission_mode
+            .label()
+            .to_string(),
+        "Normal AGY permissions or Dangerously Skip Permissions",
+    ));
+    lines.extend(item(
+        5,
+        "Terminal Theme",
+        app.user_settings.terminal_theme.clone(),
+        "Interface color palette and accent style",
+    ));
 
     lines.push(Line::from(""));
-    lines.push(Line::from(Span::styled(" [Persisted to ~/.config/agentcontrol/settings.json]", Style::default().fg(Color::Green))));
-    lines.push(Line::from(Span::styled(" Hotkeys: ↑↓ select item  ←/→ cycle option  w change working dir  Esc return", dim)));
+    lines.push(Line::from(Span::styled(
+        " [Persisted to ~/.config/agentcontrol/settings.json]",
+        Style::default().fg(Color::Green),
+    )));
+    lines.push(Line::from(Span::styled(
+        " Hotkeys: ↑↓ select item  ←/→ cycle option  w change working dir  Esc return",
+        dim,
+    )));
 
-    f.render_widget(Paragraph::new(lines).block(block).wrap(Wrap { trim: false }), area);
+    f.render_widget(
+        Paragraph::new(lines)
+            .block(block)
+            .wrap(Wrap { trim: false }),
+        area,
+    );
 }
 
 // ── 2. Accounts Section ────────────────────────────────────────────────────────
@@ -141,12 +245,34 @@ fn render_accounts_section(f: &mut Frame, app: &App, area: Rect) {
     let is_focused = app.settings_focus_panel;
     let block = Block::default()
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(if is_focused { Color::Cyan } else { Color::DarkGray }))
-        .title(Span::styled(format!(" Accounts ({}) ", app.accounts.len()), Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)));
+        .border_style(Style::default().fg(if is_focused {
+            Color::Cyan
+        } else {
+            Color::DarkGray
+        }))
+        .title(Span::styled(
+            format!(" Accounts ({}) ", app.accounts.len()),
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        ));
 
-    let header_cells = ["ACCOUNT ID", "LABEL", "PROVIDER", "STATE", "LOAD / CAP", "TAGS"]
-        .iter()
-        .map(|h| Cell::from(*h).style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)));
+    let header_cells = [
+        "ACCOUNT ID",
+        "LABEL",
+        "PROVIDER",
+        "STATE",
+        "LOAD / CAP",
+        "TAGS",
+    ]
+    .iter()
+    .map(|h| {
+        Cell::from(*h).style(
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        )
+    });
     let header = Row::new(header_cells).height(1).bottom_margin(1);
 
     let rows = app.accounts.iter().enumerate().map(|(idx, a)| {
@@ -157,15 +283,40 @@ fn render_accounts_section(f: &mut Frame, app: &App, area: Rect) {
             Style::default()
         };
 
-        let aid = if a.id.0.len() > 10 { format!("{}...", &a.id.0[..8]) } else { a.id.0.clone() };
+        let aid = if a.id.0.len() > 10 {
+            format!("{}...", &a.id.0[..8])
+        } else {
+            a.id.0.clone()
+        };
         let load_str = format!("{}/{}", a.active_session_count, a.concurrency_cap);
-        let tags_str = if a.tags.is_empty() { "-".to_string() } else { a.tags.join(", ") };
-        let is_default = app.user_settings.default_account.as_deref() == Some(&a.label) || app.user_settings.default_account.as_deref() == Some(&a.id.0);
-        let label_display = if is_default { format!("★ {}", a.label) } else { a.label.clone() };
+        let tags_str = if a.tags.is_empty() {
+            "-".to_string()
+        } else {
+            a.tags.join(", ")
+        };
+        let is_default = app.user_settings.default_account.as_deref() == Some(&a.label)
+            || app.user_settings.default_account.as_deref() == Some(&a.id.0);
+        let label_display = if is_default {
+            format!("★ {}", a.label)
+        } else {
+            a.label.clone()
+        };
 
         let row_cells = vec![
-            Cell::from(aid).style(if is_selected { Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD) } else { Style::default().fg(Color::White) }),
-            Cell::from(label_display).style(if is_default { Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD) } else { Style::default().fg(Color::White) }),
+            Cell::from(aid).style(if is_selected {
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(Color::White)
+            }),
+            Cell::from(label_display).style(if is_default {
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(Color::White)
+            }),
             Cell::from(a.provider.clone()),
             Cell::from(Line::from(vec![account_state_badge(&a.state)])),
             Cell::from(load_str),
@@ -197,14 +348,23 @@ fn render_account_detail_panel(f: &mut Frame, app: &App, area: Rect) {
     let block = Block::default()
         .borders(Borders::ALL)
         .border_style(Style::default().fg(Color::DarkGray))
-        .title(Span::styled(" Selected Account Details & Actions ", Style::default().fg(Color::Cyan)));
+        .title(Span::styled(
+            " Selected Account Details & Actions ",
+            Style::default().fg(Color::Cyan),
+        ));
 
     let dim = Style::default().fg(Color::DarkGray);
 
     if let Some(account) = app.accounts.get(app.settings_account_selected) {
-        let is_default = app.user_settings.default_account.as_deref() == Some(&account.label) || app.user_settings.default_account.as_deref() == Some(&account.id.0);
+        let is_default = app.user_settings.default_account.as_deref() == Some(&account.label)
+            || app.user_settings.default_account.as_deref() == Some(&account.id.0);
         let default_badge = if is_default {
-            Span::styled(" [★ DEFAULT ACCOUNT] ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))
+            Span::styled(
+                " [★ DEFAULT ACCOUNT] ",
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            )
         } else {
             Span::styled(" [Press 's' to set as Default] ", dim)
         };
@@ -212,7 +372,12 @@ fn render_account_detail_panel(f: &mut Frame, app: &App, area: Rect) {
         let lines = vec![
             Line::from(vec![
                 Span::styled("Label: ", Style::default().fg(Color::Cyan)),
-                Span::styled(account.label.clone(), Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+                Span::styled(
+                    account.label.clone(),
+                    Style::default()
+                        .fg(Color::White)
+                        .add_modifier(Modifier::BOLD),
+                ),
                 Span::raw("   "),
                 default_badge,
                 Span::raw("   "),
@@ -224,15 +389,35 @@ fn render_account_detail_panel(f: &mut Frame, app: &App, area: Rect) {
                 Span::styled("   Provider: ", Style::default().fg(Color::Cyan)),
                 Span::styled(account.provider.clone(), Style::default().fg(Color::White)),
                 Span::styled("   Active Sessions: ", Style::default().fg(Color::Cyan)),
-                Span::styled(format!("{}/{}", account.active_session_count, account.concurrency_cap), Style::default().fg(Color::White)),
+                Span::styled(
+                    format!(
+                        "{}/{}",
+                        account.active_session_count, account.concurrency_cap
+                    ),
+                    Style::default().fg(Color::White),
+                ),
             ]),
             Line::from(vec![
                 Span::styled("Credentials Ref: ", Style::default().fg(Color::Cyan)),
-                Span::styled(format!("~/.config/agentcontrol/credentials/{}", account.credential_ref), Style::default().fg(Color::White)),
+                Span::styled(
+                    format!(
+                        "~/.config/agentcontrol/credentials/{}",
+                        account.credential_ref
+                    ),
+                    Style::default().fg(Color::White),
+                ),
             ]),
             Line::from(vec![
-                Span::styled("Actions: ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-                Span::styled("[a] Add Account (Browser / Login Link)  ", Style::default().fg(Color::Cyan)),
+                Span::styled(
+                    "Actions: ",
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(
+                    "[a] Add Account (Browser / Login Link)  ",
+                    Style::default().fg(Color::Cyan),
+                ),
                 Span::styled("[d] Remove Account  ", Style::default().fg(Color::Red)),
                 Span::styled("[s] Set as Default  ", Style::default().fg(Color::Yellow)),
                 Span::styled("[r] Refresh", Style::default().fg(Color::White)),
@@ -242,8 +427,12 @@ fn render_account_detail_panel(f: &mut Frame, app: &App, area: Rect) {
     } else {
         let p = Paragraph::new(vec![
             Line::from("No accounts registered yet."),
-            Line::from(Span::styled("Press [a] to add an Antigravity account via Browser Login or Login Link.", Style::default().fg(Color::Cyan))),
-        ]).block(block);
+            Line::from(Span::styled(
+                "Press [a] to add an Antigravity account via Browser Login or Login Link.",
+                Style::default().fg(Color::Cyan),
+            )),
+        ])
+        .block(block);
         f.render_widget(p, area);
     }
 }
@@ -259,12 +448,33 @@ fn render_projects_section(f: &mut Frame, app: &App, area: Rect) {
     let is_focused = app.settings_focus_panel;
     let block = Block::default()
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(if is_focused { Color::Cyan } else { Color::DarkGray }))
-        .title(Span::styled(format!(" Registered Projects ({}) ", app.projects.len()), Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)));
+        .border_style(Style::default().fg(if is_focused {
+            Color::Cyan
+        } else {
+            Color::DarkGray
+        }))
+        .title(Span::styled(
+            format!(" Registered Projects ({}) ", app.projects.len()),
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        ));
 
-    let header_cells = ["PROJECT ID", "NAME", "REPO PATH", "WORKSPACE POLICY", "ACTIVE SESSIONS"]
-        .iter()
-        .map(|h| Cell::from(*h).style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)));
+    let header_cells = [
+        "PROJECT ID",
+        "NAME",
+        "REPO PATH",
+        "WORKSPACE POLICY",
+        "ACTIVE SESSIONS",
+    ]
+    .iter()
+    .map(|h| {
+        Cell::from(*h).style(
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        )
+    });
     let header = Row::new(header_cells).height(1).bottom_margin(1);
 
     let rows = app.projects.iter().enumerate().map(|(idx, p)| {
@@ -275,14 +485,39 @@ fn render_projects_section(f: &mut Frame, app: &App, area: Rect) {
             Style::default()
         };
 
-        let pid = if p.id.0.len() > 10 { format!("{}...", &p.id.0[..8]) } else { p.id.0.clone() };
-        let is_default = app.user_settings.default_project.as_deref() == Some(&p.name) || app.user_settings.default_project.as_deref() == Some(&p.id.0);
-        let name_display = if is_default { format!("★ {}", p.name) } else { p.name.clone() };
-        let active_count = app.sessions.iter().filter(|s| s.project_id.as_ref() == Some(&p.id)).count();
+        let pid = if p.id.0.len() > 10 {
+            format!("{}...", &p.id.0[..8])
+        } else {
+            p.id.0.clone()
+        };
+        let is_default = app.user_settings.default_project.as_deref() == Some(&p.name)
+            || app.user_settings.default_project.as_deref() == Some(&p.id.0);
+        let name_display = if is_default {
+            format!("★ {}", p.name)
+        } else {
+            p.name.clone()
+        };
+        let active_count = app
+            .sessions
+            .iter()
+            .filter(|s| s.project_id.as_ref() == Some(&p.id))
+            .count();
 
         let row_cells = vec![
-            Cell::from(pid).style(if is_selected { Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD) } else { Style::default().fg(Color::White) }),
-            Cell::from(name_display).style(if is_default { Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD) } else { Style::default().fg(Color::White) }),
+            Cell::from(pid).style(if is_selected {
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(Color::White)
+            }),
+            Cell::from(name_display).style(if is_default {
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(Color::White)
+            }),
             Cell::from(p.repo_path.clone()),
             Cell::from(format!("{}", p.workspace_policy)),
             Cell::from(format!("{active_count}")),
@@ -311,15 +546,28 @@ fn render_project_detail_panel(f: &mut Frame, app: &App, area: Rect) {
     let block = Block::default()
         .borders(Borders::ALL)
         .border_style(Style::default().fg(Color::DarkGray))
-        .title(Span::styled(" Project Configuration & Actions ", Style::default().fg(Color::Cyan)));
+        .title(Span::styled(
+            " Project Configuration & Actions ",
+            Style::default().fg(Color::Cyan),
+        ));
 
     let dim = Style::default().fg(Color::DarkGray);
-    let def_dir = app.user_settings.default_working_dir.as_deref().unwrap_or("(none configured)");
+    let def_dir = app
+        .user_settings
+        .default_working_dir
+        .as_deref()
+        .unwrap_or("(none configured)");
 
     if let Some(project) = app.projects.get(app.settings_project_selected) {
-        let is_default = app.user_settings.default_project.as_deref() == Some(&project.name) || app.user_settings.default_project.as_deref() == Some(&project.id.0);
+        let is_default = app.user_settings.default_project.as_deref() == Some(&project.name)
+            || app.user_settings.default_project.as_deref() == Some(&project.id.0);
         let default_badge = if is_default {
-            Span::styled(" [★ DEFAULT PROJECT] ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))
+            Span::styled(
+                " [★ DEFAULT PROJECT] ",
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            )
         } else {
             Span::styled(" [Press 's' to set as Default] ", dim)
         };
@@ -361,7 +609,10 @@ fn render_project_detail_panel(f: &mut Frame, app: &App, area: Rect) {
                 Span::styled("  [Press 'w' to change]", dim),
             ]),
             Line::from(""),
-            Line::from(Span::styled("Press [a] to register a project from an existing Git repository.", Style::default().fg(Color::Cyan))),
+            Line::from(Span::styled(
+                "Press [a] to register a project from an existing Git repository.",
+                Style::default().fg(Color::Cyan),
+            )),
         ];
         f.render_widget(Paragraph::new(lines).block(block), area);
     }
@@ -373,7 +624,12 @@ fn render_agents_section(f: &mut Frame, _app: &App, area: Rect) {
     let block = Block::default()
         .borders(Borders::ALL)
         .border_style(Style::default().fg(Color::Cyan))
-        .title(Span::styled(" Agent Engines & Integration Status ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)));
+        .title(Span::styled(
+            " Agent Engines & Integration Status ",
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        ));
 
     let agy_bin = ac_core::agy_auth::find_agy_binary()
         .map(|p| p.display().to_string())
@@ -381,47 +637,114 @@ fn render_agents_section(f: &mut Frame, _app: &App, area: Rect) {
 
     let lines = vec![
         Line::from(""),
-        Line::from(Span::styled(" 1. Antigravity (`agy` CLI)", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))),
+        Line::from(Span::styled(
+            " 1. Antigravity (`agy` CLI)",
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        )),
         Line::from(vec![
-            Span::styled("    Status:          ", Style::default().fg(Color::DarkGray)),
-            Span::styled("● Installed and verified", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                "    Status:          ",
+                Style::default().fg(Color::DarkGray),
+            ),
+            Span::styled(
+                "● Installed and verified",
+                Style::default()
+                    .fg(Color::Green)
+                    .add_modifier(Modifier::BOLD),
+            ),
             Span::styled(" (v1.2.13)", Style::default().fg(Color::White)),
         ]),
         Line::from(vec![
-            Span::styled("    Binary:          ", Style::default().fg(Color::DarkGray)),
+            Span::styled(
+                "    Binary:          ",
+                Style::default().fg(Color::DarkGray),
+            ),
             Span::styled(agy_bin, Style::default().fg(Color::White)),
         ]),
         Line::from(vec![
-            Span::styled("    Execution Modes: ", Style::default().fg(Color::DarkGray)),
-            Span::styled("default, accept-edits (--mode=accept-edits), plan (--mode=plan)", Style::default().fg(Color::White)),
+            Span::styled(
+                "    Execution Modes: ",
+                Style::default().fg(Color::DarkGray),
+            ),
+            Span::styled(
+                "default, accept-edits (--mode=accept-edits), plan (--mode=plan)",
+                Style::default().fg(Color::White),
+            ),
         ]),
         Line::from(vec![
-            Span::styled("    Permission Flag: ", Style::default().fg(Color::DarkGray)),
-            Span::styled("--dangerously-skip-permissions (Auto-approve tool permission requests)", Style::default().fg(Color::Yellow)),
+            Span::styled(
+                "    Permission Flag: ",
+                Style::default().fg(Color::DarkGray),
+            ),
+            Span::styled(
+                "--dangerously-skip-permissions (Auto-approve tool permission requests)",
+                Style::default().fg(Color::Yellow),
+            ),
         ]),
         Line::from(vec![
-            Span::styled("    Sandbox Flag:    ", Style::default().fg(Color::DarkGray)),
-            Span::styled("--sandbox (Run in sandbox with terminal restrictions enabled)", Style::default().fg(Color::White)),
+            Span::styled(
+                "    Sandbox Flag:    ",
+                Style::default().fg(Color::DarkGray),
+            ),
+            Span::styled(
+                "--sandbox (Run in sandbox with terminal restrictions enabled)",
+                Style::default().fg(Color::White),
+            ),
         ]),
         Line::from(vec![
-            Span::styled("    Profile Isolation:", Style::default().fg(Color::DarkGray)),
-            Span::styled("Isolated HOME ~/.config/agentcontrol/profiles/<account-id>/ per session", Style::default().fg(Color::Green)),
+            Span::styled(
+                "    Profile Isolation:",
+                Style::default().fg(Color::DarkGray),
+            ),
+            Span::styled(
+                "Isolated HOME ~/.config/agentcontrol/profiles/<account-id>/ per session",
+                Style::default().fg(Color::Green),
+            ),
         ]),
         Line::from(""),
-        Line::from(Span::styled(" 2. Claude Code (`claude`)", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))),
+        Line::from(Span::styled(
+            " 2. Claude Code (`claude`)",
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        )),
         Line::from(vec![
-            Span::styled("    Status:          ", Style::default().fg(Color::DarkGray)),
-            Span::styled("Supported via Anthropic API and interactive PTY adapter", Style::default().fg(Color::White)),
+            Span::styled(
+                "    Status:          ",
+                Style::default().fg(Color::DarkGray),
+            ),
+            Span::styled(
+                "Supported via Anthropic API and interactive PTY adapter",
+                Style::default().fg(Color::White),
+            ),
         ]),
         Line::from(""),
-        Line::from(Span::styled(" 3. Generic PTY (`generic-pty`)", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))),
+        Line::from(Span::styled(
+            " 3. Generic PTY (`generic-pty`)",
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        )),
         Line::from(vec![
-            Span::styled("    Status:          ", Style::default().fg(Color::DarkGray)),
-            Span::styled("Universal pseudo-terminal execution for any command-line agent", Style::default().fg(Color::White)),
+            Span::styled(
+                "    Status:          ",
+                Style::default().fg(Color::DarkGray),
+            ),
+            Span::styled(
+                "Universal pseudo-terminal execution for any command-line agent",
+                Style::default().fg(Color::White),
+            ),
         ]),
     ];
 
-    f.render_widget(Paragraph::new(lines).block(block).wrap(Wrap { trim: false }), area);
+    f.render_widget(
+        Paragraph::new(lines)
+            .block(block)
+            .wrap(Wrap { trim: false }),
+        area,
+    );
 }
 
 // ── 5. Models Section ──────────────────────────────────────────────────────────
@@ -430,29 +753,74 @@ fn render_models_section(f: &mut Frame, _app: &App, area: Rect) {
     let block = Block::default()
         .borders(Borders::ALL)
         .border_style(Style::default().fg(Color::Cyan))
-        .title(Span::styled(" Antigravity Model Catalog ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)));
+        .title(Span::styled(
+            " Antigravity Model Catalog ",
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        ));
 
     let models = [
-        ("gemini-3.8-flash-high", "Gemini 3.8 Flash (High)", "Recommended default for reasoning and coding"),
-        ("gemini-3.8-flash-medium", "Gemini 3.8 Flash (Medium)", "Balanced latency and performance"),
-        ("gemini-3.8-flash-low", "Gemini 3.8 Flash (Low)", "Low reasoning effort for rapid responses"),
-        ("gemini-3.7-flash-high", "Gemini 3.7 Flash (High)", "Previous stable flash generation"),
-        ("gemini-3.1-pro-high", "Gemini 3.1 Pro (High)", "Deep reasoning model for architecture"),
-        ("claude-sonnet-4-6", "Claude Sonnet 4.6 (Thinking)", "Anthropic Sonnet model via Antigravity"),
-        ("claude-opus-4-6-thinking", "Claude Opus 4.6 (Thinking)", "High capacity reasoning and synthesis"),
-        ("gpt-oss-120b-medium", "GPT-OSS 120B (Medium)", "Open weights model integration"),
+        (
+            "gemini-3.8-flash-high",
+            "Gemini 3.8 Flash (High)",
+            "Recommended default for reasoning and coding",
+        ),
+        (
+            "gemini-3.8-flash-medium",
+            "Gemini 3.8 Flash (Medium)",
+            "Balanced latency and performance",
+        ),
+        (
+            "gemini-3.8-flash-low",
+            "Gemini 3.8 Flash (Low)",
+            "Low reasoning effort for rapid responses",
+        ),
+        (
+            "gemini-3.7-flash-high",
+            "Gemini 3.7 Flash (High)",
+            "Previous stable flash generation",
+        ),
+        (
+            "gemini-3.1-pro-high",
+            "Gemini 3.1 Pro (High)",
+            "Deep reasoning model for architecture",
+        ),
+        (
+            "claude-sonnet-4-6",
+            "Claude Sonnet 4.6 (Thinking)",
+            "Anthropic Sonnet model via Antigravity",
+        ),
+        (
+            "claude-opus-4-6-thinking",
+            "Claude Opus 4.6 (Thinking)",
+            "High capacity reasoning and synthesis",
+        ),
+        (
+            "gpt-oss-120b-medium",
+            "GPT-OSS 120B (Medium)",
+            "Open weights model integration",
+        ),
     ];
 
     let mut lines = vec![
         Line::from(""),
-        Line::from(Span::styled(" Available models discovered from Antigravity engine:", Style::default().fg(Color::White))),
+        Line::from(Span::styled(
+            " Available models discovered from Antigravity engine:",
+            Style::default().fg(Color::White),
+        )),
         Line::from(""),
     ];
 
     for (id, name, desc) in models {
         lines.push(Line::from(vec![
             Span::styled("   • ", Style::default().fg(Color::Cyan)),
-            Span::styled(format!("{name:<30}"), Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                format!("{name:<30}"),
+                Style::default()
+                    .fg(Color::White)
+                    .add_modifier(Modifier::BOLD),
+            ),
             Span::styled(format!("({id})"), Style::default().fg(Color::Yellow)),
         ]));
         lines.push(Line::from(vec![
@@ -462,7 +830,12 @@ fn render_models_section(f: &mut Frame, _app: &App, area: Rect) {
         lines.push(Line::from(""));
     }
 
-    f.render_widget(Paragraph::new(lines).block(block).wrap(Wrap { trim: false }), area);
+    f.render_widget(
+        Paragraph::new(lines)
+            .block(block)
+            .wrap(Wrap { trim: false }),
+        area,
+    );
 }
 
 // ── 6. Permissions Section ────────────────────────────────────────────────────
@@ -471,7 +844,12 @@ fn render_permissions_section(f: &mut Frame, _app: &App, area: Rect) {
     let block = Block::default()
         .borders(Borders::ALL)
         .border_style(Style::default().fg(Color::Cyan))
-        .title(Span::styled(" Execution Modes & Permission / Access Controls ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)));
+        .title(Span::styled(
+            " Execution Modes & Permission / Access Controls ",
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        ));
 
     let dim = Style::default().fg(Color::DarkGray);
 
@@ -511,7 +889,12 @@ fn render_permissions_section(f: &mut Frame, _app: &App, area: Rect) {
         ]),
     ];
 
-    f.render_widget(Paragraph::new(lines).block(block).wrap(Wrap { trim: false }), area);
+    f.render_widget(
+        Paragraph::new(lines)
+            .block(block)
+            .wrap(Wrap { trim: false }),
+        area,
+    );
 }
 
 // ── 7. Authentication Section ─────────────────────────────────────────────────
@@ -520,46 +903,105 @@ fn render_authentication_section(f: &mut Frame, _app: &App, area: Rect) {
     let block = Block::default()
         .borders(Borders::ALL)
         .border_style(Style::default().fg(Color::Cyan))
-        .title(Span::styled(" Antigravity Authentication Architecture ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)));
+        .title(Span::styled(
+            " Antigravity Authentication Architecture ",
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        ));
 
     let creds_dir = ac_core::agy_auth::agentcontrol_config_dir().join("credentials");
     let profiles_dir = ac_core::agy_auth::agentcontrol_config_dir().join("profiles");
 
     let lines = vec![
         Line::from(""),
-        Line::from(Span::styled(" Login Mechanisms Supported:", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))),
+        Line::from(Span::styled(
+            " Login Mechanisms Supported:",
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        )),
         Line::from(vec![
-            Span::styled(" 1. Login with Browser: ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-            Span::styled("Starts a local loopback server on 127.0.0.1 and opens the system browser.", Style::default().fg(Color::White)),
+            Span::styled(
+                " 1. Login with Browser: ",
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                "Starts a local loopback server on 127.0.0.1 and opens the system browser.",
+                Style::default().fg(Color::White),
+            ),
         ]),
         Line::from(vec![
-            Span::styled(" 2. Generate Login Link: ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-            Span::styled("Produces a short-lived OAuth 2.0 PKCE link for remote or headless machines.", Style::default().fg(Color::White)),
+            Span::styled(
+                " 2. Generate Login Link: ",
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                "Produces a short-lived OAuth 2.0 PKCE link for remote or headless machines.",
+                Style::default().fg(Color::White),
+            ),
         ]),
-        Line::from(Span::styled("    The user signs in on any device and pastes the redirect callback URL back.", Style::default().fg(Color::DarkGray))),
+        Line::from(Span::styled(
+            "    The user signs in on any device and pastes the redirect callback URL back.",
+            Style::default().fg(Color::DarkGray),
+        )),
         Line::from(""),
-        Line::from(Span::styled(" Security & Isolation Boundaries:", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))),
+        Line::from(Span::styled(
+            " Security & Isolation Boundaries:",
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        )),
         Line::from(vec![
             Span::styled(" • Credential Storage: ", Style::default().fg(Color::Cyan)),
-            Span::styled(format!("{} (File permissions 0600)", creds_dir.display()), Style::default().fg(Color::Green)),
+            Span::styled(
+                format!("{} (File permissions 0600)", creds_dir.display()),
+                Style::default().fg(Color::Green),
+            ),
         ]),
         Line::from(vec![
             Span::styled(" • Account Profiles:    ", Style::default().fg(Color::Cyan)),
-            Span::styled(format!("{} (Dedicated isolated HOME per account)", profiles_dir.display()), Style::default().fg(Color::Green)),
+            Span::styled(
+                format!(
+                    "{} (Dedicated isolated HOME per account)",
+                    profiles_dir.display()
+                ),
+                Style::default().fg(Color::Green),
+            ),
         ]),
         Line::from(vec![
             Span::styled(" • Ambient Auth:       ", Style::default().fg(Color::Cyan)),
-            Span::styled("Stripped on spawn (GEMINI_API_KEY, GOOGLE_APPLICATION_CREDENTIALS)", Style::default().fg(Color::Green)),
+            Span::styled(
+                "Stripped on spawn (GEMINI_API_KEY, GOOGLE_APPLICATION_CREDENTIALS)",
+                Style::default().fg(Color::Green),
+            ),
         ]),
         Line::from(""),
         Line::from(vec![
-            Span::styled(" Quick Actions: ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-            Span::styled("[b] Launch Browser Login   ", Style::default().fg(Color::Cyan)),
+            Span::styled(
+                " Quick Actions: ",
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                "[b] Launch Browser Login   ",
+                Style::default().fg(Color::Cyan),
+            ),
             Span::styled("[l] Generate Login Link", Style::default().fg(Color::Cyan)),
         ]),
     ];
 
-    f.render_widget(Paragraph::new(lines).block(block).wrap(Wrap { trim: false }), area);
+    f.render_widget(
+        Paragraph::new(lines)
+            .block(block)
+            .wrap(Wrap { trim: false }),
+        area,
+    );
 }
 
 // ── 8. Terminal Section ───────────────────────────────────────────────────────
@@ -568,7 +1010,12 @@ fn render_terminal_section(f: &mut Frame, app: &App, area: Rect) {
     let block = Block::default()
         .borders(Borders::ALL)
         .border_style(Style::default().fg(Color::Cyan))
-        .title(Span::styled(" Terminal Emulation & Display Settings ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)));
+        .title(Span::styled(
+            " Terminal Emulation & Display Settings ",
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        ));
 
     let lines = vec![
         Line::from(""),
@@ -603,7 +1050,12 @@ fn render_terminal_section(f: &mut Frame, app: &App, area: Rect) {
         ]),
     ];
 
-    f.render_widget(Paragraph::new(lines).block(block).wrap(Wrap { trim: false }), area);
+    f.render_widget(
+        Paragraph::new(lines)
+            .block(block)
+            .wrap(Wrap { trim: false }),
+        area,
+    );
 }
 
 // ── 9. Security Section ───────────────────────────────────────────────────────
@@ -612,12 +1064,25 @@ fn render_security_section(f: &mut Frame, app: &App, area: Rect) {
     let block = Block::default()
         .borders(Borders::ALL)
         .border_style(Style::default().fg(Color::Cyan))
-        .title(Span::styled(" Security Audit & Enforced Boundaries ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)));
+        .title(Span::styled(
+            " Security Audit & Enforced Boundaries ",
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        ));
 
     let daemon_state = if app.daemon_connected {
-        Span::styled("● Connected (Active)", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD))
+        Span::styled(
+            "● Connected (Active)",
+            Style::default()
+                .fg(Color::Green)
+                .add_modifier(Modifier::BOLD),
+        )
     } else {
-        Span::styled("○ Disconnected", Style::default().fg(Color::Red).add_modifier(Modifier::BOLD))
+        Span::styled(
+            "○ Disconnected",
+            Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+        )
     };
 
     let lines = vec![
@@ -650,5 +1115,10 @@ fn render_security_section(f: &mut Frame, app: &App, area: Rect) {
         ]),
     ];
 
-    f.render_widget(Paragraph::new(lines).block(block).wrap(Wrap { trim: false }), area);
+    f.render_widget(
+        Paragraph::new(lines)
+            .block(block)
+            .wrap(Wrap { trim: false }),
+        area,
+    );
 }

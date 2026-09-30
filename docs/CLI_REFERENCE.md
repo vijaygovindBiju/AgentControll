@@ -210,6 +210,13 @@ ac session handoff [OPTIONS] <SESSION_ID>
 * **Options:**
   * `-a, --account-id <ACCOUNT>`: Target account. If omitted, the daemon automatically selects the least-loaded available account.
 
+### 3.14. `ac session remove` (or `ac session delete`)
+Permanently remove a stopped or terminal session record from the daemon.
+
+```bash
+ac session remove <SESSION_ID>
+```
+
 ---
 
 ## 4. Account Management (`ac account` & `ac login`)
@@ -562,27 +569,37 @@ ac-tui
 ```
 
 ### TUI Navigation & Tabs:
-* **`1`**: Dashboard (Overview of sessions, accounts, and inbox alerts)
-* **`2`**: Sessions (All running and past sessions)
-* **`3`**: Inbox (Pending human approvals and questions)
-* **`4`**: Accounts (Manage accounts, add new via OAuth, check cooldowns)
-* **`5`**: Projects (Repositories and workspace policies)
-* **`6`**: Activity (Live event log and filter)
-* **`Tab` / `BackTab`**: Cycle between tabs
-* **`q`**: Quit TUI
+* **`1`**: **Dashboard** (System health, AGENTS overview, ACCOUNTS status summary, active SESSIONS list, inbox alerts, quick-launch shortcuts `[g]` Antigravity, `[c]` Claude Code, `[x]` Codex/PTY)
+* **`2`**: **Sessions** (All running and past sessions, state badges, smart run/resume `Space`, account switch `w`, steer `s`, pause `p`, stop `x`, drill-down `Enter`)
+* **`3`**: **Accounts** (Real-time account pool status, provider info, active session load against concurrency caps, cooldown timers, delete account `d`, refresh `r`)
+* **`4`**: **Activity** (Live streaming event log, filter by event kind or session `/`, clear filter `c`)
+* **`5`**: **Agents** (Supported agent adapters, account counts, capabilities, launch triggers)
+* **`6`**: **Settings** (Central configuration hub with 9 keyboard-navigable sections: General, Accounts, Projects & Workspaces, Agents, Models, Permissions, Authentication, Terminal, Security; saved to `~/.config/agentcontrol/settings.json`)
+* **`Tab` / `BackTab`**: Cycle forward / backward through top navigation tabs
+* **`q`**: Quit TUI application (or close active modal dialog)
 
-### Session Actions (in Sessions Tab):
-* **`n`**: **New Session Modal** (type a prompt and press Enter to launch)
-* **`Space`**: **Smart Run / Resume**:
-  * If `Idle`: Starts the session.
-  * If `Paused`: Resumes the session.
-  * If `Stopped`, `Failed`, or `Crashed`: Automatically re-runs the task and starts a fresh session.
-* **`Enter` or `t`**: Open Full Transcript & Session Details.
-* **`w`**: **Switch Account** (modal to rebind or hand off to another account).
-* **`s`**: **Steer** (inject instruction into the running agent).
-* **`p`**: **Pause** session.
-* **`x`**: **Stop** session.
-* **`r`**: Refresh data from daemon.
+### Dedicated Agent Terminal Controls (Session Drill-Down):
+* **`Ctrl+Q`**: **Detach / Exit**: Return from the agent terminal drilldown view back to the dashboard or sessions list.
+* **`Esc`**: **Forwarded to Agent PTY**: Esc is forwarded directly to the running agent PTY (cancelling agent input, navigating terminal menus, or dismissing in-agent popups like Antigravity quota alerts).
+* **`PgUp` / `PgDn`** or **`↑` / `↓`**: Scroll historical output in the ANSI virtual terminal buffer.
+* **`End`**: **Follow Mode**: Jump to the bottom of the terminal buffer and re-enable auto-scrolling on new output.
+* **`Ctrl+P` / `F1`**: Open Agent Control Command Palette overlay.
+
+### Launching Sessions (`n` in Sessions or Agents Tab):
+Opens the **Start Session Modal** with independent controls:
+* **Account**: Select which saved provider account will run the session.
+* **Working Directory**: Specify session root with shell-like **`Tab` completion** (typing filters matching subdirectories; `Enter` opens, `Esc` cancels).
+* **Execution Mode**: Choose Antigravity mode (`Default`, `Accept Edits` via `--mode=accept-edits`, `Plan` via `--mode=plan`).
+* **Permissions**: Choose permission control (`Normal` / AGY default, or `Dangerously Skip Permissions` with an explicit confirmation modal).
+* **Model**: Choose model ID (e.g. `gemini-3.8-flash-medium` or default).
+
+### Central Settings Navigation (`6` in Tab Bar):
+* **`↑` / `↓`**: Select from 9 configuration sections in the left sidebar.
+* **`Enter` / `→`**: Focus into the active settings content panel.
+* **`Esc` / `←`**: Unfocus content panel and return to sidebar section selection.
+* **`a`**: Add/register new account or project.
+* **`d`**: Delete selected account or project (with confirmation dialog).
+* **`s`**: Set selected account or project as default.
 
 ---
 

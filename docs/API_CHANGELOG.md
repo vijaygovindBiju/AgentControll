@@ -75,7 +75,7 @@ WebSocket endpoints require authentication unless token verification is explicit
 | Scope | Permissions | Permitted Commands |
 |---|---|---|
 | `read` | Read-only observation and querying | `*.list`, `*.get`, `events.query`, `events.subscribe`, `events.unsubscribe`, `account.query_availability`, `project.workspaces`, `policy.test`, `daemon.status` |
-| `write` | Session execution and interaction management | All `read` commands + `session.*` (create, start, stop, pause, resume, steer, select_account, switch_account, handoff), `interaction.reply`, `interaction.dismiss` |
+| `write` | Session execution and interaction management | All `read` commands + `session.*` (create, start, stop, pause, resume, steer, input, resize, remove, select_account, switch_account, handoff), `interaction.reply`, `interaction.dismiss` |
 | `admin` | Full administrator control | All `write` commands + `account.register`, `account.disable`, `account.enable`, `account.remove`, `project.register`, `project.remove`, `policy.upsert`, `policy.remove` |
 
 If a client with `read` scope attempts a mutating command, the server returns:

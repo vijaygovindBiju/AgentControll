@@ -3,9 +3,9 @@
 //! An adapter wraps one agent type and translates its I/O into `AdapterEvent`s.
 //! In Phase 1 only the `MockAdapter` is implemented.
 
+pub mod claude;
 pub mod mock;
 pub mod pty;
-pub mod claude;
 
 use anyhow::Result;
 use tokio::sync::mpsc;
@@ -168,14 +168,25 @@ impl AdapterFactory for CompositeAdapterFactory {
                 let mut agy_cfg = self.pty_config.clone();
                 agy_cfg.program = resolve_real_antigravity_bin();
                 agy_cfg.envs.extend(agy_account_env(&ctx)?);
-                agy_cfg.env_remove.extend(crate::agy_auth::AMBIENT_AUTH_ENV.iter().map(|s| s.to_string()));
+                agy_cfg.env_remove.extend(
+                    crate::agy_auth::AMBIENT_AUTH_ENV
+                        .iter()
+                        .map(|s| s.to_string()),
+                );
                 agy_cfg.args.extend(
-                    crate::agy_launch::AgyLaunchOptions::from_agent_config(ctx.agent_config.as_ref()).args(),
+                    crate::agy_launch::AgyLaunchOptions::from_agent_config(
+                        ctx.agent_config.as_ref(),
+                    )
+                    .args(),
                 );
                 agy_cfg.args.extend(agy_task_args(&ctx.task_description));
                 pty::GenericPtyAdapter::spawn(&ctx, agy_cfg, event_tx).map_err(|e| {
                     crate::agy_auth::AgyAuthError::LaunchFailure {
-                        label: ctx.account_id.as_ref().map(|a| a.0.clone()).unwrap_or_default(),
+                        label: ctx
+                            .account_id
+                            .as_ref()
+                            .map(|a| a.0.clone())
+                            .unwrap_or_default(),
                         reason: e.to_string(),
                     }
                     .into()
@@ -191,7 +202,10 @@ impl AdapterFactory for CompositeAdapterFactory {
             }
             other => {
                 // Fallback to Generic PTY with the given agent_type as command name
-                warn!("Unknown agent_type '{}', falling back to Generic PTY", other);
+                warn!(
+                    "Unknown agent_type '{}', falling back to Generic PTY",
+                    other
+                );
                 let mut fallback_cfg = self.pty_config.clone();
                 fallback_cfg.program = other.to_string();
                 pty::GenericPtyAdapter::spawn(&ctx, fallback_cfg, event_tx)
@@ -259,4 +273,3 @@ pub fn resolve_real_antigravity_bin() -> String {
 
     "agy".to_string()
 }
-

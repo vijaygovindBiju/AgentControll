@@ -1,7 +1,7 @@
 //! Integration tests for ApiClient and TUI input handling against real IPC server.
 
-use std::{path::PathBuf, time::Duration};
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifiers};
+use std::{path::PathBuf, time::Duration};
 use tokio::sync::broadcast;
 
 use ac_core::{
@@ -14,8 +14,8 @@ use ac_core::{
     project_registry::{ProjectRegistry, ProjectRegistryHandle, ProjectStore},
     session::manager::{SessionManager, SessionManagerHandle},
     types::{
-        Account, AdapterEvent, Id, InteractionKind, InteractionState,
-        PolicyDecision, Project, SessionState, WorkspacePolicy,
+        Account, AdapterEvent, Id, InteractionKind, InteractionState, PolicyDecision, Project,
+        SessionState, WorkspacePolicy,
     },
 };
 use ac_tui::{
@@ -33,7 +33,13 @@ fn make_key(code: KeyCode) -> KeyEvent {
     }
 }
 
-async fn setup_test_server(script: Vec<ScriptedEvent>) -> (PathBuf, tempfile::TempDir, broadcast::Sender<ac_core::types::AgentEvent>) {
+async fn setup_test_server(
+    script: Vec<ScriptedEvent>,
+) -> (
+    PathBuf,
+    tempfile::TempDir,
+    broadcast::Sender<ac_core::types::AgentEvent>,
+) {
     let tmp = tempfile::tempdir().unwrap();
     let sock = tmp.path().join("test.sock");
 
@@ -81,16 +87,10 @@ async fn setup_test_server(script: Vec<ScriptedEvent>) -> (PathBuf, tempfile::Te
 
     let adapter_factory = Box::new(MockAdapterFactory::always(script));
 
-    let session_mgr = SessionManager::new(
-        store,
-        cmd_rx,
-        event_tx.clone(),
-        2,
-        adapter_factory,
-    )
-    .with_account_manager(acct_mgr2)
-    .with_project_registry(proj_reg2)
-    .with_interaction_hub(hub_handle.clone());
+    let session_mgr = SessionManager::new(store, cmd_rx, event_tx.clone(), 2, adapter_factory)
+        .with_account_manager(acct_mgr2)
+        .with_project_registry(proj_reg2)
+        .with_interaction_hub(hub_handle.clone());
 
     let mgr_handle = SessionManagerHandle::new(cmd_tx);
 
@@ -117,10 +117,13 @@ async fn setup_test_server(script: Vec<ScriptedEvent>) -> (PathBuf, tempfile::Te
 async fn test_api_session_lifecycle_and_commands() {
     let script = vec![
         ScriptedEvent::immediate(AdapterEvent::Ready),
-        ScriptedEvent::delayed(50, AdapterEvent::OutputChunk {
-            text: "Hello from mock agent".into(),
-            confidence: ac_core::types::Confidence::High,
-        }),
+        ScriptedEvent::delayed(
+            50,
+            AdapterEvent::OutputChunk {
+                text: "Hello from mock agent".into(),
+                confidence: ac_core::types::Confidence::High,
+            },
+        ),
     ];
 
     let (sock, _tmp, _) = setup_test_server(script).await;
@@ -167,7 +170,10 @@ async fn test_api_session_lifecycle_and_commands() {
     assert_eq!(sessions[0].id, sid);
 
     // 7. Stop Session
-    client.stop_session(&sid, Some("Test finished")).await.unwrap();
+    client
+        .stop_session(&sid, Some("Test finished"))
+        .await
+        .unwrap();
     let session = client.get_session(&sid).await.unwrap().unwrap();
     assert_eq!(session.state, SessionState::Stopped);
 
@@ -220,7 +226,10 @@ async fn test_api_interaction_commands_flow() {
         .unwrap();
 
     assert_eq!(resolved.state, InteractionState::HumanResolved);
-    assert_eq!(resolved.response.as_deref(), Some("Yes, refactor the database layer"));
+    assert_eq!(
+        resolved.response.as_deref(),
+        Some("Yes, refactor the database layer")
+    );
 
     // Session resumes to Working
     tokio::time::sleep(Duration::from_millis(50)).await;
@@ -245,7 +254,10 @@ async fn test_api_accounts_projects_and_events() {
     assert_eq!(projects[0].name, "Test Project");
 
     // 3. Query events
-    let sid = client.create_session("Event query task", "mock", None, None).await.unwrap();
+    let sid = client
+        .create_session("Event query task", "mock", None, None)
+        .await
+        .unwrap();
     client.start_session(&sid).await.unwrap();
     tokio::time::sleep(Duration::from_millis(50)).await;
 
@@ -257,10 +269,13 @@ async fn test_api_accounts_projects_and_events() {
 async fn test_api_event_subscription_stream() {
     let script = vec![
         ScriptedEvent::immediate(AdapterEvent::Ready),
-        ScriptedEvent::delayed(30, AdapterEvent::OutputChunk {
-            text: "Chunk 1".into(),
-            confidence: ac_core::types::Confidence::High,
-        }),
+        ScriptedEvent::delayed(
+            30,
+            AdapterEvent::OutputChunk {
+                text: "Chunk 1".into(),
+                confidence: ac_core::types::Confidence::High,
+            },
+        ),
     ];
 
     let (sock, _tmp, _) = setup_test_server(script).await;
@@ -268,7 +283,10 @@ async fn test_api_event_subscription_stream() {
 
     let mut rx = client.subscribe_events().await.unwrap();
 
-    let sid = client.create_session("Sub task", "mock", None, None).await.unwrap();
+    let sid = client
+        .create_session("Sub task", "mock", None, None)
+        .await
+        .unwrap();
     client.start_session(&sid).await.unwrap();
 
     // Verify events arrive over subscription stream
@@ -316,9 +334,14 @@ async fn test_failure_handling_invalid_state_and_not_found() {
     assert!(matches!(res, Err(ClientError::ApiError { ref code, .. }) if code == "NotFound"));
 
     // 2. Pause idle session returns InvalidState error
-    let sid = client.create_session("Idle task", "mock", None, None).await.unwrap();
+    let sid = client
+        .create_session("Idle task", "mock", None, None)
+        .await
+        .unwrap();
     let pause_res = client.pause_session(&sid).await;
-    assert!(matches!(pause_res, Err(ClientError::ApiError { ref code, .. }) if code == "InvalidState"));
+    assert!(
+        matches!(pause_res, Err(ClientError::ApiError { ref code, .. }) if code == "InvalidState")
+    );
 }
 
 #[tokio::test]
@@ -344,51 +367,78 @@ async fn test_keyboard_input_handling_and_modals() {
     let mut app = App::new();
     refresh_data(&mut app, &client).await;
 
-    let sid = client.create_session("Key task", "mock", None, None).await.unwrap();
+    let sid = client
+        .create_session("Key task", "mock", None, None)
+        .await
+        .unwrap();
     client.start_session(&sid).await.unwrap();
     tokio::time::sleep(Duration::from_millis(50)).await;
     refresh_data(&mut app, &client).await;
 
     // 1. Switch to Sessions tab using '2'
-    handle_key(&mut app, &client, make_key(KeyCode::Char('2'))).await.unwrap();
+    handle_key(&mut app, &client, make_key(KeyCode::Char('2')))
+        .await
+        .unwrap();
     assert_eq!(app.current_tab, Tab::Sessions);
 
     // 2. Open Steer modal using 's'
-    handle_key(&mut app, &client, make_key(KeyCode::Char('s'))).await.unwrap();
+    handle_key(&mut app, &client, make_key(KeyCode::Char('s')))
+        .await
+        .unwrap();
     assert!(matches!(app.active_modal, Some(Modal::Steer { .. })));
 
     // Type "continue"
     for c in "continue".chars() {
-        handle_key(&mut app, &client, make_key(KeyCode::Char(c))).await.unwrap();
+        handle_key(&mut app, &client, make_key(KeyCode::Char(c)))
+            .await
+            .unwrap();
     }
     if let Some(Modal::Steer { ref input, .. }) = app.active_modal {
         assert_eq!(input, "continue");
     }
 
     // Submit with Enter
-    handle_key(&mut app, &client, make_key(KeyCode::Enter)).await.unwrap();
+    handle_key(&mut app, &client, make_key(KeyCode::Enter))
+        .await
+        .unwrap();
     assert!(app.active_modal.is_none());
-    assert!(app.status_message.as_ref().map(|(m, _, _)| m.contains("Steered")).unwrap_or(false));
+    assert!(app
+        .status_message
+        .as_ref()
+        .map(|(m, _, _)| m.contains("Steered"))
+        .unwrap_or(false));
 
     // 3. Open Stop modal using 'x'
-    handle_key(&mut app, &client, make_key(KeyCode::Char('x'))).await.unwrap();
+    handle_key(&mut app, &client, make_key(KeyCode::Char('x')))
+        .await
+        .unwrap();
     assert!(matches!(app.active_modal, Some(Modal::ConfirmStop { .. })));
 
     // Cancel with 'n'
-    handle_key(&mut app, &client, make_key(KeyCode::Char('n'))).await.unwrap();
+    handle_key(&mut app, &client, make_key(KeyCode::Char('n')))
+        .await
+        .unwrap();
     assert!(app.active_modal.is_none());
 
     // 4. Open Help modal using '?'
-    handle_key(&mut app, &client, make_key(KeyCode::Char('?'))).await.unwrap();
+    handle_key(&mut app, &client, make_key(KeyCode::Char('?')))
+        .await
+        .unwrap();
     assert!(matches!(app.active_modal, Some(Modal::Help)));
-    handle_key(&mut app, &client, make_key(KeyCode::Esc)).await.unwrap();
+    handle_key(&mut app, &client, make_key(KeyCode::Esc))
+        .await
+        .unwrap();
     assert!(app.active_modal.is_none());
 
     // 5. Open Session Detail using Enter
-    handle_key(&mut app, &client, make_key(KeyCode::Enter)).await.unwrap();
+    handle_key(&mut app, &client, make_key(KeyCode::Enter))
+        .await
+        .unwrap();
     assert!(app.session_detail_id.is_some());
     // Esc is sent to PTY, does NOT close session
-    handle_key(&mut app, &client, make_key(KeyCode::Esc)).await.unwrap();
+    handle_key(&mut app, &client, make_key(KeyCode::Esc))
+        .await
+        .unwrap();
     assert!(app.session_detail_id.is_some());
     // Close with Ctrl+Q
     handle_key(
@@ -406,6 +456,8 @@ async fn test_keyboard_input_handling_and_modals() {
     assert!(app.session_detail_id.is_none());
 
     // 6. Quit with 'q'
-    handle_key(&mut app, &client, make_key(KeyCode::Char('q'))).await.unwrap();
+    handle_key(&mut app, &client, make_key(KeyCode::Char('q')))
+        .await
+        .unwrap();
     assert!(app.should_quit);
 }

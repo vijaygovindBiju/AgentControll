@@ -6,8 +6,8 @@ use std::{
 };
 
 use ac_core::types::{
-    Account, AgentEvent, AgentSession, EventKind, Id, Interaction, InteractionState,
-    Project, SessionState,
+    Account, AgentEvent, AgentSession, EventKind, Id, Interaction, InteractionState, Project,
+    SessionState,
 };
 
 use crate::terminal_buffer::TerminalBuffer;
@@ -154,28 +154,56 @@ pub struct AccountOption {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AgyAddStep {
     /// Enter a friendly account name.
-    Name { error: Option<String> },
+    Name {
+        error: Option<String>,
+    },
     /// Choose Login with Browser (default) or Import.
     Method,
     /// Browser login in progress. `url` is empty until the listener is ready.
-    Waiting { url: String, browser_opened: bool, deadline: Instant },
+    Waiting {
+        url: String,
+        browser_opened: bool,
+        deadline: Instant,
+    },
     /// Shareable login link. `paste` holds the redirect address the user pastes
     /// back after signing in on another device; `notice` reports rejections.
-    Link { url: String, deadline: Instant, paste: String, notice: Option<String> },
-    Success { account_id: Id, email: Option<String> },
-    Failed { reason: String },
+    Link {
+        url: String,
+        deadline: Instant,
+        paste: String,
+        notice: Option<String>,
+    },
+    Success {
+        account_id: Id,
+        email: Option<String>,
+    },
+    Failed {
+        reason: String,
+    },
 }
 
 /// Progress reported by the background Antigravity login task.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AgyLoginUpdate {
-    Waiting { url: String, browser_opened: bool },
+    Waiting {
+        url: String,
+        browser_opened: bool,
+    },
     /// A login link was generated (nothing was opened locally).
-    LinkReady { url: String },
+    LinkReady {
+        url: String,
+    },
     /// A pasted redirect address was rejected; the login keeps waiting.
-    PasteRejected { reason: String },
-    Succeeded { account_id: Id, email: Option<String> },
-    Failed { reason: String },
+    PasteRejected {
+        reason: String,
+    },
+    Succeeded {
+        account_id: Id,
+        email: Option<String>,
+    },
+    Failed {
+        reason: String,
+    },
 }
 
 /// Handle to the single in-flight Antigravity login. Aborting it drops the
@@ -188,15 +216,35 @@ pub struct AgyLoginTask {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Modal {
-    Steer { session_id: Id, input: String },
-    Reply { interaction_id: Id, input: String },
-    ConfirmStop { session_id: Id },
-    ConfirmRemoveSession { session_id: Id },
+    Steer {
+        session_id: Id,
+        input: String,
+    },
+    Reply {
+        interaction_id: Id,
+        input: String,
+    },
+    ConfirmStop {
+        session_id: Id,
+    },
+    ConfirmRemoveSession {
+        session_id: Id,
+    },
     /// Add an Antigravity account (name → browser login / import → result).
-    AgyAddAccount { label: String, step: AgyAddStep },
+    AgyAddAccount {
+        label: String,
+        step: AgyAddStep,
+    },
     /// Confirm removal of an account. `active_sessions > 0` blocks removal.
-    ConfirmRemoveAccount { account_id: Id, label: String, provider: String, active_sessions: usize },
-    FilterActivity { input: String },
+    ConfirmRemoveAccount {
+        account_id: Id,
+        label: String,
+        provider: String,
+        active_sessions: usize,
+    },
+    FilterActivity {
+        input: String,
+    },
     Help,
     SwitchAccount {
         session_id: Id,
@@ -381,7 +429,11 @@ impl App {
     }
 
     pub fn prev_detail_subtab(&mut self) {
-        self.detail_subtab = if self.detail_subtab == 0 { 3 } else { self.detail_subtab - 1 };
+        self.detail_subtab = if self.detail_subtab == 0 {
+            3
+        } else {
+            self.detail_subtab - 1
+        };
     }
 
     pub fn next_sidebar_item(&mut self) {
@@ -389,7 +441,11 @@ impl App {
     }
 
     pub fn prev_sidebar_item(&mut self) {
-        self.sidebar_selected = if self.sidebar_selected == 0 { 9 } else { self.sidebar_selected - 1 };
+        self.sidebar_selected = if self.sidebar_selected == 0 {
+            9
+        } else {
+            self.sidebar_selected - 1
+        };
     }
 
     pub fn set_status(&mut self, message: impl Into<String>, status_type: StatusType) {
@@ -398,7 +454,11 @@ impl App {
 
     /// Drain background notices into the status bar. Returns true if any arrived.
     pub fn drain_background_notices(&mut self) -> bool {
-        let notices: Vec<_> = self.background_notices.lock().map(|mut v| v.drain(..).collect()).unwrap_or_default();
+        let notices: Vec<_> = self
+            .background_notices
+            .lock()
+            .map(|mut v| v.drain(..).collect())
+            .unwrap_or_default();
         let any = !notices.is_empty();
         for (msg, kind) in notices {
             self.set_status(msg, kind);
@@ -471,13 +531,15 @@ impl App {
                         }
                         SettingsSection::Accounts => {
                             if !self.accounts.is_empty() {
-                                self.settings_account_selected = (self.settings_account_selected + 1) % self.accounts.len();
+                                self.settings_account_selected =
+                                    (self.settings_account_selected + 1) % self.accounts.len();
                                 self.selected_account = self.settings_account_selected;
                             }
                         }
                         SettingsSection::Projects => {
                             if !self.projects.is_empty() {
-                                self.settings_project_selected = (self.settings_project_selected + 1) % self.projects.len();
+                                self.settings_project_selected =
+                                    (self.settings_project_selected + 1) % self.projects.len();
                                 self.selected_project = self.settings_project_selected;
                             }
                         }
@@ -485,12 +547,14 @@ impl App {
                             self.selected_agent = (self.selected_agent + 1) % 3;
                         }
                         SettingsSection::Models => {
-                            self.settings_model_selected = self.settings_model_selected.saturating_add(1);
+                            self.settings_model_selected =
+                                self.settings_model_selected.saturating_add(1);
                         }
                         _ => {}
                     }
                 } else {
-                    self.settings_section_index = (self.settings_section_index + 1) % SettingsSection::ALL.len();
+                    self.settings_section_index =
+                        (self.settings_section_index + 1) % SettingsSection::ALL.len();
                 }
             }
         }
@@ -508,7 +572,11 @@ impl App {
                 }
             }
             Tab::Agents => {
-                self.selected_agent = if self.selected_agent == 0 { 2 } else { self.selected_agent - 1 };
+                self.selected_agent = if self.selected_agent == 0 {
+                    2
+                } else {
+                    self.selected_agent - 1
+                };
             }
             Tab::Accounts => {
                 if !self.accounts.is_empty() {
@@ -533,39 +601,54 @@ impl App {
                 if self.settings_focus_panel {
                     match self.current_settings_section() {
                         SettingsSection::General => {
-                            self.settings_general_item = if self.settings_general_item == 0 { 5 } else { self.settings_general_item - 1 };
+                            self.settings_general_item = if self.settings_general_item == 0 {
+                                5
+                            } else {
+                                self.settings_general_item - 1
+                            };
                         }
                         SettingsSection::Accounts => {
                             if !self.accounts.is_empty() {
-                                self.settings_account_selected = if self.settings_account_selected == 0 {
-                                    self.accounts.len() - 1
-                                } else {
-                                    self.settings_account_selected - 1
-                                };
+                                self.settings_account_selected =
+                                    if self.settings_account_selected == 0 {
+                                        self.accounts.len() - 1
+                                    } else {
+                                        self.settings_account_selected - 1
+                                    };
                                 self.selected_account = self.settings_account_selected;
                             }
                         }
                         SettingsSection::Projects => {
                             if !self.projects.is_empty() {
-                                self.settings_project_selected = if self.settings_project_selected == 0 {
-                                    self.projects.len() - 1
-                                } else {
-                                    self.settings_project_selected - 1
-                                };
+                                self.settings_project_selected =
+                                    if self.settings_project_selected == 0 {
+                                        self.projects.len() - 1
+                                    } else {
+                                        self.settings_project_selected - 1
+                                    };
                                 self.selected_project = self.settings_project_selected;
                             }
                         }
                         SettingsSection::Agents => {
-                            self.selected_agent = if self.selected_agent == 0 { 2 } else { self.selected_agent - 1 };
+                            self.selected_agent = if self.selected_agent == 0 {
+                                2
+                            } else {
+                                self.selected_agent - 1
+                            };
                         }
                         SettingsSection::Models => {
-                            self.settings_model_selected = self.settings_model_selected.saturating_sub(1);
+                            self.settings_model_selected =
+                                self.settings_model_selected.saturating_sub(1);
                         }
                         _ => {}
                     }
                 } else {
                     let total = SettingsSection::ALL.len();
-                    self.settings_section_index = if self.settings_section_index == 0 { total - 1 } else { self.settings_section_index - 1 };
+                    self.settings_section_index = if self.settings_section_index == 0 {
+                        total - 1
+                    } else {
+                        self.settings_section_index - 1
+                    };
                 }
             }
         }
@@ -706,7 +789,9 @@ impl App {
                     transcript.push(format!("[{time_str}] [CRASHED] Session process crashed"));
                 }
                 EventKind::SessionFailed => {
-                    transcript.push(format!("[{time_str}] [FAILED] Session entered failed state"));
+                    transcript.push(format!(
+                        "[{time_str}] [FAILED] Session entered failed state"
+                    ));
                 }
                 EventKind::SessionStopped => {
                     transcript.push(format!("[{time_str}] [STOPPED] Session stopped"));
@@ -726,10 +811,12 @@ impl App {
                 session.updated_at = event.timestamp;
                 match event.kind {
                     EventKind::StateChanged => {
-                        if let Some(to_state) = event.payload["to"]
-                            .as_str()
-                            .and_then(|s| serde_json::from_value::<SessionState>(serde_json::Value::String(s.to_string())).ok())
-                        {
+                        if let Some(to_state) = event.payload["to"].as_str().and_then(|s| {
+                            serde_json::from_value::<SessionState>(serde_json::Value::String(
+                                s.to_string(),
+                            ))
+                            .ok()
+                        }) {
                             session.state = to_state;
                         }
                     }
@@ -782,7 +869,8 @@ impl App {
             | EventKind::InteractionDismissed
             | EventKind::InteractionExpired => {
                 if let Some(iid) = event.payload["interaction_id"].as_str() {
-                    if let Some(interaction) = self.interactions.iter_mut().find(|i| i.id.0 == iid) {
+                    if let Some(interaction) = self.interactions.iter_mut().find(|i| i.id.0 == iid)
+                    {
                         interaction.state = match event.kind {
                             EventKind::InteractionAutoResolved => InteractionState::AutoResolved,
                             EventKind::InteractionHumanResolved => InteractionState::HumanResolved,
@@ -804,7 +892,8 @@ impl App {
         }
 
         // If approval is requested for the active session, present the approval modal overlay
-        if (event.kind == EventKind::ApprovalRequested || event.kind == EventKind::AgentApprovalRequested)
+        if (event.kind == EventKind::ApprovalRequested
+            || event.kind == EventKind::AgentApprovalRequested)
             && event.session_id.is_some()
             && event.session_id.as_ref() == self.session_detail_id.as_ref()
         {
@@ -879,6 +968,8 @@ impl App {
 
     /// Whether the session's program currently owns the alternate screen.
     pub fn session_in_alt_screen(&self, session_id: &str) -> bool {
-        self.session_terminal_buffers.get(session_id).is_some_and(|b| b.in_alt_screen())
+        self.session_terminal_buffers
+            .get(session_id)
+            .is_some_and(|b| b.in_alt_screen())
     }
 }

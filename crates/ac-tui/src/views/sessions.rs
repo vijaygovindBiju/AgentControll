@@ -22,10 +22,22 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
 
 fn render_sessions_table(f: &mut Frame, app: &App, area: Rect) {
     let header_cells = [
-        "SESSION ID", "AGENT", "STATE", "PROJECT", "ACCOUNT", "RESTARTS", "TASK",
+        "SESSION ID",
+        "AGENT",
+        "STATE",
+        "PROJECT",
+        "ACCOUNT",
+        "RESTARTS",
+        "TASK",
     ]
     .iter()
-    .map(|h| Cell::from(*h).style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)));
+    .map(|h| {
+        Cell::from(*h).style(
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        )
+    });
     let header = Row::new(header_cells).height(1).bottom_margin(1);
 
     let rows = app.sessions.iter().enumerate().map(|(idx, s)| {
@@ -69,7 +81,9 @@ fn render_sessions_table(f: &mut Frame, app: &App, area: Rect) {
 
         let row_cells = vec![
             Cell::from(sid).style(if is_selected {
-                Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD)
             } else {
                 Style::default().fg(Color::White)
             }),
@@ -102,7 +116,9 @@ fn render_sessions_table(f: &mut Frame, app: &App, area: Rect) {
             .border_style(Style::default().fg(Color::Cyan))
             .title(Span::styled(
                 format!(" Sessions ({}) ", app.sessions.len()),
-                Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
             )),
     );
 
@@ -122,7 +138,12 @@ fn render_session_quick_info(f: &mut Frame, app: &App, area: Rect) {
         let lines = vec![
             Line::from(vec![
                 Span::styled("ID: ", Style::default().fg(Color::DarkGray)),
-                Span::styled(&s.id.0, Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                Span::styled(
+                    &s.id.0,
+                    Style::default()
+                        .fg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD),
+                ),
                 Span::raw("   "),
                 Span::styled("State: ", Style::default().fg(Color::DarkGray)),
                 session_state_badge(&s.state),
@@ -131,7 +152,12 @@ fn render_session_quick_info(f: &mut Frame, app: &App, area: Rect) {
                 Span::styled(&s.agent_type, Style::default().fg(Color::White)),
                 Span::raw("   "),
                 Span::styled("Account: ", Style::default().fg(Color::DarkGray)),
-                Span::styled(app.account_label(s.account_id.as_ref()), Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                Span::styled(
+                    app.account_label(s.account_id.as_ref()),
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD),
+                ),
             ]),
             Line::from(vec![
                 Span::styled("Task: ", Style::default().fg(Color::DarkGray)),
@@ -139,7 +165,12 @@ fn render_session_quick_info(f: &mut Frame, app: &App, area: Rect) {
             ]),
             Line::from(vec![
                 Span::styled("Actions: ", Style::default().fg(Color::DarkGray)),
-                Span::styled("[n] New Session", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+                Span::styled(
+                    "[n] New Session",
+                    Style::default()
+                        .fg(Color::Green)
+                        .add_modifier(Modifier::BOLD),
+                ),
                 Span::raw(" | "),
                 Span::styled("[Space] Run / Resume", Style::default().fg(Color::Green)),
                 Span::raw(" | "),

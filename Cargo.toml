@@ -11,6 +11,13 @@ version = "1.0.0"
 edition = "2021"
 authors = ["Agent Control contributors"]
 license = "MIT"
+description = "Local-first control plane for coding agents (Antigravity, Claude Code, Codex, Devin CLI)"
+repository = "https://github.com/agentcontrol/agentcontrol"
+homepage = "https://github.com/agentcontrol/agentcontrol"
+readme = "README.md"
+keywords = ["coding-agent", "antigravity", "claude-code", "terminal", "tui"]
+categories = ["command-line-utilities", "development-tools"]
+
 
 [workspace.dependencies]
 # Async runtime

@@ -22,11 +22,11 @@ use std::{
     path::PathBuf,
 };
 
+use crate::{auth, client::DaemonClient, interactive};
 use ac_core::{
     agy_auth,
     types::{Account, AccountState, Id},
 };
-use crate::{auth, client::DaemonClient, interactive};
 
 /// Main entry point for the `agy` launcher command.
 pub async fn run_agy_launcher(
@@ -68,7 +68,10 @@ pub async fn run_agy_launcher(
     // Determine current project if cwd is registered
     let project_id = find_current_project(&client).await;
 
-    println!("Starting Antigravity with account \"{}\"...", chosen_account.label);
+    println!(
+        "Starting Antigravity with account \"{}\"...",
+        chosen_account.label
+    );
     if let Some(email) = &cred.email {
         println!("Google account: {email}");
     }
@@ -112,7 +115,10 @@ pub fn resolve_account<'a>(accounts: &'a [Account], needle: &str) -> AccountMatc
     if let Some(a) = accounts.iter().find(|a| a.id.0 == needle) {
         return AccountMatch::One(a);
     }
-    let mut named: Vec<&Account> = accounts.iter().filter(|a| a.label.eq_ignore_ascii_case(needle)).collect();
+    let mut named: Vec<&Account> = accounts
+        .iter()
+        .filter(|a| a.label.eq_ignore_ascii_case(needle))
+        .collect();
     match named.len() {
         0 => AccountMatch::NotFound,
         1 => AccountMatch::One(named.remove(0)),
@@ -130,7 +136,9 @@ pub fn parse_selection(input: &str, max: usize) -> std::result::Result<Option<us
     match s.parse::<usize>() {
         Ok(n) if (1..=max).contains(&n) => Ok(Some(n)),
         _ if s.is_empty() => Err(format!("Please enter a number from 1 to {max}.")),
-        _ => Err(format!("Invalid selection \"{s}\". Enter a number from 1 to {max}.")),
+        _ => Err(format!(
+            "Invalid selection \"{s}\". Enter a number from 1 to {max}."
+        )),
     }
 }
 
@@ -149,7 +157,12 @@ fn not_found_message(needle: &str, agy_accounts: &[Account]) -> String {
 }
 
 fn describe_with_id(a: &Account) -> String {
-    format!("{}   Account ID: {}   (added {})", a.label, a.id, a.created_at.format("%Y-%m-%d"))
+    format!(
+        "{}   Account ID: {}   (added {})",
+        a.label,
+        a.id,
+        a.created_at.format("%Y-%m-%d")
+    )
 }
 
 /// Handle explicit account invocation: `agy "Personal Google"` or `agy <ACCOUNT-ID>`.
@@ -163,7 +176,10 @@ async fn handle_explicit_account(
         AccountMatch::One(a) => a.clone(),
         AccountMatch::Many(matches) => {
             let owned: Vec<Account> = matches.into_iter().cloned().collect();
-            let title = format!("Multiple Antigravity accounts match \"{}\". Choose one explicitly:", target.trim());
+            let title = format!(
+                "Multiple Antigravity accounts match \"{}\". Choose one explicitly:",
+                target.trim()
+            );
             let lines: Vec<String> = owned.iter().map(describe_with_id).collect();
             match choose(&title, &lines, false).await? {
                 Choice::Selected(i) => owned[i].clone(),
@@ -197,7 +213,13 @@ async fn handle_explicit_account(
 fn confirm(prompt: &str) -> Result<bool> {
     print!("{prompt} [y/N] ");
     io::stdout().flush()?;
-    Ok(matches!(auth::read_line()?.as_deref().map(str::to_lowercase).as_deref(), Some("y" | "yes")))
+    Ok(matches!(
+        auth::read_line()?
+            .as_deref()
+            .map(str::to_lowercase)
+            .as_deref(),
+        Some("y" | "yes")
+    ))
 }
 
 /// Validate availability for an explicitly chosen account without silent fallback.
@@ -207,8 +229,14 @@ async fn validate_account_availability(
     agy_accounts: &[Account],
     account: &Account,
 ) -> Result<Option<Account>> {
-    let reason = if matches!(account.state, AccountState::RateLimited | AccountState::Cooldown) {
-        let remaining = account.cooldown_until.map(|t| (t - Utc::now()).num_seconds().max(1)).unwrap_or(30);
+    let reason = if matches!(
+        account.state,
+        AccountState::RateLimited | AccountState::Cooldown
+    ) {
+        let remaining = account
+            .cooldown_until
+            .map(|t| (t - Utc::now()).num_seconds().max(1))
+            .unwrap_or(30);
         Some(format!("Rate limited for another {remaining} seconds."))
     } else if !account.state.is_available() {
         Some(format!("Account is in state '{}'.", account.state))
@@ -221,9 +249,18 @@ async fn validate_account_availability(
         None
     };
 
-    let Some(reason) = reason else { return Ok(Some(account.clone())) };
-    eprintln!("\nAccount \"{}\" is currently unavailable.\n\nReason:\n{}\n", account.label, reason);
-    let others: Vec<Account> = agy_accounts.iter().filter(|a| a.id != account.id).cloned().collect();
+    let Some(reason) = reason else {
+        return Ok(Some(account.clone()));
+    };
+    eprintln!(
+        "\nAccount \"{}\" is currently unavailable.\n\nReason:\n{}\n",
+        account.label, reason
+    );
+    let others: Vec<Account> = agy_accounts
+        .iter()
+        .filter(|a| a.id != account.id)
+        .cloned()
+        .collect();
     if others.is_empty() || !confirm("Choose a different account?")? {
         return Ok(None);
     }
@@ -308,7 +345,13 @@ pub struct Selector {
 
 impl Selector {
     pub fn new(title: impl Into<String>, items: Vec<String>, allow_add: bool) -> Self {
-        Self { title: title.into(), items, allow_add, selected: 0, rendered_lines: 0 }
+        Self {
+            title: title.into(),
+            items,
+            allow_add,
+            selected: 0,
+            rendered_lines: 0,
+        }
     }
 
     /// Apply a key press. Returns `Some` once the user has decided.
@@ -352,7 +395,11 @@ impl Selector {
             });
         }
         lines.push(String::new());
-        let help = if self.allow_add { "[↑/↓] Move   [Enter] Select   [A] Add Account   [Q/Esc] Cancel" } else { "[↑/↓] Move   [Enter] Select   [Q/Esc] Cancel" };
+        let help = if self.allow_add {
+            "[↑/↓] Move   [Enter] Select   [A] Add Account   [Q/Esc] Cancel"
+        } else {
+            "[↑/↓] Move   [Enter] Select   [Q/Esc] Cancel"
+        };
         lines.push(format!("\x1b[90m{help}\x1b[0m"));
         for l in &lines {
             write!(w, "{l}\r\n")?;
@@ -415,13 +462,19 @@ pub async fn select_interactive_account(
         }
         Choice::Add => {
             let aid = auth::run_add_account_flow(client, None, false).await?;
-            Ok(client.list_accounts().await?.into_iter().find(|a| a.id == aid))
+            Ok(client
+                .list_accounts()
+                .await?
+                .into_iter()
+                .find(|a| a.id == aid))
         }
         Choice::Cancelled => {
             println!("Cancelled.");
             Ok(None)
         }
-        Choice::Unavailable => anyhow::bail!("No account selected. Run: agy \"<account name>\" or agy <ACCOUNT-ID>"),
+        Choice::Unavailable => {
+            anyhow::bail!("No account selected. Run: agy \"<account name>\" or agy <ACCOUNT-ID>")
+        }
     }
 }
 
@@ -429,7 +482,10 @@ fn format_account_status(account: &Account) -> String {
     match account.state {
         AccountState::Active => {
             if account.active_session_count >= account.concurrency_cap {
-                format!("Busy ({}/{})", account.active_session_count, account.concurrency_cap)
+                format!(
+                    "Busy ({}/{})",
+                    account.active_session_count, account.concurrency_cap
+                )
             } else {
                 "Ready".to_string()
             }
@@ -451,14 +507,21 @@ fn format_account_status(account: &Account) -> String {
 
 /// `ac account remove <ACCOUNT>` / `agy account remove <ACCOUNT>`.
 /// Accepts an exact account ID or an unambiguous exact name.
-pub async fn remove_account_command(client: &DaemonClient, needle: &str, assume_yes: bool) -> Result<()> {
+pub async fn remove_account_command(
+    client: &DaemonClient,
+    needle: &str,
+    assume_yes: bool,
+) -> Result<()> {
     let accounts = client.list_accounts().await?;
     let account = match resolve_account(&accounts, needle) {
         AccountMatch::One(a) => a.clone(),
         AccountMatch::Many(m) => anyhow::bail!(
             "Multiple accounts match \"{}\".\n\n{}\n\nPlease select an exact account ID.",
             needle.trim(),
-            m.iter().map(|a| format!("- {}", describe_with_id(a))).collect::<Vec<_>>().join("\n")
+            m.iter()
+                .map(|a| format!("- {}", describe_with_id(a)))
+                .collect::<Vec<_>>()
+                .join("\n")
         ),
         AccountMatch::NotFound => {
             let mut msg = format!("Account \"{}\" does not exist.", needle.trim());
@@ -474,7 +537,10 @@ pub async fn remove_account_command(client: &DaemonClient, needle: &str, assume_
 
     if !assume_yes {
         if !io::stdin().is_tty() {
-            anyhow::bail!("Refusing to remove \"{}\" without confirmation. Re-run with --yes.", account.label);
+            anyhow::bail!(
+                "Refusing to remove \"{}\" without confirmation. Re-run with --yes.",
+                account.label
+            );
         }
         println!("Remove account \"{}\" (ID: {})?", account.label, account.id);
         if is_antigravity_account(&account) {

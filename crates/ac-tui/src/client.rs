@@ -1,7 +1,7 @@
 //! API Client for communicating with the Agent Control daemon over Unix socket.
 
-use std::path::{Path, PathBuf};
 use serde_json::json;
+use std::path::{Path, PathBuf};
 use thiserror::Error;
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
@@ -177,7 +177,8 @@ impl ApiClient {
         project_id: Option<&Id>,
         account_id: Option<&Id>,
     ) -> Result<Id, ClientError> {
-        self.create_session_with_launch(task, agent_type, project_id, account_id, None).await
+        self.create_session_with_launch(task, agent_type, project_id, account_id, None)
+            .await
     }
 
     /// Create a session with per-session launch options (permission mode, model, directory).
@@ -509,7 +510,11 @@ impl ApiClient {
 
     // ── Phase 6: Account Selection & Switching APIs ──────────────────────────
 
-    pub async fn select_account(&self, session_id: &Id, account_id: &Id) -> Result<(), ClientError> {
+    pub async fn select_account(
+        &self,
+        session_id: &Id,
+        account_id: &Id,
+    ) -> Result<(), ClientError> {
         self.send_request(
             "session.select_account",
             json!({
@@ -521,7 +526,11 @@ impl ApiClient {
         Ok(())
     }
 
-    pub async fn switch_account(&self, session_id: &Id, target_account_id: &Id) -> Result<Id, ClientError> {
+    pub async fn switch_account(
+        &self,
+        session_id: &Id,
+        target_account_id: &Id,
+    ) -> Result<Id, ClientError> {
         let resp = self
             .send_request(
                 "session.switch_account",

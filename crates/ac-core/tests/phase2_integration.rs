@@ -9,10 +9,7 @@ use ac_core::{
     event_store::EventStore,
     project_registry::{ProjectRegistry, ProjectStore},
     session::manager::{SessionManager, SessionManagerHandle},
-    types::{
-        Account, AgentEvent, EventKind, Id, Project, SessionState,
-        WorkspacePolicy,
-    },
+    types::{Account, AgentEvent, EventKind, Id, Project, SessionState, WorkspacePolicy},
 };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -82,13 +79,12 @@ async fn session_auto_selects_available_account() {
     let aid = acct_mgr.register(make_account("auto", vec![])).unwrap();
 
     let proj_reg = ProjectRegistry::new(ProjectStore::open_in_memory().unwrap()).unwrap();
-    let (mgr, _rx) = make_phase2_manager(
-        EventStore::open_in_memory().unwrap(),
-        acct_mgr,
-        proj_reg,
-    );
+    let (mgr, _rx) = make_phase2_manager(EventStore::open_in_memory().unwrap(), acct_mgr, proj_reg);
 
-    let sid = mgr.create_with_context("task".into(), "mock".into(), None, None).await.unwrap();
+    let sid = mgr
+        .create_with_context("task".into(), "mock".into(), None, None)
+        .await
+        .unwrap();
     let session = mgr.get(sid.clone()).await.unwrap().unwrap();
     assert_eq!(session.account_id, Some(aid));
 }
@@ -100,11 +96,7 @@ async fn session_explicit_account_assignment() {
     let _aid2 = acct_mgr.register(make_account("a2", vec![])).unwrap();
 
     let proj_reg = ProjectRegistry::new(ProjectStore::open_in_memory().unwrap()).unwrap();
-    let (mgr, _rx) = make_phase2_manager(
-        EventStore::open_in_memory().unwrap(),
-        acct_mgr,
-        proj_reg,
-    );
+    let (mgr, _rx) = make_phase2_manager(EventStore::open_in_memory().unwrap(), acct_mgr, proj_reg);
 
     // Explicitly request aid1
     let sid = mgr
@@ -120,16 +112,17 @@ async fn no_available_account_returns_error() {
     // Account manager with no accounts registered
     let acct_mgr = AccountManager::new(AccountStore::open_in_memory().unwrap()).unwrap();
     let proj_reg = ProjectRegistry::new(ProjectStore::open_in_memory().unwrap()).unwrap();
-    let (mgr, _rx) = make_phase2_manager(
-        EventStore::open_in_memory().unwrap(),
-        acct_mgr,
-        proj_reg,
-    );
+    let (mgr, _rx) = make_phase2_manager(EventStore::open_in_memory().unwrap(), acct_mgr, proj_reg);
 
-    let result = mgr.create_with_context("task".into(), "mock".into(), None, None).await;
+    let result = mgr
+        .create_with_context("task".into(), "mock".into(), None, None)
+        .await;
     assert!(result.is_err(), "Expected NoAccountAvailable error");
     let msg = result.unwrap_err().to_string();
-    assert!(msg.contains("NoAccountAvailable"), "Error should contain NoAccountAvailable, got: {msg}");
+    assert!(
+        msg.contains("NoAccountAvailable"),
+        "Error should contain NoAccountAvailable, got: {msg}"
+    );
 }
 
 #[tokio::test]
@@ -139,13 +132,11 @@ async fn disabled_account_not_selected() {
     acct_mgr.disable(&aid).unwrap();
 
     let proj_reg = ProjectRegistry::new(ProjectStore::open_in_memory().unwrap()).unwrap();
-    let (mgr, _rx) = make_phase2_manager(
-        EventStore::open_in_memory().unwrap(),
-        acct_mgr,
-        proj_reg,
-    );
+    let (mgr, _rx) = make_phase2_manager(EventStore::open_in_memory().unwrap(), acct_mgr, proj_reg);
 
-    let result = mgr.create_with_context("task".into(), "mock".into(), None, None).await;
+    let result = mgr
+        .create_with_context("task".into(), "mock".into(), None, None)
+        .await;
     assert!(result.is_err(), "Disabled account must not be selected");
 }
 
@@ -156,18 +147,20 @@ async fn account_load_incremented_on_create() {
     assert_eq!(acct_mgr.get(&aid).unwrap().active_session_count, 0);
 
     let proj_reg = ProjectRegistry::new(ProjectStore::open_in_memory().unwrap()).unwrap();
-    let (mgr, _rx) = make_phase2_manager(
-        EventStore::open_in_memory().unwrap(),
-        acct_mgr,
-        proj_reg,
-    );
+    let (mgr, _rx) = make_phase2_manager(EventStore::open_in_memory().unwrap(), acct_mgr, proj_reg);
 
     // Create two sessions on the same account
-    mgr.create_with_context("t1".into(), "mock".into(), None, Some(aid.clone())).await.unwrap();
-    mgr.create_with_context("t2".into(), "mock".into(), None, Some(aid.clone())).await.unwrap();
+    mgr.create_with_context("t1".into(), "mock".into(), None, Some(aid.clone()))
+        .await
+        .unwrap();
+    mgr.create_with_context("t2".into(), "mock".into(), None, Some(aid.clone()))
+        .await
+        .unwrap();
 
     // At capacity (cap=2), third should fail
-    let result = mgr.create_with_context("t3".into(), "mock".into(), None, Some(aid.clone())).await;
+    let result = mgr
+        .create_with_context("t3".into(), "mock".into(), None, Some(aid.clone()))
+        .await;
     assert!(result.is_err(), "Account at capacity should be rejected");
 }
 
@@ -177,23 +170,29 @@ async fn account_load_decremented_on_stop() {
     let aid = acct_mgr.register(make_account("a", vec![])).unwrap();
 
     let proj_reg = ProjectRegistry::new(ProjectStore::open_in_memory().unwrap()).unwrap();
-    let (mgr, mut rx) = make_phase2_manager(
-        EventStore::open_in_memory().unwrap(),
-        acct_mgr,
-        proj_reg,
-    );
+    let (mgr, mut rx) =
+        make_phase2_manager(EventStore::open_in_memory().unwrap(), acct_mgr, proj_reg);
 
-    let sid = mgr.create_with_context("task".into(), "mock".into(), None, Some(aid.clone())).await.unwrap();
+    let sid = mgr
+        .create_with_context("task".into(), "mock".into(), None, Some(aid.clone()))
+        .await
+        .unwrap();
     mgr.start(sid.clone()).await.unwrap();
     wait_for_event(&mut rx, |e| {
         e.kind == EventKind::StateChanged && e.payload["to"].as_str() == Some("working")
-    }).await;
+    })
+    .await;
     mgr.stop(sid.clone(), None).await.unwrap();
 
     // The session is stopped; the account load should be back to 0.
     // We verify indirectly: creating another session on the same explicit account should succeed.
-    let result = mgr.create_with_context("t2".into(), "mock".into(), None, Some(aid.clone())).await;
-    assert!(result.is_ok(), "Account should be available again after session stop");
+    let result = mgr
+        .create_with_context("t2".into(), "mock".into(), None, Some(aid.clone()))
+        .await;
+    assert!(
+        result.is_ok(),
+        "Account should be available again after session stop"
+    );
 }
 
 // ── Session + Project binding ─────────────────────────────────────────────────
@@ -204,18 +203,22 @@ async fn session_binds_to_project_workspace() {
     acct_mgr.register(make_account("a", vec![])).unwrap();
 
     let mut proj_reg = ProjectRegistry::new(ProjectStore::open_in_memory().unwrap()).unwrap();
-    let pid = proj_reg.register(make_project("myproject", WorkspacePolicy::Shared)).unwrap();
+    let pid = proj_reg
+        .register(make_project("myproject", WorkspacePolicy::Shared))
+        .unwrap();
 
-    let (mgr, _rx) = make_phase2_manager(
-        EventStore::open_in_memory().unwrap(),
-        acct_mgr,
-        proj_reg,
-    );
+    let (mgr, _rx) = make_phase2_manager(EventStore::open_in_memory().unwrap(), acct_mgr, proj_reg);
 
-    let sid = mgr.create_with_context("task".into(), "mock".into(), Some(pid.clone()), None).await.unwrap();
+    let sid = mgr
+        .create_with_context("task".into(), "mock".into(), Some(pid.clone()), None)
+        .await
+        .unwrap();
     let session = mgr.get(sid).await.unwrap().unwrap();
     assert_eq!(session.project_id, Some(pid));
-    assert!(session.workspace_id.is_some(), "Session should have a workspace assigned");
+    assert!(
+        session.workspace_id.is_some(),
+        "Session should have a workspace assigned"
+    );
 }
 
 #[tokio::test]
@@ -224,19 +227,20 @@ async fn session_with_nonexistent_project_fails() {
     acct_mgr.register(make_account("a", vec![])).unwrap();
 
     let proj_reg = ProjectRegistry::new(ProjectStore::open_in_memory().unwrap()).unwrap();
-    let (mgr, _rx) = make_phase2_manager(
-        EventStore::open_in_memory().unwrap(),
-        acct_mgr,
-        proj_reg,
-    );
+    let (mgr, _rx) = make_phase2_manager(EventStore::open_in_memory().unwrap(), acct_mgr, proj_reg);
 
-    let result = mgr.create_with_context(
-        "task".into(),
-        "mock".into(),
-        Some(Id::from("does-not-exist")),
-        None,
-    ).await;
-    assert!(result.is_err(), "Session with non-existent project should fail");
+    let result = mgr
+        .create_with_context(
+            "task".into(),
+            "mock".into(),
+            Some(Id::from("does-not-exist")),
+            None,
+        )
+        .await;
+    assert!(
+        result.is_err(),
+        "Session with non-existent project should fail"
+    );
 }
 
 #[tokio::test]
@@ -252,14 +256,16 @@ async fn worktree_policy_creates_separate_workspaces() {
         .register(make_project("wt", WorkspacePolicy::WorktreePerSession))
         .unwrap();
 
-    let (mgr, _rx) = make_phase2_manager(
-        EventStore::open_in_memory().unwrap(),
-        acct_mgr,
-        proj_reg,
-    );
+    let (mgr, _rx) = make_phase2_manager(EventStore::open_in_memory().unwrap(), acct_mgr, proj_reg);
 
-    let sid1 = mgr.create_with_context("t1".into(), "mock".into(), Some(pid.clone()), None).await.unwrap();
-    let sid2 = mgr.create_with_context("t2".into(), "mock".into(), Some(pid.clone()), None).await.unwrap();
+    let sid1 = mgr
+        .create_with_context("t1".into(), "mock".into(), Some(pid.clone()), None)
+        .await
+        .unwrap();
+    let sid2 = mgr
+        .create_with_context("t2".into(), "mock".into(), Some(pid.clone()), None)
+        .await
+        .unwrap();
 
     let s1 = mgr.get(sid1).await.unwrap().unwrap();
     let s2 = mgr.get(sid2).await.unwrap().unwrap();
@@ -281,14 +287,16 @@ async fn shared_policy_reuses_workspace() {
         .register(make_project("shared", WorkspacePolicy::Shared))
         .unwrap();
 
-    let (mgr, _rx) = make_phase2_manager(
-        EventStore::open_in_memory().unwrap(),
-        acct_mgr,
-        proj_reg,
-    );
+    let (mgr, _rx) = make_phase2_manager(EventStore::open_in_memory().unwrap(), acct_mgr, proj_reg);
 
-    let sid1 = mgr.create_with_context("t1".into(), "mock".into(), Some(pid.clone()), None).await.unwrap();
-    let sid2 = mgr.create_with_context("t2".into(), "mock".into(), Some(pid.clone()), None).await.unwrap();
+    let sid1 = mgr
+        .create_with_context("t1".into(), "mock".into(), Some(pid.clone()), None)
+        .await
+        .unwrap();
+    let sid2 = mgr
+        .create_with_context("t2".into(), "mock".into(), Some(pid.clone()), None)
+        .await
+        .unwrap();
 
     let s1 = mgr.get(sid1).await.unwrap().unwrap();
     let s2 = mgr.get(sid2).await.unwrap().unwrap();
@@ -334,7 +342,9 @@ async fn account_persists_across_reload() {
     {
         let store = AccountStore::open(&acct_db).unwrap();
         let mut mgr = AccountManager::new(store).unwrap();
-        aid = mgr.register(make_account("persisted", vec!["tag1"])).unwrap();
+        aid = mgr
+            .register(make_account("persisted", vec!["tag1"]))
+            .unwrap();
     }
     {
         let store = AccountStore::open(&acct_db).unwrap();
@@ -353,7 +363,9 @@ async fn project_and_workspace_persist_across_reload() {
     {
         let store = ProjectStore::open(&proj_db).unwrap();
         let mut reg = ProjectRegistry::new(store).unwrap();
-        pid = reg.register(make_project("proj", WorkspacePolicy::Shared)).unwrap();
+        pid = reg
+            .register(make_project("proj", WorkspacePolicy::Shared))
+            .unwrap();
         reg.resolve_workspace(&pid, &Id::new()).unwrap();
     }
     {
@@ -380,17 +392,18 @@ async fn session_account_binding_recovered_after_restart() {
         aid = acct_mgr.register(make_account("a", vec![])).unwrap();
 
         let proj_reg = ProjectRegistry::new(ProjectStore::open_in_memory().unwrap()).unwrap();
-        let (mgr, mut rx) = make_phase2_manager(
-            EventStore::open(&events_db).unwrap(),
-            acct_mgr,
-            proj_reg,
-        );
+        let (mgr, mut rx) =
+            make_phase2_manager(EventStore::open(&events_db).unwrap(), acct_mgr, proj_reg);
 
-        sid = mgr.create_with_context("task".into(), "mock".into(), None, Some(aid.clone())).await.unwrap();
+        sid = mgr
+            .create_with_context("task".into(), "mock".into(), None, Some(aid.clone()))
+            .await
+            .unwrap();
         mgr.start(sid.clone()).await.unwrap();
         wait_for_event(&mut rx, |e| {
             e.kind == EventKind::StateChanged && e.payload["to"].as_str() == Some("working")
-        }).await;
+        })
+        .await;
     }
 
     // Second run: recover from event log
@@ -434,14 +447,15 @@ async fn rate_limited_account_not_selected() {
     acct_mgr.apply_rate_limit(&aid, None).unwrap();
 
     let proj_reg = ProjectRegistry::new(ProjectStore::open_in_memory().unwrap()).unwrap();
-    let (mgr, _rx) = make_phase2_manager(
-        EventStore::open_in_memory().unwrap(),
-        acct_mgr,
-        proj_reg,
-    );
+    let (mgr, _rx) = make_phase2_manager(EventStore::open_in_memory().unwrap(), acct_mgr, proj_reg);
 
-    let result = mgr.create_with_context("t".into(), "mock".into(), None, None).await;
-    assert!(result.is_err(), "Rate-limited account must not be auto-selected");
+    let result = mgr
+        .create_with_context("t".into(), "mock".into(), None, None)
+        .await;
+    assert!(
+        result.is_err(),
+        "Rate-limited account must not be auto-selected"
+    );
 }
 
 #[tokio::test]
@@ -451,12 +465,10 @@ async fn exhausted_account_not_selected() {
     acct_mgr.mark_exhausted(&aid).unwrap();
 
     let proj_reg = ProjectRegistry::new(ProjectStore::open_in_memory().unwrap()).unwrap();
-    let (mgr, _rx) = make_phase2_manager(
-        EventStore::open_in_memory().unwrap(),
-        acct_mgr,
-        proj_reg,
-    );
+    let (mgr, _rx) = make_phase2_manager(EventStore::open_in_memory().unwrap(), acct_mgr, proj_reg);
 
-    let result = mgr.create_with_context("t".into(), "mock".into(), None, None).await;
+    let result = mgr
+        .create_with_context("t".into(), "mock".into(), None, None)
+        .await;
     assert!(result.is_err(), "Exhausted account must not be selected");
 }

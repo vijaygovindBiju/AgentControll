@@ -130,11 +130,11 @@ async fn test_100k_event_log_recovery_under_5_seconds() {
     assert_eq!(list.len(), num_sessions);
     println!("First session recovered state: {}", list[0].state);
 
-    let state_counts: std::collections::HashMap<String, usize> = list
-        .iter()
-        .fold(std::collections::HashMap::new(), |mut acc, s| {
-            *acc.entry(s.state.to_string()).or_insert(0) += 1;
-            acc
-        });
+    let state_counts: std::collections::HashMap<String, usize> =
+        list.iter()
+            .fold(std::collections::HashMap::new(), |mut acc, s| {
+                *acc.entry(s.state.to_string()).or_insert(0) += 1;
+                acc
+            });
     println!("Recovered state distribution: {:?}", state_counts);
 }

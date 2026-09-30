@@ -1,15 +1,15 @@
 //! Views module for Ratatui TUI.
 
-pub mod dashboard;
-pub mod sessions;
-pub mod session_detail;
-pub mod inbox;
 pub mod accounts;
-pub mod projects;
 pub mod activity;
 pub mod agents;
-pub mod settings;
+pub mod dashboard;
+pub mod inbox;
 pub mod modal;
+pub mod projects;
+pub mod session_detail;
+pub mod sessions;
+pub mod settings;
 pub mod start_session;
 
 use ratatui::{
@@ -20,15 +20,18 @@ use ratatui::{
     Frame,
 };
 
-use ac_core::types::{AccountState, SessionState};
 use crate::app::{App, StatusType, Tab};
+use ac_core::types::{AccountState, SessionState};
 
 /// Return a styled Span badge for a session state.
 pub fn session_state_badge(state: &SessionState) -> Span<'static> {
     match state {
         SessionState::Starting => Span::styled(
             " STARTING ",
-            Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(Color::Black)
+                .bg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
         ),
         SessionState::Idle => Span::styled(
             " IDLE ",
@@ -36,11 +39,17 @@ pub fn session_state_badge(state: &SessionState) -> Span<'static> {
         ),
         SessionState::Working => Span::styled(
             " WORKING ",
-            Style::default().fg(Color::Black).bg(Color::Green).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(Color::Black)
+                .bg(Color::Green)
+                .add_modifier(Modifier::BOLD),
         ),
         SessionState::WaitingForHuman => Span::styled(
             " WAITING FOR HUMAN ",
-            Style::default().fg(Color::Black).bg(Color::Yellow).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(Color::Black)
+                .bg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
         ),
         SessionState::Paused => Span::styled(
             " PAUSED ",
@@ -48,7 +57,10 @@ pub fn session_state_badge(state: &SessionState) -> Span<'static> {
         ),
         SessionState::RateLimited => Span::styled(
             " RATE LIMITED ",
-            Style::default().fg(Color::White).bg(Color::Magenta).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(Color::White)
+                .bg(Color::Magenta)
+                .add_modifier(Modifier::BOLD),
         ),
         SessionState::Stopping => Span::styled(
             " STOPPING ",
@@ -60,7 +72,10 @@ pub fn session_state_badge(state: &SessionState) -> Span<'static> {
         ),
         SessionState::Crashed => Span::styled(
             " CRASHED ",
-            Style::default().fg(Color::White).bg(Color::Red).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(Color::White)
+                .bg(Color::Red)
+                .add_modifier(Modifier::BOLD),
         ),
         SessionState::Restarting => Span::styled(
             " RESTARTING ",
@@ -68,7 +83,10 @@ pub fn session_state_badge(state: &SessionState) -> Span<'static> {
         ),
         SessionState::Failed => Span::styled(
             " FAILED ",
-            Style::default().fg(Color::White).bg(Color::Red).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(Color::White)
+                .bg(Color::Red)
+                .add_modifier(Modifier::BOLD),
         ),
         SessionState::HandedOff => Span::styled(
             " HANDED OFF ",
@@ -115,9 +133,17 @@ pub fn render_header(f: &mut Frame, app: &App, area: Rect) {
         .split(area);
 
     let status_span = if app.daemon_connected {
-        Span::styled("● Daemon: Running", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD))
+        Span::styled(
+            "● Daemon: Running",
+            Style::default()
+                .fg(Color::Green)
+                .add_modifier(Modifier::BOLD),
+        )
     } else {
-        Span::styled("○ Daemon: Disconnected", Style::default().fg(Color::Red).add_modifier(Modifier::BOLD))
+        Span::styled(
+            "○ Daemon: Disconnected",
+            Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+        )
     };
 
     let now_str = chrono::Local::now().format("%a %b %d %H:%M").to_string();
@@ -132,11 +158,22 @@ pub fn render_header(f: &mut Frame, app: &App, area: Rect) {
         ])
         .split(chunks[0]);
 
-    let left_title = Paragraph::new(Span::styled(" AGENT CONTROL v1.0.0", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)));
-    let center_desc = Paragraph::new(Span::styled("Coding Agents • Multiple Accounts • Full Control", Style::default().fg(Color::Rgb(140, 150, 165))))
-        .alignment(ratatui::layout::Alignment::Center);
-    let right_time = Paragraph::new(Span::styled(format!("{now_str} "), Style::default().fg(Color::DarkGray)))
-        .alignment(ratatui::layout::Alignment::Right);
+    let left_title = Paragraph::new(Span::styled(
+        " AGENT CONTROL v1.0.0",
+        Style::default()
+            .fg(Color::Cyan)
+            .add_modifier(Modifier::BOLD),
+    ));
+    let center_desc = Paragraph::new(Span::styled(
+        "Coding Agents • Multiple Accounts • Full Control",
+        Style::default().fg(Color::Rgb(140, 150, 165)),
+    ))
+    .alignment(ratatui::layout::Alignment::Center);
+    let right_time = Paragraph::new(Span::styled(
+        format!("{now_str} "),
+        Style::default().fg(Color::DarkGray),
+    ))
+    .alignment(ratatui::layout::Alignment::Right);
 
     f.render_widget(left_title, header_line1[0]);
     f.render_widget(center_desc, header_line1[1]);
@@ -174,10 +211,8 @@ pub fn render_header(f: &mut Frame, app: &App, area: Rect) {
 
     f.render_widget(tabs, nav_chunks[0]);
 
-    let status_p = Paragraph::new(Line::from(vec![
-        status_span,
-        Span::raw(" "),
-    ])).alignment(ratatui::layout::Alignment::Right);
+    let status_p = Paragraph::new(Line::from(vec![status_span, Span::raw(" ")]))
+        .alignment(ratatui::layout::Alignment::Right);
     f.render_widget(status_p, nav_chunks[1]);
 }
 
@@ -195,7 +230,12 @@ pub fn render_sidebar(f: &mut Frame, app: &App, area: Rect) {
     let menu_block = Block::default()
         .borders(Borders::ALL)
         .border_style(Style::default().fg(Color::Cyan))
-        .title(Span::styled(" ▸ Menu ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)));
+        .title(Span::styled(
+            " ▸ Menu ",
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        ));
 
     let items = [
         (0, "Dashboard", Tab::Dashboard),
@@ -213,7 +253,10 @@ pub fn render_sidebar(f: &mut Frame, app: &App, area: Rect) {
     let mut lines = Vec::new();
     for (idx, name, _tab) in items.iter() {
         if *idx == 5 || *idx == 7 {
-            lines.push(Line::from(Span::styled(" ─────────────", Style::default().fg(Color::DarkGray))));
+            lines.push(Line::from(Span::styled(
+                " ─────────────",
+                Style::default().fg(Color::DarkGray),
+            )));
         }
 
         let is_active_tab = match idx {
@@ -230,13 +273,26 @@ pub fn render_sidebar(f: &mut Frame, app: &App, area: Rect) {
 
         let line = if is_cursor || is_active_tab {
             Line::from(vec![
-                Span::styled(" ▶ ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-                Span::styled(format!("{:<11}", name), Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+                Span::styled(
+                    " ▶ ",
+                    Style::default()
+                        .fg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(
+                    format!("{:<11}", name),
+                    Style::default()
+                        .fg(Color::White)
+                        .add_modifier(Modifier::BOLD),
+                ),
             ])
         } else {
             Line::from(vec![
                 Span::raw("   "),
-                Span::styled(format!("{:<11}", name), Style::default().fg(Color::Rgb(160, 170, 185))),
+                Span::styled(
+                    format!("{:<11}", name),
+                    Style::default().fg(Color::Rgb(160, 170, 185)),
+                ),
             ])
         };
         lines.push(line);
@@ -249,19 +305,39 @@ pub fn render_sidebar(f: &mut Frame, app: &App, area: Rect) {
     let ql_block = Block::default()
         .borders(Borders::ALL)
         .border_style(Style::default().fg(Color::DarkGray))
-        .title(Span::styled(" Quick Launch ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)));
+        .title(Span::styled(
+            " Quick Launch ",
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        ));
 
     let ql_lines = vec![
         Line::from(vec![
-            Span::styled(" [g] ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                " [g] ",
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            ),
             Span::styled("Antigravity", Style::default().fg(Color::White)),
         ]),
         Line::from(vec![
-            Span::styled(" [c] ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                " [c] ",
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            ),
             Span::styled("Claude Code", Style::default().fg(Color::White)),
         ]),
         Line::from(vec![
-            Span::styled(" [x] ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                " [x] ",
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            ),
             Span::styled("Codex / PTY", Style::default().fg(Color::White)),
         ]),
     ];
@@ -286,7 +362,13 @@ pub fn render_footer(f: &mut Frame, app: &App, area: Rect) {
             StatusType::Error => (Color::Red, "[ERR]"),
         };
         let status_p = Paragraph::new(Line::from(vec![
-            Span::styled(format!(" {prefix} "), Style::default().fg(Color::Black).bg(color).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                format!(" {prefix} "),
+                Style::default()
+                    .fg(Color::Black)
+                    .bg(color)
+                    .add_modifier(Modifier::BOLD),
+            ),
             Span::raw(" "),
             Span::styled(msg, Style::default().fg(color).add_modifier(Modifier::BOLD)),
         ]));

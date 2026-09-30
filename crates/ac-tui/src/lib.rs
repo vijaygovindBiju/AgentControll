@@ -9,7 +9,6 @@ pub mod terminal_buffer;
 pub mod ui;
 pub mod views;
 
-use std::{io::stdout, path::PathBuf, time::Duration};
 use anyhow::Result;
 use crossterm::{
     event::{Event, EventStream},
@@ -17,6 +16,7 @@ use crossterm::{
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
 use ratatui::{backend::CrosstermBackend, Terminal};
+use std::{io::stdout, path::PathBuf, time::Duration};
 use tokio_stream::StreamExt;
 
 pub use app::App;

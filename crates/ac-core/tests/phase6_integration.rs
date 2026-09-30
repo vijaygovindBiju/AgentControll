@@ -77,15 +77,9 @@ fn start_session_manager(
     let (cmd_tx, cmd_rx) = mpsc::channel(64);
     let (event_tx, event_rx) = broadcast::channel(512);
 
-    let manager = SessionManager::new(
-        event_store,
-        cmd_rx,
-        event_tx,
-        3,
-        Box::new(factory),
-    )
-    .with_account_manager(account_mgr)
-    .with_project_registry(project_reg);
+    let manager = SessionManager::new(event_store, cmd_rx, event_tx, 3, Box::new(factory))
+        .with_account_manager(account_mgr)
+        .with_project_registry(project_reg);
 
     tokio::spawn(async move { manager.run().await });
     (SessionManagerHandle::new(cmd_tx), event_rx)
@@ -98,9 +92,15 @@ async fn test_explicit_account_selection_success_and_validation() {
     let account_store = AccountStore::open_in_memory().unwrap();
     let mut acct_mgr = AccountManager::new(account_store).unwrap();
 
-    let id_a = acct_mgr.register(make_account("acct-a", "anthropic", vec!["mock"], 2)).unwrap();
-    let id_b = acct_mgr.register(make_account("acct-b", "anthropic", vec!["claude"], 2)).unwrap();
-    let id_c = acct_mgr.register(make_account("acct-c", "openai", vec!["mock"], 1)).unwrap();
+    let id_a = acct_mgr
+        .register(make_account("acct-a", "anthropic", vec!["mock"], 2))
+        .unwrap();
+    let id_b = acct_mgr
+        .register(make_account("acct-b", "anthropic", vec!["claude"], 2))
+        .unwrap();
+    let id_c = acct_mgr
+        .register(make_account("acct-c", "openai", vec!["mock"], 1))
+        .unwrap();
 
     // Disable id_b to test AccountUnavailable
     acct_mgr.disable(&id_b).unwrap();
@@ -110,12 +110,7 @@ async fn test_explicit_account_selection_success_and_validation() {
 
     // 1. Explicit selection of Account A for a mock session succeeds
     let sid1 = mgr
-        .create_with_context(
-            "Task 1".into(),
-            "mock".into(),
-            None,
-            Some(id_a.clone()),
-        )
+        .create_with_context("Task 1".into(), "mock".into(), None, Some(id_a.clone()))
         .await
         .unwrap();
 
@@ -125,12 +120,7 @@ async fn test_explicit_account_selection_success_and_validation() {
     // 2. Explicit selection of nonexistent account returns AccountNotFound
     let fake_id = Id::from("nonexistent-account-999");
     let err_not_found = mgr
-        .create_with_context(
-            "Task 2".into(),
-            "mock".into(),
-            None,
-            Some(fake_id),
-        )
+        .create_with_context("Task 2".into(), "mock".into(), None, Some(fake_id))
         .await
         .unwrap_err();
     assert!(
@@ -140,12 +130,7 @@ async fn test_explicit_account_selection_success_and_validation() {
 
     // 3. Explicit selection of unavailable (disabled) account returns AccountUnavailable
     let err_unavail = mgr
-        .create_with_context(
-            "Task B1".into(),
-            "claude".into(),
-            None,
-            Some(id_b.clone()),
-        )
+        .create_with_context("Task B1".into(), "claude".into(), None, Some(id_b.clone()))
         .await
         .unwrap_err();
     assert!(
@@ -156,23 +141,13 @@ async fn test_explicit_account_selection_success_and_validation() {
     // 4. Concurrency limit reached
     // Account C has cap=1. Create first session with C:
     let _s_c1 = mgr
-        .create_with_context(
-            "Task C1".into(),
-            "mock".into(),
-            None,
-            Some(id_c.clone()),
-        )
+        .create_with_context("Task C1".into(), "mock".into(), None, Some(id_c.clone()))
         .await
         .unwrap();
 
     // Create second session with C -> fails with ConcurrencyLimitReached
     let err_cap = mgr
-        .create_with_context(
-            "Task C2".into(),
-            "mock".into(),
-            None,
-            Some(id_c.clone()),
-        )
+        .create_with_context("Task C2".into(), "mock".into(), None, Some(id_c.clone()))
         .await
         .unwrap_err();
     assert!(
@@ -187,19 +162,21 @@ async fn test_incompatible_account_rejected() {
     let mut acct_mgr = AccountManager::new(account_store).unwrap();
 
     // Account only supports claude
-    let id_claude = acct_mgr.register(make_account("acct-claude-only", "anthropic", vec!["claude"], 2)).unwrap();
+    let id_claude = acct_mgr
+        .register(make_account(
+            "acct-claude-only",
+            "anthropic",
+            vec!["claude"],
+            2,
+        ))
+        .unwrap();
 
     let proj_reg = ProjectRegistry::new(ProjectStore::open_in_memory().unwrap()).unwrap();
     let (mgr, _rx) = start_session_manager(None, acct_mgr, proj_reg);
 
     // Request mock agent with claude-only account
     let err = mgr
-        .create_with_context(
-            "Task".into(),
-            "mock".into(),
-            None,
-            Some(id_claude),
-        )
+        .create_with_context("Task".into(), "mock".into(), None, Some(id_claude))
         .await
         .unwrap_err();
     assert!(
@@ -216,8 +193,12 @@ async fn test_deterministic_least_loaded_selection_with_tie_breaker() {
     // Register two accounts with identical load (0) and cap (5)
     // Account Z has label "z-account"
     // Account A has label "a-account"
-    let id_z = acct_mgr.register(make_account("z-account", "anthropic", vec!["mock"], 5)).unwrap();
-    let id_a = acct_mgr.register(make_account("a-account", "anthropic", vec!["mock"], 5)).unwrap();
+    let id_z = acct_mgr
+        .register(make_account("z-account", "anthropic", vec!["mock"], 5))
+        .unwrap();
+    let id_a = acct_mgr
+        .register(make_account("a-account", "anthropic", vec!["mock"], 5))
+        .unwrap();
 
     let proj_reg = ProjectRegistry::new(ProjectStore::open_in_memory().unwrap()).unwrap();
     let (mgr, _rx) = start_session_manager(None, acct_mgr, proj_reg);
@@ -228,7 +209,11 @@ async fn test_deterministic_least_loaded_selection_with_tie_breaker() {
         .await
         .unwrap();
     let s1 = mgr.get(sid1).await.unwrap().unwrap();
-    assert_eq!(s1.account_id, Some(id_a.clone()), "should pick a-account by tie breaker");
+    assert_eq!(
+        s1.account_id,
+        Some(id_a.clone()),
+        "should pick a-account by tie breaker"
+    );
 
     // Now a-account has load=1, z-account has load=0.
     // Next auto-selection must pick least-loaded: z-account
@@ -237,7 +222,11 @@ async fn test_deterministic_least_loaded_selection_with_tie_breaker() {
         .await
         .unwrap();
     let s2 = mgr.get(sid2).await.unwrap().unwrap();
-    assert_eq!(s2.account_id, Some(id_z.clone()), "should pick least-loaded z-account");
+    assert_eq!(
+        s2.account_id,
+        Some(id_z.clone()),
+        "should pick least-loaded z-account"
+    );
 }
 
 // ── 2. Account Switching: Before Start (Idle Rebind) ───────────────────────────
@@ -247,15 +236,24 @@ async fn test_switch_account_before_start_idle_rebind() {
     let account_store = AccountStore::open_in_memory().unwrap();
     let mut acct_mgr = AccountManager::new(account_store).unwrap();
 
-    let id1 = acct_mgr.register(make_account("acct-1", "anthropic", vec!["mock"], 2)).unwrap();
-    let id2 = acct_mgr.register(make_account("acct-2", "anthropic", vec!["mock"], 2)).unwrap();
+    let id1 = acct_mgr
+        .register(make_account("acct-1", "anthropic", vec!["mock"], 2))
+        .unwrap();
+    let id2 = acct_mgr
+        .register(make_account("acct-2", "anthropic", vec!["mock"], 2))
+        .unwrap();
 
     let proj_reg = ProjectRegistry::new(ProjectStore::open_in_memory().unwrap()).unwrap();
     let (mgr, _rx) = start_session_manager(None, acct_mgr, proj_reg);
 
     // Create session in Idle state with Account 1
     let sid = mgr
-        .create_with_context("Idle switch task".into(), "mock".into(), None, Some(id1.clone()))
+        .create_with_context(
+            "Idle switch task".into(),
+            "mock".into(),
+            None,
+            Some(id1.clone()),
+        )
         .await
         .unwrap();
 
@@ -273,7 +271,10 @@ async fn test_switch_account_before_start_idle_rebind() {
     let has_account_selected = events
         .iter()
         .any(|e| e.kind == EventKind::AccountSelected && e.payload["account_id"] == id2.0);
-    assert!(has_account_selected, "AccountSelected event must be recorded for target account");
+    assert!(
+        has_account_selected,
+        "AccountSelected event must be recorded for target account"
+    );
 }
 
 // ── 3. Account Switching: Running Session (Controlled Hand-Off) ────────────────
@@ -283,8 +284,12 @@ async fn test_switch_account_during_run_controlled_handoff() {
     let account_store = AccountStore::open_in_memory().unwrap();
     let mut acct_mgr = AccountManager::new(account_store).unwrap();
 
-    let id1 = acct_mgr.register(make_account("acct-running-1", "anthropic", vec!["mock"], 2)).unwrap();
-    let id2 = acct_mgr.register(make_account("acct-running-2", "anthropic", vec!["mock"], 2)).unwrap();
+    let id1 = acct_mgr
+        .register(make_account("acct-running-1", "anthropic", vec!["mock"], 2))
+        .unwrap();
+    let id2 = acct_mgr
+        .register(make_account("acct-running-2", "anthropic", vec!["mock"], 2))
+        .unwrap();
 
     let mut proj_reg = ProjectRegistry::new(ProjectStore::open_in_memory().unwrap()).unwrap();
     let proj = make_project("test-handoff-proj", WorkspacePolicy::Shared);
@@ -313,7 +318,10 @@ async fn test_switch_account_during_run_controlled_handoff() {
 
     // Execute controlled hand-off to Account 2
     let sid2 = mgr.switch_account(sid1.clone(), id2.clone()).await.unwrap();
-    assert_ne!(sid1, sid2, "Hand-off must yield a distinct successor session ID");
+    assert_ne!(
+        sid1, sid2,
+        "Hand-off must yield a distinct successor session ID"
+    );
 
     // Predecessor verification
     let predecessor = mgr.get(sid1.clone()).await.unwrap().unwrap();
@@ -344,8 +352,12 @@ async fn test_unsupported_switch_mode_rejection() {
     let account_store = AccountStore::open_in_memory().unwrap();
     let mut acct_mgr = AccountManager::new(account_store).unwrap();
 
-    let id1 = acct_mgr.register(make_account("acct-u1", "anthropic", vec!["mock"], 2)).unwrap();
-    let id2 = acct_mgr.register(make_account("acct-u2", "anthropic", vec!["mock"], 2)).unwrap();
+    let id1 = acct_mgr
+        .register(make_account("acct-u1", "anthropic", vec!["mock"], 2))
+        .unwrap();
+    let id2 = acct_mgr
+        .register(make_account("acct-u2", "anthropic", vec!["mock"], 2))
+        .unwrap();
 
     let proj_reg = ProjectRegistry::new(ProjectStore::open_in_memory().unwrap()).unwrap();
     let caps = ProviderCapabilities::new(AccountSwitchMode::Unsupported, false, false);
@@ -359,7 +371,10 @@ async fn test_unsupported_switch_mode_rejection() {
     tokio::time::sleep(Duration::from_millis(50)).await;
 
     // Switch should be rejected with UnsupportedCapability
-    let err = mgr.switch_account(sid.clone(), id2.clone()).await.unwrap_err();
+    let err = mgr
+        .switch_account(sid.clone(), id2.clone())
+        .await
+        .unwrap_err();
     assert!(
         err.to_string().contains("UnsupportedCapability"),
         "expected UnsupportedCapability error, got: {err}"
@@ -376,9 +391,13 @@ async fn test_switch_to_exhausted_account_fails() {
     let account_store = AccountStore::open_in_memory().unwrap();
     let mut acct_mgr = AccountManager::new(account_store).unwrap();
 
-    let id1 = acct_mgr.register(make_account("acct-src", "anthropic", vec!["mock"], 2)).unwrap();
+    let id1 = acct_mgr
+        .register(make_account("acct-src", "anthropic", vec!["mock"], 2))
+        .unwrap();
     // Target account with cap=1
-    let id_full = acct_mgr.register(make_account("acct-full", "anthropic", vec!["mock"], 1)).unwrap();
+    let id_full = acct_mgr
+        .register(make_account("acct-full", "anthropic", vec!["mock"], 1))
+        .unwrap();
 
     let proj_reg = ProjectRegistry::new(ProjectStore::open_in_memory().unwrap()).unwrap();
     let caps = ProviderCapabilities::new(AccountSwitchMode::RequiresRestart, true, true);
@@ -386,7 +405,12 @@ async fn test_switch_to_exhausted_account_fails() {
 
     // Fill id_full capacity
     let _occupant = mgr
-        .create_with_context("Occupant".into(), "mock".into(), None, Some(id_full.clone()))
+        .create_with_context(
+            "Occupant".into(),
+            "mock".into(),
+            None,
+            Some(id_full.clone()),
+        )
         .await
         .unwrap();
 
@@ -399,7 +423,10 @@ async fn test_switch_to_exhausted_account_fails() {
     tokio::time::sleep(Duration::from_millis(50)).await;
 
     // Attempt switch to exhausted account
-    let err = mgr.switch_account(sid.clone(), id_full.clone()).await.unwrap_err();
+    let err = mgr
+        .switch_account(sid.clone(), id_full.clone())
+        .await
+        .unwrap_err();
     assert!(
         err.to_string().contains("ConcurrencyLimitReached"),
         "expected ConcurrencyLimitReached, got: {err}"
@@ -415,7 +442,9 @@ async fn test_switch_to_exhausted_account_fails() {
 async fn test_stale_session_switch_fails() {
     let account_store = AccountStore::open_in_memory().unwrap();
     let mut acct_mgr = AccountManager::new(account_store).unwrap();
-    let id1 = acct_mgr.register(make_account("acct-stale", "anthropic", vec!["mock"], 2)).unwrap();
+    let id1 = acct_mgr
+        .register(make_account("acct-stale", "anthropic", vec!["mock"], 2))
+        .unwrap();
 
     let proj_reg = ProjectRegistry::new(ProjectStore::open_in_memory().unwrap()).unwrap();
     let (mgr, _rx) = start_session_manager(None, acct_mgr, proj_reg);
@@ -473,8 +502,14 @@ fn test_session_snapshot_serialization_and_zero_secret_leakage() {
     assert_eq!(deserialized.session_id, session_id);
     assert_eq!(deserialized.agent_type, "claude");
     assert_eq!(deserialized.event_seq, 42);
-    assert_eq!(deserialized.workspace_path, Some("/home/user/workspace/auth".into()));
-    assert_eq!(deserialized.metadata.get("step").map(|s| s.as_str()), Some("linting"));
+    assert_eq!(
+        deserialized.workspace_path,
+        Some("/home/user/workspace/auth".into())
+    );
+    assert_eq!(
+        deserialized.metadata.get("step").map(|s| s.as_str()),
+        Some("linting")
+    );
 }
 
 // ── 5. IPC Server Phase 6 Round-Trip ───────────────────────────────────────────
@@ -502,9 +537,10 @@ async fn test_ipc_phase6_commands_roundtrip() {
         ProviderCapabilities::new(AccountSwitchMode::RequiresRestart, true, true),
     );
 
-    let session_mgr = SessionManager::new(event_store, cmd_rx, event_tx.clone(), 3, Box::new(factory))
-        .with_account_manager_handle(acct_handle.clone())
-        .with_project_registry_handle(proj_handle.clone());
+    let session_mgr =
+        SessionManager::new(event_store, cmd_rx, event_tx.clone(), 3, Box::new(factory))
+            .with_account_manager_handle(acct_handle.clone())
+            .with_project_registry_handle(proj_handle.clone());
 
     let session_handle = SessionManagerHandle::new(cmd_tx);
     tokio::spawn(async move { session_mgr.run().await });
@@ -517,7 +553,11 @@ async fn test_ipc_phase6_commands_roundtrip() {
     tokio::spawn(async move { server.run().await });
     tokio::time::sleep(Duration::from_millis(50)).await;
 
-    async fn send_ipc(socket_path: &std::path::Path, cmd: &str, params: serde_json::Value) -> ApiResponse {
+    async fn send_ipc(
+        socket_path: &std::path::Path,
+        cmd: &str,
+        params: serde_json::Value,
+    ) -> ApiResponse {
         use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
         use tokio::net::UnixStream;
 
@@ -553,7 +593,10 @@ async fn test_ipc_phase6_commands_roundtrip() {
     )
     .await;
     assert!(resp1.ok, "register account 1 failed: {:?}", resp1.error);
-    let aid1 = resp1.result.unwrap()["account_id"].as_str().map(Id::from).unwrap();
+    let aid1 = resp1.result.unwrap()["account_id"]
+        .as_str()
+        .map(Id::from)
+        .unwrap();
 
     let resp2 = send_ipc(
         &sock_path,
@@ -569,7 +612,10 @@ async fn test_ipc_phase6_commands_roundtrip() {
     )
     .await;
     assert!(resp2.ok, "register account 2 failed: {:?}", resp2.error);
-    let aid2 = resp2.result.unwrap()["account_id"].as_str().map(Id::from).unwrap();
+    let aid2 = resp2.result.unwrap()["account_id"]
+        .as_str()
+        .map(Id::from)
+        .unwrap();
 
     // 1. account.query_availability
     let avail_resp = send_ipc(
@@ -579,9 +625,14 @@ async fn test_ipc_phase6_commands_roundtrip() {
     )
     .await;
     assert!(avail_resp.ok);
-    let accounts_val = avail_resp.result.unwrap()["accounts"].as_array().unwrap().clone();
+    let accounts_val = avail_resp.result.unwrap()["accounts"]
+        .as_array()
+        .unwrap()
+        .clone();
     assert_eq!(accounts_val.len(), 2);
-    assert!(accounts_val.iter().all(|a| a["is_available"].as_bool().unwrap_or(false)));
+    assert!(accounts_val
+        .iter()
+        .all(|a| a["is_available"].as_bool().unwrap_or(false)));
 
     // 2. Create session with aid1
     let create_resp = send_ipc(
@@ -595,7 +646,10 @@ async fn test_ipc_phase6_commands_roundtrip() {
     )
     .await;
     assert!(create_resp.ok);
-    let sid = create_resp.result.unwrap()["session_id"].as_str().map(Id::from).unwrap();
+    let sid = create_resp.result.unwrap()["session_id"]
+        .as_str()
+        .map(Id::from)
+        .unwrap();
 
     // 3. session.snapshot
     let snap_resp = send_ipc(
@@ -648,7 +702,10 @@ async fn test_ipc_phase6_commands_roundtrip() {
         .as_str()
         .map(Id::from)
         .unwrap();
-    assert_ne!(active_id, sid, "Controlled hand-off via IPC must create successor session");
+    assert_ne!(
+        active_id, sid,
+        "Controlled hand-off via IPC must create successor session"
+    );
 
     let successor_sess = send_ipc(
         &sock_path,

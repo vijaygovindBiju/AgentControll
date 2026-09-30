@@ -452,14 +452,28 @@ async fn main() -> Result<()> {
         return ac_tui::run_tui(cli.socket).await;
     }
 
-    if let Commands::Login { ref name, cli: cli_mode } = cli.command {
+    if let Commands::Login {
+        ref name,
+        cli: cli_mode,
+    } = cli.command
+    {
         let client = ac_cli::client::DaemonClient::new(cli.socket);
         client.ensure_daemon_running().await?;
         ac_cli::auth::run_add_account_flow(&client, name.clone(), cli_mode).await?;
         return Ok(());
     }
 
-    if let Commands::Account(AccountCmd::Add { ref name, cli: cli_mode } | AccountCmd::Login { ref name, cli: cli_mode }) = cli.command {
+    if let Commands::Account(
+        AccountCmd::Add {
+            ref name,
+            cli: cli_mode,
+        }
+        | AccountCmd::Login {
+            ref name,
+            cli: cli_mode,
+        },
+    ) = cli.command
+    {
         let client = ac_cli::client::DaemonClient::new(cli.socket);
         client.ensure_daemon_running().await?;
         ac_cli::auth::run_add_account_flow(&client, name.clone(), cli_mode).await?;
@@ -488,7 +502,14 @@ async fn main() -> Result<()> {
             println!("  Total Events:    {}", report.total_events);
             println!("  Max Sequence:    {}", report.max_seq);
             println!("  Gaps Detected:   {}", report.gap_count);
-            println!("  Status:          {}", if report.is_valid { "VALID" } else { "CORRUPTED" });
+            println!(
+                "  Status:          {}",
+                if report.is_valid {
+                    "VALID"
+                } else {
+                    "CORRUPTED"
+                }
+            );
         }
         if !report.is_valid {
             std::process::exit(1);
@@ -507,17 +528,26 @@ async fn main() -> Result<()> {
         let (event_tx, _) = tokio::sync::broadcast::channel(16);
         let (_cmd_tx, cmd_rx) = tokio::sync::mpsc::channel(16);
         let adapter_factory = Box::new(ac_core::adapter::CompositeAdapterFactory::new());
-        let mut mgr = ac_core::session::manager::SessionManager::new(store, cmd_rx, event_tx, 3, adapter_factory);
+        let mut mgr = ac_core::session::manager::SessionManager::new(
+            store,
+            cmd_rx,
+            event_tx,
+            3,
+            adapter_factory,
+        );
         mgr.recover_from_store()?;
         let elapsed = start.elapsed();
         let sessions = mgr.sessions();
         if cli.json {
-            println!("{}", serde_json::to_string(&json!({
-                "events_replayed": total_events,
-                "sessions_reconstructed": sessions.len(),
-                "duration_ms": elapsed.as_millis(),
-                "success": true
-            }))?);
+            println!(
+                "{}",
+                serde_json::to_string(&json!({
+                    "events_replayed": total_events,
+                    "sessions_reconstructed": sessions.len(),
+                    "duration_ms": elapsed.as_millis(),
+                    "success": true
+                }))?
+            );
         } else {
             println!("Event Store Replay Report:");
             println!("  Database:               {}", db_path.display());
@@ -558,7 +588,12 @@ fn build_request(commands: &Commands) -> Result<(String, serde_json::Value)> {
         Commands::Tui | Commands::Dashboard | Commands::Login { .. } => unreachable!(),
 
         Commands::Session(s) => match s {
-            SessionCmd::Create { task, agent_type, project_id, account_id } => (
+            SessionCmd::Create {
+                task,
+                agent_type,
+                project_id,
+                account_id,
+            } => (
                 "session.create".to_owned(),
                 json!({
                     "task_description": task,
@@ -571,7 +606,12 @@ fn build_request(commands: &Commands) -> Result<(String, serde_json::Value)> {
                 "session.start".to_owned(),
                 json!({ "session_id": session_id }),
             ),
-            SessionCmd::Run { task, agent_type, project_id, account_id } => (
+            SessionCmd::Run {
+                task,
+                agent_type,
+                project_id,
+                account_id,
+            } => (
                 "session.create_and_start".to_owned(),
                 json!({
                     "task_description": task,
@@ -601,15 +641,24 @@ fn build_request(commands: &Commands) -> Result<(String, serde_json::Value)> {
                 "session.get".to_owned(),
                 json!({ "session_id": session_id }),
             ),
-            SessionCmd::Steer { session_id, message } => (
+            SessionCmd::Steer {
+                session_id,
+                message,
+            } => (
                 "session.steer".to_owned(),
                 json!({ "session_id": session_id, "message": message }),
             ),
-            SessionCmd::SelectAccount { session_id, account_id } => (
+            SessionCmd::SelectAccount {
+                session_id,
+                account_id,
+            } => (
                 "session.select_account".to_owned(),
                 json!({ "session_id": session_id, "account_id": account_id }),
             ),
-            SessionCmd::SwitchAccount { session_id, account_id } => (
+            SessionCmd::SwitchAccount {
+                session_id,
+                account_id,
+            } => (
                 "session.switch_account".to_owned(),
                 json!({ "session_id": session_id, "target_account_id": account_id }),
             ),
@@ -617,7 +666,10 @@ fn build_request(commands: &Commands) -> Result<(String, serde_json::Value)> {
                 "session.snapshot".to_owned(),
                 json!({ "session_id": session_id }),
             ),
-            SessionCmd::Handoff { session_id, account_id } => (
+            SessionCmd::Handoff {
+                session_id,
+                account_id,
+            } => (
                 "session.handoff".to_owned(),
                 json!({ "session_id": session_id, "target_account_id": account_id }),
             ),
@@ -625,7 +677,12 @@ fn build_request(commands: &Commands) -> Result<(String, serde_json::Value)> {
 
         Commands::Account(a) => match a {
             AccountCmd::Register {
-                label, provider, agent_types, credential_ref, concurrency_cap, tags,
+                label,
+                provider,
+                agent_types,
+                credential_ref,
+                concurrency_cap,
+                tags,
             } => {
                 let agent_types_vec: Vec<&str> = agent_types.split(',').map(str::trim).collect();
                 let tags_vec: Vec<&str> = if tags.is_empty() {
@@ -672,12 +729,18 @@ fn build_request(commands: &Commands) -> Result<(String, serde_json::Value)> {
                 "account.enable".to_owned(),
                 json!({ "account_id": account_id }),
             ),
-            AccountCmd::Add { .. } | AccountCmd::Login { .. } | AccountCmd::Remove { .. } => unreachable!(),
+            AccountCmd::Add { .. } | AccountCmd::Login { .. } | AccountCmd::Remove { .. } => {
+                unreachable!()
+            }
         },
 
         Commands::Project(p) => match p {
             ProjectCmd::Register {
-                name, repo_path, default_agent_type, default_account_tags, workspace_policy,
+                name,
+                repo_path,
+                default_agent_type,
+                default_account_tags,
+                workspace_policy,
             } => {
                 let tags_vec: Vec<&str> = if default_account_tags.is_empty() {
                     vec![]
@@ -723,7 +786,12 @@ fn build_request(commands: &Commands) -> Result<(String, serde_json::Value)> {
                 "interaction.get".to_owned(),
                 json!({ "interaction_id": interaction_id }),
             ),
-            InteractionCmd::Reply { interaction_id, decision, response, actor } => (
+            InteractionCmd::Reply {
+                interaction_id,
+                decision,
+                response,
+                actor,
+            } => (
                 "interaction.reply".to_owned(),
                 json!({
                     "interaction_id": interaction_id,
@@ -732,7 +800,10 @@ fn build_request(commands: &Commands) -> Result<(String, serde_json::Value)> {
                     "actor": actor,
                 }),
             ),
-            InteractionCmd::Approve { interaction_id, note } => (
+            InteractionCmd::Approve {
+                interaction_id,
+                note,
+            } => (
                 "interaction.reply".to_owned(),
                 json!({
                     "interaction_id": interaction_id,
@@ -740,7 +811,10 @@ fn build_request(commands: &Commands) -> Result<(String, serde_json::Value)> {
                     "response": note,
                 }),
             ),
-            InteractionCmd::Deny { interaction_id, reason } => (
+            InteractionCmd::Deny {
+                interaction_id,
+                reason,
+            } => (
                 "interaction.reply".to_owned(),
                 json!({
                     "interaction_id": interaction_id,
@@ -748,7 +822,10 @@ fn build_request(commands: &Commands) -> Result<(String, serde_json::Value)> {
                     "response": reason,
                 }),
             ),
-            InteractionCmd::Dismiss { interaction_id, actor } => (
+            InteractionCmd::Dismiss {
+                interaction_id,
+                actor,
+            } => (
                 "interaction.dismiss".to_owned(),
                 json!({
                     "interaction_id": interaction_id,
@@ -758,14 +835,10 @@ fn build_request(commands: &Commands) -> Result<(String, serde_json::Value)> {
         },
 
         Commands::Policy(p) => match p {
-            PolicyCmd::List { scope } => (
-                "policy.list".to_owned(),
-                json!({ "scope": scope }),
-            ),
-            PolicyCmd::Get { policy_id } => (
-                "policy.get".to_owned(),
-                json!({ "policy_id": policy_id }),
-            ),
+            PolicyCmd::List { scope } => ("policy.list".to_owned(), json!({ "scope": scope })),
+            PolicyCmd::Get { policy_id } => {
+                ("policy.get".to_owned(), json!({ "policy_id": policy_id }))
+            }
             PolicyCmd::Upsert {
                 policy_id,
                 name,
@@ -794,7 +867,11 @@ fn build_request(commands: &Commands) -> Result<(String, serde_json::Value)> {
                 "policy.remove".to_owned(),
                 json!({ "policy_id": policy_id }),
             ),
-            PolicyCmd::Test { tool_name, agent_type, project_id } => (
+            PolicyCmd::Test {
+                tool_name,
+                agent_type,
+                project_id,
+            } => (
                 "policy.test".to_owned(),
                 json!({
                     "tool_name": tool_name,
@@ -853,8 +930,8 @@ async fn send_command(
         .await?
         .context("Daemon closed connection without responding")?;
 
-    let resp: ApiResponse = serde_json::from_str(&response_line)
-        .context("Failed to parse daemon response")?;
+    let resp: ApiResponse =
+        serde_json::from_str(&response_line).context("Failed to parse daemon response")?;
     Ok(resp)
 }
 
@@ -896,8 +973,14 @@ fn print_response(resp: &ApiResponse) {
         if let Some(result) = &resp.result {
             // Sessions list
             if let Some(sessions) = result.get("sessions").and_then(|s| s.as_array()) {
-                if sessions.is_empty() { println!("No sessions."); return; }
-                println!("{:<26}  {:<12}  {:<20}  {}", "SESSION ID", "STATE", "AGENT", "TASK");
+                if sessions.is_empty() {
+                    println!("No sessions.");
+                    return;
+                }
+                println!(
+                    "{:<26}  {:<12}  {:<20}  {}",
+                    "SESSION ID", "STATE", "AGENT", "TASK"
+                );
                 println!("{}", "-".repeat(80));
                 for s in sessions {
                     println!(
@@ -912,13 +995,22 @@ fn print_response(resp: &ApiResponse) {
             }
             // Accounts list
             if let Some(accounts) = result.get("accounts").and_then(|a| a.as_array()) {
-                if accounts.is_empty() { println!("No accounts."); return; }
-                println!("{:<26}  {:<12}  {:<14}  {:<4}  {}", "ACCOUNT ID", "STATE", "PROVIDER", "CAP", "LABEL");
+                if accounts.is_empty() {
+                    println!("No accounts.");
+                    return;
+                }
+                println!(
+                    "{:<26}  {:<12}  {:<14}  {:<4}  {}",
+                    "ACCOUNT ID", "STATE", "PROVIDER", "CAP", "LABEL"
+                );
                 println!("{}", "-".repeat(80));
                 for a in accounts {
                     println!(
                         "{:<26}  {:<12}  {:<14}  {:<4}  {}",
-                        a["id"].as_str().or_else(|| a["account_id"].as_str()).unwrap_or("?"),
+                        a["id"]
+                            .as_str()
+                            .or_else(|| a["account_id"].as_str())
+                            .unwrap_or("?"),
                         a["state"].as_str().unwrap_or("?"),
                         a["provider"].as_str().unwrap_or("?"),
                         a["concurrency_cap"].as_u64().unwrap_or(0),
@@ -929,7 +1021,10 @@ fn print_response(resp: &ApiResponse) {
             }
             // Projects list
             if let Some(projects) = result.get("projects").and_then(|p| p.as_array()) {
-                if projects.is_empty() { println!("No projects."); return; }
+                if projects.is_empty() {
+                    println!("No projects.");
+                    return;
+                }
                 println!("{:<26}  {:<20}  {}", "PROJECT ID", "NAME", "REPO");
                 println!("{}", "-".repeat(80));
                 for p in projects {
@@ -944,11 +1039,20 @@ fn print_response(resp: &ApiResponse) {
             }
             // Interactions list
             if let Some(interactions) = result.get("interactions").and_then(|i| i.as_array()) {
-                if interactions.is_empty() { println!("No interactions."); return; }
-                println!("{:<26}  {:<26}  {:<16}  {:<14}  {}", "INTERACTION ID", "SESSION ID", "KIND", "STATE", "DETAILS");
+                if interactions.is_empty() {
+                    println!("No interactions.");
+                    return;
+                }
+                println!(
+                    "{:<26}  {:<26}  {:<16}  {:<14}  {}",
+                    "INTERACTION ID", "SESSION ID", "KIND", "STATE", "DETAILS"
+                );
                 println!("{}", "-".repeat(100));
                 for i in interactions {
-                    let details = i["tool_name"].as_str().or_else(|| i["prompt"].as_str()).unwrap_or("");
+                    let details = i["tool_name"]
+                        .as_str()
+                        .or_else(|| i["prompt"].as_str())
+                        .unwrap_or("");
                     println!(
                         "{:<26}  {:<26}  {:<16}  {:<14}  {}",
                         i["id"].as_str().unwrap_or("?"),
@@ -962,8 +1066,14 @@ fn print_response(resp: &ApiResponse) {
             }
             // Policies list
             if let Some(policies) = result.get("policies").and_then(|p| p.as_array()) {
-                if policies.is_empty() { println!("No policies."); return; }
-                println!("{:<26}  {:<8}  {:<12}  {:<14}  {}", "POLICY ID", "PRIORITY", "DECISION", "SCOPE", "NAME");
+                if policies.is_empty() {
+                    println!("No policies.");
+                    return;
+                }
+                println!(
+                    "{:<26}  {:<8}  {:<12}  {:<14}  {}",
+                    "POLICY ID", "PRIORITY", "DECISION", "SCOPE", "NAME"
+                );
                 println!("{}", "-".repeat(80));
                 for p in policies {
                     println!(
@@ -979,8 +1089,14 @@ fn print_response(resp: &ApiResponse) {
             }
             // Audit entries list
             if let Some(entries) = result.get("audit_entries").and_then(|e| e.as_array()) {
-                if entries.is_empty() { println!("No audit entries."); return; }
-                println!("{:<24}  {:<20}  {:<14}  {}", "TIMESTAMP", "ACTOR", "ACTION", "RATIONALE");
+                if entries.is_empty() {
+                    println!("No audit entries.");
+                    return;
+                }
+                println!(
+                    "{:<24}  {:<20}  {:<14}  {}",
+                    "TIMESTAMP", "ACTOR", "ACTION", "RATIONALE"
+                );
                 println!("{}", "-".repeat(80));
                 for e in entries {
                     println!(
@@ -993,7 +1109,10 @@ fn print_response(resp: &ApiResponse) {
                 }
                 return;
             }
-            println!("{}", serde_json::to_string_pretty(result).unwrap_or_default());
+            println!(
+                "{}",
+                serde_json::to_string_pretty(result).unwrap_or_default()
+            );
         } else {
             println!("OK");
         }

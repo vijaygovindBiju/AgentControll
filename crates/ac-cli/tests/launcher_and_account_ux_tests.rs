@@ -14,15 +14,12 @@
 //!  - Credential reference persistence & zero secret leakage
 //!  - Controlled session hand-off & restart requirement for Antigravity
 
-use std::time::Duration;
 use chrono::Utc;
+use std::time::Duration;
 use tempfile::tempdir;
 use tokio::sync::broadcast;
 
-use ac_cli::{
-    client::DaemonClient,
-    launcher::is_antigravity_account,
-};
+use ac_cli::{client::DaemonClient, launcher::is_antigravity_account};
 use ac_core::{
     account_manager::{AccountManager, AccountManagerHandle, AccountStore},
     adapter::{mock::MockAdapterFactory, AdapterFactory},
@@ -32,13 +29,16 @@ use ac_core::{
     policy_engine::{PolicyEngine, PolicyStore},
     project_registry::{ProjectRegistry, ProjectRegistryHandle, ProjectStore},
     session::manager::{SessionManager, SessionManagerHandle},
-    types::{
-        Account, AccountState, AccountSwitchMode, AgentEvent, SessionState,
-    },
+    types::{Account, AccountState, AccountSwitchMode, AgentEvent, SessionState},
 };
 
 /// Helper to spin up an isolated test daemon server on a temporary socket.
-async fn setup_test_daemon() -> (DaemonClient, tempfile::TempDir, AccountManagerHandle, SessionManagerHandle) {
+async fn setup_test_daemon() -> (
+    DaemonClient,
+    tempfile::TempDir,
+    AccountManagerHandle,
+    SessionManagerHandle,
+) {
     let tmp = tempdir().unwrap();
     let sock = tmp.path().join("test_agentcontrol.sock");
 
@@ -64,16 +64,11 @@ async fn setup_test_daemon() -> (DaemonClient, tempfile::TempDir, AccountManager
     // Mock factory simulating agy/antigravity and claude
     let mock_factory = MockAdapterFactory::always(ac_core::adapter::mock::default_script());
 
-    let session_mgr = SessionManager::new(
-        store,
-        cmd_rx,
-        event_tx.clone(),
-        3,
-        Box::new(mock_factory),
-    )
-    .with_account_manager_handle(acct_handle.clone())
-    .with_project_registry_handle(proj_handle.clone())
-    .with_interaction_hub(hub_handle.clone());
+    let session_mgr =
+        SessionManager::new(store, cmd_rx, event_tx.clone(), 3, Box::new(mock_factory))
+            .with_account_manager_handle(acct_handle.clone())
+            .with_project_registry_handle(proj_handle.clone())
+            .with_interaction_hub(hub_handle.clone());
 
     let mgr_handle = SessionManagerHandle::new(cmd_tx);
 
@@ -109,8 +104,15 @@ async fn test_agy_zero_accounts_detection() {
     let (client, _tmp, _acct_h, _mgr_h) = setup_test_daemon().await;
 
     let accounts = client.list_accounts().await.unwrap();
-    let agy_accounts: Vec<_> = accounts.into_iter().filter(|a| is_antigravity_account(a)).collect();
-    assert_eq!(agy_accounts.len(), 0, "Initial environment should have 0 Antigravity accounts");
+    let agy_accounts: Vec<_> = accounts
+        .into_iter()
+        .filter(|a| is_antigravity_account(a))
+        .collect();
+    assert_eq!(
+        agy_accounts.len(),
+        0,
+        "Initial environment should have 0 Antigravity accounts"
+    );
 }
 
 #[tokio::test]
@@ -128,7 +130,10 @@ async fn test_agy_one_account_automatic_selection() {
     acct_h.0.lock().unwrap().register(acct).unwrap();
 
     let accounts = client.list_accounts().await.unwrap();
-    let agy_accounts: Vec<_> = accounts.into_iter().filter(|a| is_antigravity_account(a)).collect();
+    let agy_accounts: Vec<_> = accounts
+        .into_iter()
+        .filter(|a| is_antigravity_account(a))
+        .collect();
     assert_eq!(agy_accounts.len(), 1);
 
     // Exactly one account exists and can accept session
@@ -177,8 +182,12 @@ async fn test_agy_multiple_accounts_filtering_and_availability() {
 
     let agy_only: Vec<_> = all.iter().filter(|a| is_antigravity_account(a)).collect();
     assert_eq!(agy_only.len(), 2, "Only 2 accounts belong to Antigravity");
-    assert!(agy_only.iter().any(|a| a.label == "Personal Google" && a.state == AccountState::Active));
-    assert!(agy_only.iter().any(|a| a.label == "Work Google" && a.state == AccountState::Cooldown));
+    assert!(agy_only
+        .iter()
+        .any(|a| a.label == "Personal Google" && a.state == AccountState::Active));
+    assert!(agy_only
+        .iter()
+        .any(|a| a.label == "Work Google" && a.state == AccountState::Cooldown));
 }
 
 #[tokio::test]
@@ -197,10 +206,16 @@ async fn test_agy_existing_account_by_label() {
     acct_h.0.lock().unwrap().register(a1).unwrap();
 
     let all = client.list_accounts().await.unwrap();
-    let agy_accounts: Vec<_> = all.iter().filter(|a| is_antigravity_account(a)).cloned().collect();
+    let agy_accounts: Vec<_> = all
+        .iter()
+        .filter(|a| is_antigravity_account(a))
+        .cloned()
+        .collect();
 
     // Matching label found
-    let matched = agy_accounts.iter().find(|a| a.label.eq_ignore_ascii_case("Personal Google"));
+    let matched = agy_accounts
+        .iter()
+        .find(|a| a.label.eq_ignore_ascii_case("Personal Google"));
     assert!(matched.is_some());
     assert_eq!(matched.unwrap().id, aid);
 }
@@ -246,7 +261,10 @@ async fn test_agy_concurrency_limit_check() {
     let a = all.iter().find(|a| a.label == "Personal Google").unwrap();
 
     assert_eq!(a.active_session_count, a.concurrency_cap);
-    assert!(!a.can_accept_session(), "Account at cap cannot accept session");
+    assert!(
+        !a.can_accept_session(),
+        "Account at cap cannot accept session"
+    );
 }
 
 #[tokio::test]
@@ -262,7 +280,10 @@ async fn test_credential_persistence_and_zero_secret_leakage() {
 
     let cred_ref = ac_core::agy_auth::save_new_credential(label, &token, "browser_login").unwrap();
     assert!(cred_ref.starts_with("ref:agy:"));
-    assert!(!cred_ref.contains("SECRET"), "reference must never contain secrets");
+    assert!(
+        !cred_ref.contains("SECRET"),
+        "reference must never contain secrets"
+    );
 
     let cred_file = ac_core::agy_auth::credential_path(&cred_ref).unwrap();
     assert!(cred_file.starts_with(tmp.path()));
@@ -315,7 +336,10 @@ async fn test_controlled_session_creation_and_account_switch() {
 
     // 2. Perform controlled switch to account 2
     let successor_id = client.switch_account(&session_id, &a2_id).await.unwrap();
-    assert_ne!(successor_id, session_id, "RequiresRestart should produce a successor session");
+    assert_ne!(
+        successor_id, session_id,
+        "RequiresRestart should produce a successor session"
+    );
 
     // 3. Verify predecessor reached HandedOff state with lineage
     let s1_after = client.get_session(&session_id).await.unwrap().unwrap();
