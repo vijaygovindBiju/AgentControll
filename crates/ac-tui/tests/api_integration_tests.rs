@@ -170,6 +170,13 @@ async fn test_api_session_lifecycle_and_commands() {
     client.stop_session(&sid, Some("Test finished")).await.unwrap();
     let session = client.get_session(&sid).await.unwrap().unwrap();
     assert_eq!(session.state, SessionState::Stopped);
+
+    // 8. Remove Session
+    client.remove_session(&sid).await.unwrap();
+    let get_res = client.get_session(&sid).await;
+    assert!(matches!(get_res, Err(ClientError::ApiError { ref code, .. }) if code == "NotFound"));
+    let sessions = client.list_sessions().await.unwrap();
+    assert!(sessions.is_empty());
 }
 
 #[tokio::test]

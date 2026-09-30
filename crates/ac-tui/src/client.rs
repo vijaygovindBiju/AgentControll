@@ -177,17 +177,28 @@ impl ApiClient {
         project_id: Option<&Id>,
         account_id: Option<&Id>,
     ) -> Result<Id, ClientError> {
-        let resp = self
-            .send_request(
-                "session.create",
-                json!({
-                    "task_description": task,
-                    "agent_type": agent_type,
-                    "project_id": project_id,
-                    "account_id": account_id,
-                }),
-            )
-            .await?;
+        self.create_session_with_launch(task, agent_type, project_id, account_id, None).await
+    }
+
+    /// Create a session with per-session launch options (permission mode, model, directory).
+    pub async fn create_session_with_launch(
+        &self,
+        task: &str,
+        agent_type: &str,
+        project_id: Option<&Id>,
+        account_id: Option<&Id>,
+        launch: Option<&ac_core::agy_launch::AgyLaunchOptions>,
+    ) -> Result<Id, ClientError> {
+        let mut params = json!({
+            "task_description": task,
+            "agent_type": agent_type,
+            "project_id": project_id,
+            "account_id": account_id,
+        });
+        if let Some(l) = launch {
+            params["launch"] = json!(l);
+        }
+        let resp = self.send_request("session.create", params).await?;
         let sid = resp
             .result
             .and_then(|r| r.get("session_id").and_then(|v| v.as_str().map(Id::from)))
@@ -228,12 +239,48 @@ impl ApiClient {
         Ok(())
     }
 
+    pub async fn remove_session(&self, id: &Id) -> Result<(), ClientError> {
+        self.send_request(
+            "session.remove",
+            json!({
+                "session_id": id,
+            }),
+        )
+        .await?;
+        Ok(())
+    }
+
     pub async fn steer_session(&self, id: &Id, message: &str) -> Result<(), ClientError> {
         self.send_request(
             "session.steer",
             json!({
                 "session_id": id,
                 "message": message,
+            }),
+        )
+        .await?;
+        Ok(())
+    }
+
+    pub async fn send_input(&self, id: &Id, data: &str) -> Result<(), ClientError> {
+        self.send_request(
+            "session.input",
+            json!({
+                "session_id": id,
+                "data": data,
+            }),
+        )
+        .await?;
+        Ok(())
+    }
+
+    pub async fn resize_session(&self, id: &Id, rows: u16, cols: u16) -> Result<(), ClientError> {
+        self.send_request(
+            "session.resize",
+            json!({
+                "session_id": id,
+                "rows": rows,
+                "cols": cols,
             }),
         )
         .await?;
@@ -365,15 +412,20 @@ impl ApiClient {
         Ok(Id::from(id_val))
     }
 
-    pub async fn remove_account(&self, account_id: &Id) -> Result<(), ClientError> {
-        self.send_request(
-            "account.remove",
-            json!({
-                "account_id": account_id.0,
-            }),
-        )
-        .await?;
-        Ok(())
+    /// Remove an account. Returns cleanup errors (empty on full success).
+    pub async fn remove_account(&self, account_id: &Id) -> Result<Vec<String>, ClientError> {
+        let result = self
+            .send_request(
+                "account.remove",
+                json!({
+                    "account_id": account_id.0,
+                }),
+            )
+            .await?;
+        Ok(result
+            .result
+            .and_then(|r| serde_json::from_value(r["cleanup_errors"].clone()).ok())
+            .unwrap_or_default())
     }
 
     pub async fn list_projects(&self) -> Result<Vec<Project>, ClientError> {
@@ -385,6 +437,49 @@ impl ApiClient {
             .transpose()?
             .unwrap_or_default();
         Ok(projects)
+    }
+
+    pub async fn register_project(
+        &self,
+        name: &str,
+        repo_path: &str,
+        default_agent_type: Option<&str>,
+        default_account_tags: &[String],
+        workspace_policy: Option<&str>,
+    ) -> Result<Id, ClientError> {
+        let resp = self
+            .send_request(
+                "project.register",
+                json!({
+                    "name": name,
+                    "repo_path": repo_path,
+                    "default_agent_type": default_agent_type,
+                    "default_account_tags": default_account_tags,
+                    "workspace_policy": workspace_policy,
+                }),
+            )
+            .await?;
+        let id_val = resp
+            .result
+            .as_ref()
+            .and_then(|r| r.get("project_id"))
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| ClientError::ApiError {
+                code: "Protocol".into(),
+                message: "missing project_id in response".into(),
+            })?;
+        Ok(Id::from(id_val))
+    }
+
+    pub async fn remove_project(&self, project_id: &Id) -> Result<(), ClientError> {
+        self.send_request(
+            "project.remove",
+            json!({
+                "project_id": project_id.0,
+            }),
+        )
+        .await?;
+        Ok(())
     }
 
     // ── Event APIs ──────────────────────────────────────────────────────────

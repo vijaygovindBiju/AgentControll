@@ -331,7 +331,15 @@ pub fn format_claude_command(cmd: &AgentCommand) -> Option<String> {
             });
             Some(format!("{}\n", json_obj))
         }
-        AgentCommand::Pause
+        AgentCommand::Input { data } => {
+            let json_obj = json!({
+                "type": "user_input",
+                "message": data,
+            });
+            Some(format!("{}\n", json_obj))
+        }
+        AgentCommand::Resize { .. }
+        | AgentCommand::Pause
         | AgentCommand::Resume
         | AgentCommand::Start { .. }
         | AgentCommand::SwitchAccount { .. } => None,

@@ -1,8 +1,15 @@
-//! Virtual terminal line buffer for safely capturing and rendering PTY output in Ratatui.
+//! Virtual terminal buffer for safely capturing and rendering PTY output in Ratatui.
 //!
 //! Features:
 //! - Full ANSI SGR style parsing (16 colors, 256 colors, RGB truecolor, bold, dim, italic, underline, reverse)
-//! - Safe escape sequence stripping (cursor movements, alternate screen, OSC titles, mode toggles)
+//! - Safe escape sequence handling (cursor movements, OSC/DCS/APC strings, mode toggles);
+//!   private-marker sequences (`CSI > … m`, `CSI ? … u`, `CSI … $p`) are never mistaken
+//!   for SGR / cursor commands
+//! - Alternate screen (`?1049h`/`?1047h`/`?47h`): full-screen programs such as `agy`
+//!   are rendered on a fixed rows×cols grid with absolute cursor addressing, autowrap,
+//!   scroll regions, insert/delete line/char, erase and repeat
+//! - Double-width characters occupy two cells; zero-width code points are dropped so
+//!   the grid always matches the cell widths Ratatui renders
 //! - Handling of carriage return `\r` (overwriting lines for spinners and progress bars)
 //! - Backspace `\x08`, Tab `\t`, Linefeed `\n`
 //! - Support for cursor up `\x1b[1A` and clear line `\x1b[2K` for interactive CLI updates
@@ -13,6 +20,10 @@ use ratatui::{
     style::{Color, Modifier, Style},
     text::{Line, Span},
 };
+use unicode_width::UnicodeWidthChar;
+
+/// Marker stored in the cell to the right of a double-width character.
+pub const WIDE_SPACER: char = '\u{0}';
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StyledChar {
@@ -31,12 +42,16 @@ impl TerminalLine {
     }
 
     pub fn from_plain_str(text: &str, style: Style) -> Self {
-        Self {
-            chars: text
-                .chars()
-                .map(|c| StyledChar { c, style })
-                .collect(),
+        let mut line = Self::new();
+        let mut col = 0;
+        for c in text.chars() {
+            let w = c.width().unwrap_or(0);
+            if w > 0 {
+                line.put(col, c, style, w);
+                col += w;
+            }
         }
+        line
     }
 
     pub fn set_char(&mut self, col: usize, c: char, style: Style) {
@@ -53,8 +68,43 @@ impl TerminalLine {
         }
     }
 
+    /// Blank the other half of any double-width character that overlaps `from..to`.
+    fn split_wide_at_edges(&mut self, from: usize, to: usize) {
+        if from > 0 && self.chars.get(from).is_some_and(|sc| sc.c == WIDE_SPACER) {
+            self.chars[from - 1].c = ' ';
+        }
+        if to > 0 && self.chars.get(to).is_some_and(|sc| sc.c == WIDE_SPACER) {
+            self.chars[to].c = ' ';
+        }
+    }
+
+    /// Write a character of display width `width` (1 or 2) at `col`.
+    pub fn put(&mut self, col: usize, c: char, style: Style, width: usize) {
+        self.split_wide_at_edges(col, col + width);
+        self.set_char(col, c, style);
+        if width == 2 {
+            self.set_char(col + 1, WIDE_SPACER, style);
+        }
+    }
+
+    /// Erase cells `from..to` with `blank`. Unstyled erasure past the end of the
+    /// line simply shortens it, so plain lines never grow trailing padding.
+    fn erase(&mut self, from: usize, to: usize, blank: &StyledChar) {
+        self.split_wide_at_edges(from, to);
+        let plain = blank.style == Style::default();
+        if plain && to >= self.chars.len() {
+            self.chars.truncate(from);
+            return;
+        }
+        let end = if plain { to.min(self.chars.len()) } else { to };
+        for i in from..end {
+            self.set_char(i, ' ', blank.style);
+        }
+    }
+
     pub fn truncate(&mut self, col: usize) {
         if col < self.chars.len() {
+            self.split_wide_at_edges(col, col);
             self.chars.truncate(col);
         }
     }
@@ -68,36 +118,42 @@ impl TerminalLine {
     }
 
     pub fn to_ratatui_line(&self) -> Line<'static> {
-        if self.chars.is_empty() {
-            return Line::from("");
-        }
-
-        let mut spans: Vec<Span<'static>> = Vec::new();
-        let mut current_text = String::new();
-        let mut current_style = self.chars[0].style;
-
-        for sc in &self.chars {
-            if sc.style == current_style {
-                current_text.push(sc.c);
-            } else {
-                if !current_text.is_empty() {
-                    spans.push(Span::styled(current_text, current_style));
-                    current_text = String::new();
-                }
-                current_style = sc.style;
-                current_text.push(sc.c);
-            }
-        }
-        if !current_text.is_empty() {
-            spans.push(Span::styled(current_text, current_style));
-        }
-
-        Line::from(spans)
+        chars_to_ratatui_line(&self.chars)
     }
 
     pub fn to_plain_string(&self) -> String {
-        self.chars.iter().map(|sc| sc.c).collect()
+        self.chars.iter().filter(|sc| sc.c != WIDE_SPACER).map(|sc| sc.c).collect()
     }
+}
+
+pub fn chars_to_ratatui_line(chars: &[StyledChar]) -> Line<'static> {
+    if chars.is_empty() {
+        return Line::from("");
+    }
+
+    let mut spans: Vec<Span<'static>> = Vec::new();
+    let mut current_text = String::new();
+    let mut current_style = chars[0].style;
+
+    // Wide-character spacer cells are skipped: Ratatui itself advances two
+    // columns for a double-width character.
+    for sc in chars.iter().filter(|sc| sc.c != WIDE_SPACER) {
+        if sc.style == current_style {
+            current_text.push(sc.c);
+        } else {
+            if !current_text.is_empty() {
+                spans.push(Span::styled(current_text, current_style));
+                current_text = String::new();
+            }
+            current_style = sc.style;
+            current_text.push(sc.c);
+        }
+    }
+    if !current_text.is_empty() {
+        spans.push(Span::styled(current_text, current_style));
+    }
+
+    Line::from(spans)
 }
 
 #[derive(Debug, Clone)]
@@ -110,11 +166,25 @@ pub struct ScrollInfo {
     pub scroll_offset: usize,
 }
 
+/// Normal-screen state preserved while a program uses the alternate screen.
+#[derive(Debug, Clone)]
+struct MainScreen {
+    lines: Vec<TerminalLine>,
+    cursor_row: usize,
+    cursor_col: usize,
+    saved_cursor: Option<(usize, usize)>,
+    scroll_offset: usize,
+    follow: bool,
+}
+
 #[derive(Debug, Clone)]
 pub struct TerminalBuffer {
     pub lines: Vec<TerminalLine>,
-    pub current_line: TerminalLine,
+    pub cursor_row: usize,
     pub cursor_col: usize,
+    pub prev_line_col: usize,
+    pub cursor_visible: bool,
+    pub saved_cursor: Option<(usize, usize)>,
     pub current_style: Style,
     pub pending_esc: String,
     pub max_lines: usize,
@@ -122,11 +192,27 @@ pub struct TerminalBuffer {
     // Scroll state
     pub scroll_offset: usize, // Lines scrolled up from the latest output
     pub follow: bool,         // Auto-follow to newest output
+
+    /// Screen size (matches the PTY size sent to the agent).
+    pub rows: usize,
+    pub cols: usize,
+    alt: Option<Box<MainScreen>>,
+    /// DECSTBM scroll region (0-based, inclusive), alternate screen only.
+    scroll_region: Option<(usize, usize)>,
+    /// Autowrap is pending after writing the last column (alternate screen).
+    wrap_pending: bool,
+    last_printed: Option<char>,
 }
 
 impl Default for TerminalBuffer {
     fn default() -> Self {
-        Self::new(5000)
+        let mut buf = Self::new(5000);
+        // The session view gives the terminal the whole screen minus the
+        // header and footer rows — the same size the PTY is resized to.
+        if let Ok((cols, rows)) = crossterm::terminal::size() {
+            buf.resize(rows.saturating_sub(2) as usize, cols as usize);
+        }
+        buf
     }
 }
 
@@ -134,13 +220,216 @@ impl TerminalBuffer {
     pub fn new(max_lines: usize) -> Self {
         Self {
             lines: Vec::new(),
-            current_line: TerminalLine::new(),
+            cursor_row: 0,
             cursor_col: 0,
+            prev_line_col: 0,
+            cursor_visible: true,
+            saved_cursor: None,
             current_style: Style::default(),
             pending_esc: String::new(),
             max_lines,
             scroll_offset: 0,
             follow: true,
+            rows: 24,
+            cols: 80,
+            alt: None,
+            scroll_region: None,
+            wrap_pending: false,
+            last_printed: None,
+        }
+    }
+
+    pub fn clear(&mut self) {
+        self.alt = None;
+        self.lines.clear();
+        self.cursor_row = 0;
+        self.cursor_col = 0;
+        self.prev_line_col = 0;
+        self.cursor_visible = true;
+        self.saved_cursor = None;
+        self.pending_esc.clear();
+        self.scroll_offset = 0;
+        self.follow = true;
+        self.scroll_region = None;
+        self.wrap_pending = false;
+    }
+
+    /// Whether a full-screen program currently owns the (alternate) screen.
+    pub fn in_alt_screen(&self) -> bool {
+        self.alt.is_some()
+    }
+
+    /// Resize the screen grid (call with the same size sent to the PTY).
+    pub fn resize(&mut self, rows: usize, cols: usize) {
+        let (rows, cols) = (rows.max(1), cols.max(1));
+        if (rows, cols) == (self.rows, self.cols) {
+            return;
+        }
+        self.rows = rows;
+        self.cols = cols;
+        self.scroll_region = None;
+        self.wrap_pending = false;
+        if self.in_alt_screen() {
+            self.lines.resize_with(rows, TerminalLine::new);
+            for line in &mut self.lines {
+                line.truncate(cols);
+            }
+            self.cursor_row = self.cursor_row.min(rows - 1);
+            self.cursor_col = self.cursor_col.min(cols - 1);
+        }
+    }
+
+    fn ensure_cursor(&mut self) {
+        while self.lines.len() <= self.cursor_row {
+            self.lines.push(TerminalLine::new());
+        }
+    }
+
+    fn enforce_capacity(&mut self) {
+        if self.in_alt_screen() {
+            return;
+        }
+        if self.lines.len() > self.max_lines {
+            let overflow = self.lines.len() - self.max_lines;
+            self.lines.drain(0..overflow);
+            self.cursor_row = self.cursor_row.saturating_sub(overflow);
+            if let Some((saved_r, saved_c)) = self.saved_cursor {
+                self.saved_cursor = Some((saved_r.saturating_sub(overflow), saved_c));
+            }
+        }
+    }
+
+    /// First buffer row of the visible screen on the normal screen.
+    fn screen_top(&self) -> usize {
+        self.lines.len().max(self.cursor_row + 1).saturating_sub(self.rows)
+    }
+
+    /// Active scroll region (alternate screen), inclusive.
+    fn region(&self) -> (usize, usize) {
+        match self.scroll_region {
+            Some((t, b)) if t < b && b < self.rows => (t, b),
+            _ => (0, self.rows - 1),
+        }
+    }
+
+    /// Blank cell used for erasure: keeps the current background (BCE).
+    fn blank(&self) -> StyledChar {
+        let style = match self.current_style.bg {
+            Some(bg) if bg != Color::Reset => Style::default().bg(bg),
+            _ => Style::default(),
+        };
+        StyledChar { c: ' ', style }
+    }
+
+    fn scroll_region_up(&mut self, n: usize) {
+        let (t, b) = self.region();
+        for _ in 0..n.min(b - t + 1) {
+            self.lines.remove(t);
+            self.lines.insert(b, TerminalLine::new());
+        }
+    }
+
+    fn scroll_region_down(&mut self, n: usize) {
+        let (t, b) = self.region();
+        for _ in 0..n.min(b - t + 1) {
+            self.lines.remove(b);
+            self.lines.insert(t, TerminalLine::new());
+        }
+    }
+
+    /// Line feed. On the alternate screen this is a real terminal LF (column
+    /// kept, scrolling at the bottom of the region); on the normal screen the
+    /// historical behaviour (implicit CR, remembered column) is kept.
+    fn linefeed(&mut self) {
+        self.wrap_pending = false;
+        if self.in_alt_screen() {
+            let (_, b) = self.region();
+            if self.cursor_row == b {
+                self.scroll_region_up(1);
+            } else if self.cursor_row + 1 < self.rows {
+                self.cursor_row += 1;
+            }
+            return;
+        }
+        // Linefeed: advance to next row, preserving column in prev_line_col
+        // for relative horizontal movements (e.g. \x1b[<n>D in raw terminal UI)
+        self.cursor_row += 1;
+        self.prev_line_col = self.cursor_col;
+        self.cursor_col = 0;
+        self.enforce_capacity();
+    }
+
+    fn print(&mut self, c: char) {
+        // Zero-width code points (combining marks, variation selectors, ZWJ)
+        // are dropped so every stored cell matches Ratatui's width model.
+        let w = c.width().unwrap_or(0);
+        if w == 0 {
+            return;
+        }
+        // Printable character resets pending line-relative tracking
+        self.prev_line_col = 0;
+        self.last_printed = Some(c);
+        let style = self.current_style;
+        if self.in_alt_screen() {
+            if self.wrap_pending {
+                self.cursor_col = 0;
+                self.linefeed();
+            }
+            if self.cursor_col + w > self.cols {
+                if w > self.cols {
+                    return;
+                }
+                self.cursor_col = 0;
+                self.linefeed();
+            }
+            let (row, col) = (self.cursor_row, self.cursor_col);
+            self.lines[row].put(col, c, style, w);
+            if col + w >= self.cols {
+                self.cursor_col = self.cols - 1;
+                self.wrap_pending = true;
+            } else {
+                self.cursor_col = col + w;
+            }
+        } else {
+            self.ensure_cursor();
+            self.lines[self.cursor_row].put(self.cursor_col, c, style, w);
+            self.cursor_col += w;
+        }
+    }
+
+    fn enter_alt_screen(&mut self) {
+        if self.in_alt_screen() {
+            return;
+        }
+        self.alt = Some(Box::new(MainScreen {
+            lines: std::mem::take(&mut self.lines),
+            cursor_row: self.cursor_row,
+            cursor_col: self.cursor_col,
+            saved_cursor: self.saved_cursor.take(),
+            scroll_offset: self.scroll_offset,
+            follow: self.follow,
+        }));
+        self.lines = vec![TerminalLine::new(); self.rows];
+        self.cursor_row = 0;
+        self.cursor_col = 0;
+        self.prev_line_col = 0;
+        self.scroll_offset = 0;
+        self.follow = true;
+        self.scroll_region = None;
+        self.wrap_pending = false;
+    }
+
+    fn leave_alt_screen(&mut self) {
+        if let Some(main) = self.alt.take() {
+            self.lines = main.lines;
+            self.cursor_row = main.cursor_row;
+            self.cursor_col = main.cursor_col;
+            self.saved_cursor = main.saved_cursor;
+            self.scroll_offset = main.scroll_offset;
+            self.follow = main.follow;
+            self.prev_line_col = 0;
+            self.scroll_region = None;
+            self.wrap_pending = false;
         }
     }
 
@@ -175,8 +464,8 @@ impl TerminalBuffer {
                                 }
                             }
                         }
-                        Some(&']') => {
-                            // OSC sequence: \x1b] ... (\x07 or \x1b\)
+                        Some(&']') | Some(&'P') | Some(&'_') | Some(&'^') | Some(&'X') => {
+                            // OSC / DCS / APC / PM / SOS string: terminated by BEL or ST (\x1b\)
                             esc_seq.push(chars.next().unwrap());
                             while let Some(&next_c) = chars.peek() {
                                 esc_seq.push(chars.next().unwrap());
@@ -190,7 +479,7 @@ impl TerminalBuffer {
                                 }
                             }
                         }
-                        Some(&'(') | Some(&')') | Some(&'*') | Some(&'+') => {
+                        Some(&'(') | Some(&')') | Some(&'*') | Some(&'+') | Some(&'#') | Some(&' ') => {
                             // Character set selection: \x1b(B etc.
                             esc_seq.push(chars.next().unwrap());
                             if let Some(&_next_c) = chars.peek() {
@@ -198,12 +487,8 @@ impl TerminalBuffer {
                                 complete = true;
                             }
                         }
-                        Some(&c2) if c2 == '=' || c2 == '>' || c2 == 'M' || c2 == '7' || c2 == '8' || c2 == 'c' => {
-                            esc_seq.push(chars.next().unwrap());
-                            complete = true;
-                        }
                         Some(_) => {
-                            // Unrecognized 2-char escape
+                            // 2-char escape (ESC 7, ESC 8, ESC M, ESC D, ESC E, ESC c, ESC =, ...)
                             esc_seq.push(chars.next().unwrap());
                             complete = true;
                         }
@@ -222,61 +507,109 @@ impl TerminalBuffer {
                     }
                 }
                 '\r' => {
-                    // Carriage return: reset cursor to column 0 without newline
+                    // Carriage return: reset cursor to column 0 on the current row
                     self.cursor_col = 0;
+                    self.prev_line_col = 0;
+                    self.wrap_pending = false;
                 }
-                '\n' => {
-                    // Linefeed: commit current line and advance
-                    self.commit_current_line();
-                }
+                '\n' => self.linefeed(),
+                '\x0b' | '\x0c' if self.in_alt_screen() => self.linefeed(),
                 '\t' => {
+                    self.prev_line_col = 0;
+                    self.wrap_pending = false;
                     // Advance to next 8-column tab stop
                     let tab_width = 8;
                     self.cursor_col = ((self.cursor_col / tab_width) + 1) * tab_width;
+                    if self.in_alt_screen() {
+                        self.cursor_col = self.cursor_col.min(self.cols - 1);
+                    }
                 }
                 '\x08' => {
                     // Backspace
+                    self.prev_line_col = 0;
+                    self.wrap_pending = false;
                     self.cursor_col = self.cursor_col.saturating_sub(1);
                 }
                 c if c.is_control() => {
                     // Ignore other control characters (e.g. \x00, \x07, \x0c)
                 }
-                c => {
-                    // Printable character
-                    self.current_line.set_char(self.cursor_col, c, self.current_style);
-                    self.cursor_col += 1;
-                }
+                c => self.print(c),
             }
         }
     }
 
     /// Add a high-level system event or notification line directly to the terminal.
+    /// While a full-screen program is active the line goes to the normal screen.
     pub fn push_system_line(&mut self, text: &str, style: Style) {
-        if !self.current_line.is_empty() {
-            self.commit_current_line();
+        if let Some(main) = self.alt.as_mut() {
+            main.lines.push(TerminalLine::from_plain_str(text, style));
+            main.cursor_row = main.lines.len();
+            main.cursor_col = 0;
+            return;
         }
-        self.lines.push(TerminalLine::from_plain_str(text, style));
-        self.enforce_capacity();
-    }
-
-    fn commit_current_line(&mut self) {
-        let finished_line = std::mem::take(&mut self.current_line);
-        self.lines.push(finished_line);
+        self.ensure_cursor();
+        if !self.lines[self.cursor_row].is_empty() {
+            self.cursor_row += 1;
+            self.ensure_cursor();
+        }
+        self.lines[self.cursor_row] = TerminalLine::from_plain_str(text, style);
+        self.cursor_row += 1;
         self.cursor_col = 0;
+        self.ensure_cursor();
         self.enforce_capacity();
-    }
-
-    fn enforce_capacity(&mut self) {
-        if self.lines.len() > self.max_lines {
-            let overflow = self.lines.len() - self.max_lines;
-            self.lines.drain(0..overflow);
-        }
     }
 
     /// Interpret escape sequences safely without letting raw sequences escape.
     fn handle_escape_sequence(&mut self, seq: &str) {
+        let alt = self.in_alt_screen();
+        match seq {
+            "\x1bM" => {
+                // Reverse Index: move cursor up 1 line (scrolls at the top of the region)
+                self.wrap_pending = false;
+                self.prev_line_col = 0;
+                if alt && self.cursor_row == self.region().0 {
+                    self.scroll_region_down(1);
+                } else {
+                    self.cursor_row = self.cursor_row.saturating_sub(1);
+                    self.ensure_cursor();
+                }
+                return;
+            }
+            "\x1bD" => {
+                // Index: line feed without carriage return
+                let col = self.cursor_col;
+                self.linefeed();
+                self.cursor_col = col;
+                return;
+            }
+            "\x1bE" => {
+                // Next Line
+                self.cursor_col = 0;
+                self.linefeed();
+                self.cursor_col = 0;
+                return;
+            }
+            "\x1b7" => {
+                // Save cursor position
+                self.saved_cursor = Some((self.cursor_row, self.cursor_col));
+                return;
+            }
+            "\x1b8" => {
+                // Restore cursor position
+                self.restore_cursor();
+                return;
+            }
+            "\x1bc" => {
+                // Full reset
+                self.clear();
+                self.current_style = Style::default();
+                return;
+            }
+            _ => {}
+        }
+
         if !seq.starts_with("\x1b[") {
-            // OSC or 2-char escape: safely discarded
+            // Other OSC / DCS / APC or 2-char escape safely discarded
             return;
         }
 
@@ -288,87 +621,329 @@ impl TerminalBuffer {
         let last_char = body.chars().last().unwrap();
         let params_str = &body[..body.len() - 1];
 
-        match last_char {
-            'm' => {
-                // SGR - Select Graphic Rendition (Colors and styling)
-                self.parse_sgr(params_str);
+        // Sequences with intermediate bytes (DECRQM `$p`, DECSCUSR ` q`, ...) are
+        // queries / cursor-shape changes, not screen operations.
+        if params_str.chars().any(|c| ('\x20'..='\x2f').contains(&c)) {
+            return;
+        }
+
+        // Private-marker sequences (`?`, `>`, `<`, `=`): only DEC private modes
+        // matter. Crucially `CSI > 4 ; 2 m` (modifyOtherKeys) is not SGR and
+        // `CSI > 1 u` / `CSI ? u` (kitty keyboard) do not restore the cursor.
+        if let Some(first) = params_str.chars().next().filter(|c| ('<'..='?').contains(c)) {
+            if first == '?' && (last_char == 'h' || last_char == 'l') {
+                let set = last_char == 'h';
+                for mode in params_str[1..].split(';') {
+                    match mode {
+                        "25" => self.cursor_visible = set,
+                        "1049" | "1047" | "47" => {
+                            if set {
+                                if mode == "1049" {
+                                    self.saved_cursor = Some((self.cursor_row, self.cursor_col));
+                                }
+                                self.enter_alt_screen();
+                            } else {
+                                self.leave_alt_screen();
+                            }
+                        }
+                        _ => {}
+                    }
+                }
             }
+            return;
+        }
+
+        if last_char == 'm' {
+            // SGR - Select Graphic Rendition (Colors and styling)
+            self.parse_sgr(&params_str.replace(':', ";"));
+            return;
+        }
+
+        self.wrap_pending = false;
+        let params: Vec<usize> = params_str.split(';').map(|s| s.parse().unwrap_or(0)).collect();
+        let raw = |i: usize| params.get(i).copied().unwrap_or(0);
+        let n = |i: usize| params.get(i).copied().filter(|&v| v > 0).unwrap_or(1);
+        let rows = self.rows;
+
+        if alt {
+            self.handle_alt_csi(last_char, params_str, raw(0), n(0), n(1), params.len());
+            return;
+        }
+
+        match last_char {
             'K' => {
-                // Erase in Line
+                let mode = params_str.parse::<u32>().unwrap_or(0);
+                if self.cursor_row < self.lines.len() {
+                    match mode {
+                        0 => {
+                            self.lines[self.cursor_row].truncate(self.cursor_col);
+                        }
+                        1 => {
+                            for i in 0..self.cursor_col.min(self.lines[self.cursor_row].chars.len()) {
+                                self.lines[self.cursor_row].chars[i] = StyledChar {
+                                    c: ' ',
+                                    style: self.current_style,
+                                };
+                            }
+                        }
+                        2 => {
+                            self.lines[self.cursor_row].clear();
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            'J' => {
+                self.prev_line_col = 0;
                 let mode = params_str.parse::<u32>().unwrap_or(0);
                 match mode {
                     0 => {
-                        // Clear from cursor to end of line
-                        self.current_line.truncate(self.cursor_col);
-                    }
-                    1 => {
-                        // Clear from beginning to cursor
-                        for i in 0..self.cursor_col.min(self.current_line.chars.len()) {
-                            self.current_line.chars[i] = StyledChar {
-                                c: ' ',
-                                style: self.current_style,
-                            };
+                        if self.cursor_row < self.lines.len() {
+                            self.lines[self.cursor_row].truncate(self.cursor_col);
+                            self.lines.truncate(self.cursor_row + 1);
                         }
                     }
-                    2 => {
-                        // Clear entire line
-                        self.current_line.clear();
+                    1 => {
+                        for r in 0..self.cursor_row.min(self.lines.len()) {
+                            self.lines[r].clear();
+                        }
+                        if self.cursor_row < self.lines.len() {
+                            for c in 0..self.cursor_col.min(self.lines[self.cursor_row].chars.len()) {
+                                self.lines[self.cursor_row].chars[c] = StyledChar {
+                                    c: ' ',
+                                    style: self.current_style,
+                                };
+                            }
+                        }
+                    }
+                    2 | 3 => {
+                        self.lines.clear();
+                        self.cursor_row = 0;
                         self.cursor_col = 0;
                     }
                     _ => {}
                 }
             }
-            'J' => {
-                // Erase in Display (Clear screen)
-                let mode = params_str.parse::<u32>().unwrap_or(0);
-                if mode == 2 || mode == 3 {
-                    self.current_line.clear();
+            'A' | 'F' => {
+                // Cursor Up: \x1b[<n>A (critical for multi-line spinners and interactive CLIs)
+                self.cursor_row = self.cursor_row.saturating_sub(n(0));
+                self.prev_line_col = 0;
+                if last_char == 'F' {
                     self.cursor_col = 0;
                 }
             }
-            'A' => {
-                // Cursor Up: \x1b[<n>A
-                let count = params_str.parse::<usize>().unwrap_or(1).max(1);
-                if count == 1 && self.current_line.is_empty() && !self.lines.is_empty() {
-                    // Pop previous line so interactive progress bar rewrites work smoothly
-                    self.current_line = self.lines.pop().unwrap();
-                    self.cursor_col = self.current_line.chars.len();
-                }
-            }
-            'B' => {
+            'B' | 'E' => {
                 // Cursor Down: \x1b[<n>B
-                let count = params_str.parse::<usize>().unwrap_or(1).max(1);
-                for _ in 0..count {
-                    self.commit_current_line();
+                self.cursor_row += n(0);
+                self.prev_line_col = 0;
+                if last_char == 'E' {
+                    self.cursor_col = 0;
                 }
+                self.enforce_capacity();
             }
-            'C' => {
+            'C' | 'a' => {
                 // Cursor Forward
-                let count = params_str.parse::<usize>().unwrap_or(1).max(1);
-                self.cursor_col += count;
+                let count = n(0);
+                if self.cursor_col == 0 && self.prev_line_col > 0 {
+                    self.cursor_col = self.prev_line_col + count;
+                } else {
+                    self.cursor_col += count;
+                }
+                self.prev_line_col = 0;
             }
             'D' => {
                 // Cursor Backward
-                let count = params_str.parse::<usize>().unwrap_or(1).max(1);
-                self.cursor_col = self.cursor_col.saturating_sub(count);
+                let count = n(0);
+                if self.cursor_col == 0 && self.prev_line_col > 0 {
+                    self.cursor_col = self.prev_line_col.saturating_sub(count);
+                } else {
+                    self.cursor_col = self.cursor_col.saturating_sub(count);
+                }
+                self.prev_line_col = 0;
+            }
+            'G' | '`' => {
+                // Cursor Horizontal Absolute: \x1b[<col>G
+                self.cursor_col = n(0) - 1;
+                self.prev_line_col = 0;
+            }
+            'd' => {
+                // Line Position Absolute: \x1b[<row>d (relative to the visible screen)
+                self.cursor_row = self.screen_top() + (n(0) - 1).min(rows - 1);
+                self.prev_line_col = 0;
+                self.ensure_cursor();
             }
             'H' | 'f' => {
-                // Cursor Position: \x1b[<row>;<col>H
-                if params_str.is_empty() {
-                    self.cursor_col = 0;
-                } else {
-                    let parts: Vec<&str> = params_str.split(';').collect();
-                    if parts.len() >= 2 {
-                        let col = parts[1].parse::<usize>().unwrap_or(1);
-                        self.cursor_col = col.saturating_sub(1);
-                    } else {
-                        self.cursor_col = 0;
+                // Cursor Position: \x1b[<row>;<col>H (row relative to the visible screen)
+                self.prev_line_col = 0;
+                self.cursor_row = self.screen_top() + (n(0) - 1).min(rows - 1);
+                self.cursor_col = n(1) - 1;
+            }
+            'L' => {
+                self.ensure_cursor();
+                for _ in 0..n(0) {
+                    self.lines.insert(self.cursor_row, TerminalLine::new());
+                }
+                self.enforce_capacity();
+            }
+            'M' => {
+                for _ in 0..n(0) {
+                    if self.cursor_row < self.lines.len() {
+                        self.lines.remove(self.cursor_row);
                     }
                 }
             }
-            _ => {
-                // Modes (?25h, ?1049h, etc.) and others are safely swallowed
+            'P' | '@' | 'X' | 'b' => self.line_edit(last_char, n(0)),
+            's' if params_str.is_empty() => {
+                // Save Cursor: \x1b[s
+                self.saved_cursor = Some((self.cursor_row, self.cursor_col));
             }
+            'u' if params_str.is_empty() => {
+                // Restore Cursor: \x1b[u
+                self.restore_cursor();
+            }
+            _ => {
+                // Modes, queries and others are safely swallowed
+            }
+        }
+    }
+
+    fn restore_cursor(&mut self) {
+        if let Some((r, c)) = self.saved_cursor {
+            self.cursor_row = r;
+            self.cursor_col = c;
+            self.prev_line_col = 0;
+            self.wrap_pending = false;
+            if self.in_alt_screen() {
+                self.cursor_row = r.min(self.rows - 1);
+                self.cursor_col = c.min(self.cols - 1);
+            }
+            self.ensure_cursor();
+        }
+    }
+
+    /// Character-level edits shared by both screens: DCH, ICH, ECH, REP.
+    fn line_edit(&mut self, op: char, count: usize) {
+        if op == 'b' {
+            if let Some(c) = self.last_printed {
+                for _ in 0..count.min(self.rows * self.cols) {
+                    self.print(c);
+                }
+            }
+            return;
+        }
+        self.ensure_cursor();
+        let (col, cols, alt, blank) = (self.cursor_col, self.cols, self.in_alt_screen(), self.blank());
+        let line = &mut self.lines[self.cursor_row];
+        match op {
+            'P' => {
+                if col < line.chars.len() {
+                    line.split_wide_at_edges(col, (col + count).min(line.chars.len()));
+                    let end = (col + count).min(line.chars.len());
+                    line.chars.drain(col..end);
+                }
+            }
+            '@' => {
+                if col < line.chars.len() {
+                    line.split_wide_at_edges(col, col);
+                    for _ in 0..count.min(cols) {
+                        line.chars.insert(col, blank.clone());
+                    }
+                    if alt {
+                        line.truncate(cols);
+                    }
+                }
+            }
+            'X' => {
+                let end = if alt { (col + count).min(cols) } else { col + count };
+                line.erase(col, end, &blank);
+            }
+            _ => {}
+        }
+    }
+
+    /// CSI handling for the alternate screen: a fixed rows×cols grid.
+    fn handle_alt_csi(&mut self, op: char, params_str: &str, p0: usize, n0: usize, n1: usize, nparams: usize) {
+        let (rows, cols) = (self.rows, self.cols);
+        let (top, bottom) = self.region();
+        let in_region = self.cursor_row >= top && self.cursor_row <= bottom;
+        let blank = self.blank();
+        match op {
+            'K' => {
+                let (row, col) = (self.cursor_row, self.cursor_col);
+                let (from, to) = match p0 {
+                    0 => (col, cols),
+                    1 => (0, col + 1),
+                    2 => (0, cols),
+                    _ => return,
+                };
+                self.lines[row].erase(from, to, &blank);
+            }
+            'J' => {
+                let (row, col) = (self.cursor_row, self.cursor_col);
+                let (lines_from, lines_to) = match p0 {
+                    0 => {
+                        self.lines[row].erase(col, cols, &blank);
+                        (row + 1, rows)
+                    }
+                    1 => {
+                        self.lines[row].erase(0, col + 1, &blank);
+                        (0, row)
+                    }
+                    2 | 3 => (0, rows),
+                    _ => return,
+                };
+                for r in lines_from..lines_to {
+                    self.lines[r].erase(0, cols, &blank);
+                }
+            }
+            'A' | 'F' => {
+                let floor = if in_region { top } else { 0 };
+                self.cursor_row = self.cursor_row.saturating_sub(n0).max(floor.min(self.cursor_row));
+                if op == 'F' {
+                    self.cursor_col = 0;
+                }
+            }
+            'B' | 'E' => {
+                let ceil = if in_region { bottom } else { rows - 1 };
+                self.cursor_row = (self.cursor_row + n0).min(ceil.max(self.cursor_row));
+                if op == 'E' {
+                    self.cursor_col = 0;
+                }
+            }
+            'C' | 'a' => self.cursor_col = (self.cursor_col + n0).min(cols - 1),
+            'D' => self.cursor_col = self.cursor_col.saturating_sub(n0),
+            'G' | '`' => self.cursor_col = (n0 - 1).min(cols - 1),
+            'd' => self.cursor_row = (n0 - 1).min(rows - 1),
+            'e' => self.cursor_row = (self.cursor_row + n0).min(rows - 1),
+            'H' | 'f' => {
+                self.cursor_row = (n0 - 1).min(rows - 1);
+                self.cursor_col = (n1 - 1).min(cols - 1);
+            }
+            'L' | 'M' if in_region => {
+                for _ in 0..n0.min(bottom - self.cursor_row + 1) {
+                    if op == 'L' {
+                        self.lines.remove(bottom);
+                        self.lines.insert(self.cursor_row, TerminalLine::new());
+                    } else {
+                        self.lines.remove(self.cursor_row);
+                        self.lines.insert(bottom, TerminalLine::new());
+                    }
+                }
+                self.cursor_col = 0;
+            }
+            'S' => self.scroll_region_up(n0),
+            'T' if nparams <= 1 => self.scroll_region_down(n0),
+            'r' => {
+                let t = n0 - 1;
+                let b = if nparams > 1 && n1 > 0 { n1 - 1 } else { rows - 1 };
+                self.scroll_region = (t < b && b < rows).then_some((t, b));
+                self.cursor_row = 0;
+                self.cursor_col = 0;
+            }
+            'P' | '@' | 'X' | 'b' => self.line_edit(op, n0),
+            's' if params_str.is_empty() => self.saved_cursor = Some((self.cursor_row, self.cursor_col)),
+            'u' if params_str.is_empty() => self.restore_cursor(),
+            _ => {}
         }
     }
 
@@ -436,6 +1011,10 @@ impl TerminalBuffer {
                 }
                 27 => {
                     self.current_style = self.current_style.remove_modifier(Modifier::REVERSED);
+                    idx += 1;
+                }
+                29 => {
+                    self.current_style = self.current_style.remove_modifier(Modifier::CROSSED_OUT);
                     idx += 1;
                 }
                 // Standard Foreground Colors
@@ -521,13 +1100,17 @@ impl TerminalBuffer {
         }
     }
 
-    /// Total number of lines currently buffered (including the active uncommitted line).
+    /// Total number of lines currently buffered.
     pub fn total_lines(&self) -> usize {
-        self.lines.len() + if self.current_line.is_empty() { 0 } else { 1 }
+        self.lines.len()
     }
 
-    /// User scrolled up by `delta` lines.
+    /// User scrolled up by `delta` lines. The alternate screen has no
+    /// scrollback (the program owns the whole screen), so this is a no-op there.
     pub fn scroll_up(&mut self, delta: usize) {
+        if self.in_alt_screen() {
+            return;
+        }
         let total = self.total_lines();
         self.follow = false;
         self.scroll_offset = (self.scroll_offset + delta).min(total.saturating_sub(1));
@@ -546,7 +1129,7 @@ impl TerminalBuffer {
     /// User scrolled to the very top (Home).
     pub fn scroll_to_top(&mut self) {
         let total = self.total_lines();
-        if total > 0 {
+        if total > 0 && !self.in_alt_screen() {
             self.follow = false;
             self.scroll_offset = total.saturating_sub(1);
         }
@@ -587,11 +1170,7 @@ impl TerminalBuffer {
         let mut result = Vec::with_capacity(end_line.saturating_sub(start_line));
 
         for i in start_line..end_line {
-            if i < self.lines.len() {
-                result.push(self.lines[i].to_ratatui_line());
-            } else if !self.current_line.is_empty() {
-                result.push(self.current_line.to_ratatui_line());
-            }
+            result.push(self.lines[i].to_ratatui_line());
         }
 
         (
@@ -607,17 +1186,198 @@ impl TerminalBuffer {
         )
     }
 
+    /// Alternate screen: the grid is shown exactly as the program drew it —
+    /// no re-wrapping, no scrollback — with the cursor at its grid position.
+    fn alt_screen_view(
+        &self,
+        viewport_height: usize,
+        viewport_width: usize,
+    ) -> (Vec<Line<'static>>, ScrollInfo, Option<(u16, u16)>) {
+        let shown = self.lines.len().min(viewport_height);
+        let mut result: Vec<Line<'static>> = self.lines[..shown].iter().map(TerminalLine::to_ratatui_line).collect();
+        result.resize(viewport_height, Line::from(""));
+        let cursor = (self.cursor_visible && self.cursor_row < viewport_height && self.cursor_col < viewport_width)
+            .then_some((self.cursor_col as u16, self.cursor_row as u16));
+        (
+            result,
+            ScrollInfo {
+                total_lines: self.lines.len(),
+                viewport_height,
+                start_line: 0,
+                end_line: shown,
+                follow: true,
+                scroll_offset: 0,
+            },
+            cursor,
+        )
+    }
+
+    /// Get visible lines wrapped to viewport_width, padded to viewport_height,
+    /// along with scroll info and visual cursor position.
+    pub fn get_visible_lines_wrapped(
+        &self,
+        viewport_height: usize,
+        viewport_width: usize,
+    ) -> (Vec<Line<'static>>, ScrollInfo, Option<(u16, u16)>) {
+        if viewport_height == 0 {
+            return (
+                Vec::new(),
+                ScrollInfo {
+                    total_lines: 0,
+                    viewport_height: 0,
+                    start_line: 0,
+                    end_line: 0,
+                    follow: self.follow,
+                    scroll_offset: 0,
+                },
+                None,
+            );
+        }
+
+        if self.in_alt_screen() {
+            return self.alt_screen_view(viewport_height, viewport_width);
+        }
+
+        if viewport_width == 0 {
+            let (lines, info) = self.get_visible_lines(viewport_height);
+            let cursor = if self.follow
+                && self.cursor_visible
+                && self.cursor_row >= info.start_line
+                && self.cursor_row < info.end_line
+            {
+                let rel_row = (self.cursor_row - info.start_line) as u16;
+                let rel_col = self.cursor_col as u16;
+                Some((rel_col, rel_row))
+            } else {
+                None
+            };
+            return (lines, info, cursor);
+        }
+
+        struct VisualLineEntry {
+            line: Line<'static>,
+            buf_row: usize,
+            start_col: usize,
+            end_col: usize,
+        }
+
+        let mut visual_lines: Vec<VisualLineEntry> = Vec::new();
+
+        for (r_idx, line) in self.lines.iter().enumerate() {
+            if line.chars.is_empty() {
+                visual_lines.push(VisualLineEntry {
+                    line: Line::from(""),
+                    buf_row: r_idx,
+                    start_col: 0,
+                    end_col: 0,
+                });
+            } else if line.chars.len() <= viewport_width {
+                visual_lines.push(VisualLineEntry {
+                    line: line.to_ratatui_line(),
+                    buf_row: r_idx,
+                    start_col: 0,
+                    end_col: line.chars.len(),
+                });
+            } else {
+                let mut start = 0;
+                while start < line.chars.len() {
+                    let mut end = (start + viewport_width).min(line.chars.len());
+                    // Never split a double-width character across two rows.
+                    if end < line.chars.len() && line.chars[end].c == WIDE_SPACER && end > start + 1 {
+                        end -= 1;
+                    }
+                    visual_lines.push(VisualLineEntry {
+                        line: chars_to_ratatui_line(&line.chars[start..end]),
+                        buf_row: r_idx,
+                        start_col: start,
+                        end_col: end,
+                    });
+                    start = end;
+                }
+            }
+        }
+
+        // If cursor is on a line beyond existing lines (e.g. fresh empty line awaiting input)
+        if self.cursor_row >= self.lines.len() {
+            visual_lines.push(VisualLineEntry {
+                line: Line::from(""),
+                buf_row: self.cursor_row,
+                start_col: 0,
+                end_col: 0,
+            });
+        }
+
+        // Find visual position of the cursor
+        let mut cursor_visual_row = None;
+        let mut cursor_visual_col = 0;
+
+        for (v_idx, ventry) in visual_lines.iter().enumerate() {
+            if ventry.buf_row == self.cursor_row {
+                let is_last_chunk = v_idx + 1 == visual_lines.len()
+                    || visual_lines[v_idx + 1].buf_row != self.cursor_row;
+                if self.cursor_col >= ventry.start_col
+                    && (self.cursor_col < ventry.end_col || is_last_chunk)
+                {
+                    cursor_visual_row = Some(v_idx);
+                    cursor_visual_col = self.cursor_col.saturating_sub(ventry.start_col);
+                    break;
+                }
+            }
+        }
+
+        let total_visual = visual_lines.len();
+        let effective_offset = if self.follow {
+            0
+        } else {
+            self.scroll_offset.min(total_visual.saturating_sub(1))
+        };
+
+        let end_idx = total_visual.saturating_sub(effective_offset);
+        let start_idx = end_idx.saturating_sub(viewport_height);
+
+        let mut result_lines = Vec::with_capacity(viewport_height);
+        for i in start_idx..end_idx {
+            result_lines.push(visual_lines[i].line.clone());
+        }
+
+        // Fill remaining viewport space with blank lines to ensure clean redraws
+        while result_lines.len() < viewport_height {
+            result_lines.push(Line::from(""));
+        }
+
+        let cursor_pos = if let Some(v_row) = cursor_visual_row {
+            if self.cursor_visible && v_row >= start_idx && v_row < end_idx {
+                let rel_row = (v_row - start_idx) as u16;
+                let rel_col = (cursor_visual_col as u16).min(viewport_width.saturating_sub(1) as u16);
+                Some((rel_col, rel_row))
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        (
+            result_lines,
+            ScrollInfo {
+                total_lines: total_visual,
+                viewport_height,
+                start_line: start_idx,
+                end_line: end_idx,
+                follow: self.follow,
+                scroll_offset: effective_offset,
+            },
+            cursor_pos,
+        )
+    }
+
     /// Returns plain text representation of the last N lines.
     pub fn get_recent_plain_lines(&self, n: usize) -> Vec<String> {
         let mut lines = Vec::new();
         let total = self.total_lines();
         let start = total.saturating_sub(n);
         for i in start..total {
-            if i < self.lines.len() {
-                lines.push(self.lines[i].to_plain_string());
-            } else if !self.current_line.is_empty() {
-                lines.push(self.current_line.to_plain_string());
-            }
+            lines.push(self.lines[i].to_plain_string());
         }
         lines
     }
@@ -631,19 +1391,38 @@ mod tests {
     fn test_plain_text_and_newlines() {
         let mut buf = TerminalBuffer::new(100);
         buf.push_str("Hello world\nSecond line\nThird line");
-        assert_eq!(buf.lines.len(), 2);
+        assert_eq!(buf.lines.len(), 3);
         assert_eq!(buf.lines[0].to_plain_string(), "Hello world");
         assert_eq!(buf.lines[1].to_plain_string(), "Second line");
-        assert_eq!(buf.current_line.to_plain_string(), "Third line");
+        assert_eq!(buf.lines[2].to_plain_string(), "Third line");
     }
 
     #[test]
     fn test_carriage_return_overwrite() {
         let mut buf = TerminalBuffer::new(100);
         buf.push_str("Progress: 10%\rProgress: 50%\rProgress: 100%\nDone!");
-        assert_eq!(buf.lines.len(), 1);
+        assert_eq!(buf.lines.len(), 2);
         assert_eq!(buf.lines[0].to_plain_string(), "Progress: 100%");
-        assert_eq!(buf.current_line.to_plain_string(), "Done!");
+        assert_eq!(buf.lines[1].to_plain_string(), "Done!");
+    }
+
+    #[test]
+    fn test_multiline_cursor_up_spinner() {
+        let mut buf = TerminalBuffer::new(100);
+        // Initial 2 newlines emitted by interactive CLI
+        buf.push_str("⡿  Running c\n\n\x1b[4D");
+        assert_eq!(buf.total_lines(), 1);
+        assert_eq!(buf.lines[0].to_plain_string(), "⡿  Running c");
+
+        // Spinner updates frame with cursor up 2 lines and overwrite:
+        buf.push_str("\x1b[?25l\r\x1b[2A⢿  Running co\n\n\x1b[5D\x1b[?25h");
+        assert_eq!(buf.total_lines(), 1);
+        assert_eq!(buf.lines[0].to_plain_string(), "⢿  Running co");
+
+        // Another frame:
+        buf.push_str("\x1b[?25l\r\x1b[2A⣻  Running com\n\n\x1b[6D\x1b[?25h");
+        assert_eq!(buf.total_lines(), 1);
+        assert_eq!(buf.lines[0].to_plain_string(), "⣻  Running com");
     }
 
     #[test]
@@ -664,9 +1443,174 @@ mod tests {
         let mut buf = TerminalBuffer::new(100);
         // Feed various escape codes: hide cursor, alternate screen, OSC title, move cursor up
         buf.push_str("\x1b[?25l\x1b[?1049h\x1b]0;Antigravity\x07Clean output\x1b[?25h\n");
-        assert_eq!(buf.lines.len(), 1);
+        assert!(buf.in_alt_screen());
         assert_eq!(buf.lines[0].to_plain_string(), "Clean output");
-        assert!(!buf.lines[0].to_plain_string().contains("\x1b"));
+        assert!(buf.lines.iter().all(|l| !l.to_plain_string().contains('\x1b')));
+    }
+
+    fn alt(rows: usize, cols: usize) -> TerminalBuffer {
+        let mut buf = TerminalBuffer::new(100);
+        buf.resize(rows, cols);
+        buf.push_str("\x1b[?1049h");
+        buf
+    }
+
+    fn row(buf: &TerminalBuffer, r: usize) -> String {
+        buf.lines[r].to_plain_string()
+    }
+
+    #[test]
+    fn alt_screen_absolute_positioning_overwrites_instead_of_appending() {
+        let mut buf = alt(5, 20);
+        buf.push_str("\x1b[H\x1b[2Jfirst frame\r\nline two");
+        buf.push_str("\x1b[Hsecond\x1b[K\r\n\x1b[K");
+        assert_eq!(row(&buf, 0), "second");
+        assert_eq!(row(&buf, 1), "");
+        assert_eq!(buf.lines.len(), 5);
+        buf.push_str("\x1b[3;5Hxy");
+        assert_eq!(row(&buf, 2), "    xy");
+        assert_eq!((buf.cursor_row, buf.cursor_col), (2, 6));
+    }
+
+    #[test]
+    fn alt_screen_lf_keeps_column_and_leave_restores_main() {
+        let mut buf = TerminalBuffer::new(100);
+        buf.push_str("shell$ ");
+        buf.push_str("\x1b[?1049h\x1b[3Gab\ncd");
+        assert_eq!(row(&buf, 0), "  ab");
+        assert_eq!(row(&buf, 1), "    cd");
+        buf.push_str("\x1b[?1049l");
+        assert!(!buf.in_alt_screen());
+        assert_eq!(buf.lines.len(), 1);
+        assert_eq!(row(&buf, 0), "shell$ ");
+        assert_eq!(buf.cursor_col, 7);
+    }
+
+    #[test]
+    fn alt_screen_autowrap_and_scroll() {
+        let mut buf = alt(3, 4);
+        buf.push_str("abcdefgh");
+        assert_eq!(row(&buf, 0), "abcd");
+        assert_eq!(row(&buf, 1), "efgh");
+        assert!(buf.wrap_pending);
+        buf.push_str("ij\r\nkl");
+        assert_eq!(row(&buf, 0), "efgh");
+        assert_eq!(row(&buf, 1), "ij");
+        assert_eq!(row(&buf, 2), "kl");
+    }
+
+    #[test]
+    fn alt_screen_scroll_region_and_line_ops() {
+        let mut buf = alt(5, 10);
+        buf.push_str("\x1b[1;1H0\x1b[2;1H1\x1b[3;1H2\x1b[4;1H3\x1b[5;1H4");
+        buf.push_str("\x1b[2;4r\x1b[4;1H\n");
+        let rows: Vec<String> = (0..5).map(|r| row(&buf, r)).collect();
+        assert_eq!(rows, ["0", "2", "3", "", "4"]);
+        buf.push_str("\x1b[r\x1b[2;1H\x1b[L");
+        let rows: Vec<String> = (0..5).map(|r| row(&buf, r)).collect();
+        assert_eq!(rows, ["0", "", "2", "3", ""]);
+        buf.push_str("\x1b[1;1Habcdef\x1b[1;2H\x1b[2P\x1b[1;1H\x1b[2@");
+        assert_eq!(row(&buf, 0), "  adef");
+        buf.push_str("\x1b[1;3H\x1b[2X");
+        assert_eq!(row(&buf, 0), "    ef");
+        buf.push_str("\x1b[2;1H=\x1b[4b");
+        assert_eq!(row(&buf, 1), "=====");
+    }
+
+    #[test]
+    fn private_marker_sequences_do_not_change_style_or_cursor() {
+        let mut buf = TerminalBuffer::new(100);
+        buf.push_str("ab\x1b[s");
+        buf.push_str("\x1b[>4;2m\x1b[>1u\x1b[?u\x1b[?2026$p\x1b[2 qcd");
+        assert_eq!(buf.current_style, Style::default(), "CSI > 4;2 m must not set DIM");
+        assert_eq!(row(&buf, 0), "abcd");
+        assert_eq!(buf.cursor_col, 4);
+    }
+
+    #[test]
+    fn dcs_and_apc_strings_are_swallowed() {
+        let mut buf = TerminalBuffer::new(100);
+        buf.push_str("a\x1bP+q544e\x1b\\b\x1b_Gf=100;AAAA\x1b\\c");
+        assert_eq!(row(&buf, 0), "abc");
+    }
+
+    #[test]
+    fn wide_and_zero_width_characters_keep_the_grid_aligned() {
+        let mut buf = alt(2, 10);
+        buf.push_str("界x\u{0301}⚠\u{FE0F}|");
+        assert_eq!(row(&buf, 0), "界x⚠|");
+        assert_eq!(buf.lines[0].chars.len(), 5);
+        assert_eq!(buf.cursor_col, 5);
+        // Overwriting the right half of a wide char blanks its left half.
+        buf.push_str("\x1b[1;2HZ");
+        assert_eq!(row(&buf, 0), " Zx⚠|");
+        let line = buf.lines[0].to_ratatui_line();
+        assert_eq!(line.width(), 5);
+    }
+
+    #[test]
+    fn block_and_braille_glyphs_are_single_cells_with_colors() {
+        let mut buf = alt(2, 20);
+        buf.push_str("\x1b[38;2;1;2;3;48;2;4;5;6m▀\x1b[m▄█▌▐░▒▓▸⣾");
+        assert_eq!(row(&buf, 0), "▀▄█▌▐░▒▓▸⣾");
+        assert_eq!(buf.cursor_col, 10);
+        let c = &buf.lines[0].chars[0];
+        assert_eq!(c.style.fg, Some(Color::Rgb(1, 2, 3)));
+        assert_eq!(c.style.bg, Some(Color::Rgb(4, 5, 6)));
+        assert_eq!(buf.lines[0].chars[1].style, Style::default());
+    }
+
+    #[test]
+    fn resize_alt_screen_clamps_grid_and_cursor() {
+        let mut buf = alt(10, 40);
+        buf.push_str("\x1b[10;40Hz");
+        buf.resize(5, 20);
+        assert_eq!(buf.lines.len(), 5);
+        assert!(buf.cursor_row < 5 && buf.cursor_col < 20);
+        let (lines, _, _) = buf.get_visible_lines_wrapped(5, 20);
+        assert_eq!(lines.len(), 5);
+    }
+
+    #[test]
+    fn real_agy_startup_capture_renders_logo_intact() {
+        let raw = include_bytes!("../tests/fixtures/agy_startup_100x30.raw");
+        let text = String::from_utf8(raw.to_vec()).unwrap();
+        // Feed in small pieces to exercise escape sequences split across chunks.
+        let mut buf = TerminalBuffer::new(5000);
+        buf.resize(30, 100);
+        let chars: Vec<char> = text.chars().collect();
+        for piece in chars.chunks(7) {
+            buf.push_str(&piece.iter().collect::<String>());
+        }
+        assert!(buf.in_alt_screen());
+        assert_eq!(buf.lines.len(), 30);
+        let screen: Vec<String> = buf.lines.iter().map(|l| l.to_plain_string()).collect();
+        // The trust prompt was drawn from the top (\x1b[H) over the logo frame.
+        assert_eq!(screen[0], "Accessing workspace:");
+        assert!(screen.iter().any(|l| l.contains("> Yes, I trust this folder")));
+        assert!(screen.iter().all(|l| !l.contains('\u{FFFD}') && !l.contains('\x1b')));
+        assert_eq!(buf.current_style, Style::default());
+        assert!(buf.lines.iter().all(|l| l.chars.len() <= 100));
+
+        // First frame alone: the logo rows are at their exact columns.
+        let first = text.split("\x1b[H\x1b[33;1m").next().unwrap();
+        let mut logo = TerminalBuffer::new(5000);
+        logo.resize(30, 100);
+        logo.push_str(first);
+        let l: Vec<String> = logo.lines.iter().map(|l| l.to_plain_string()).collect();
+        assert_eq!(l[1], "     ▄▀▀▄");
+        assert_eq!(l[2], "    ▀▀▀▀▀▀");
+        assert_eq!(l[3], "   ▀▀▀▀▀▀▀▀");
+        assert_eq!(l[4], "  ▄▀▀    ▀▀▄");
+        assert_eq!(l[5], " ▄▀▀      ▀▀▄");
+        assert!(l[7].contains("Welcome to the Antigravity CLI"));
+        assert!(l[9].contains("⣾  Signing in..."));
+        // Half blocks keep both colours (top = fg, bottom = bg).
+        let cell = &logo.lines[1].chars[6];
+        assert_eq!(cell.c, '▀');
+        assert_eq!(cell.style.fg, Some(Color::Rgb(242, 146, 46)));
+        assert_eq!(cell.style.bg, Some(Color::Rgb(246, 145, 46)));
+        assert!(!cell.style.add_modifier.contains(Modifier::DIM));
     }
 
     #[test]
@@ -711,5 +1655,51 @@ mod tests {
         buf.scroll_to_bottom();
         assert!(buf.follow);
         assert_eq!(buf.scroll_offset, 0);
+    }
+
+    #[test]
+    fn test_wrapped_lines_and_cursor_visibility() {
+        let mut buf = TerminalBuffer::new(100);
+        // Push a line of 50 characters: "0123456789" repeated 5 times
+        let long_text = "0123456789".repeat(5);
+        buf.push_str(&long_text);
+        assert_eq!(buf.cursor_col, 50);
+
+        // Viewport with width 20 and height 10:
+        // 50 chars wraps into 3 lines: 20 chars, 20 chars, 10 chars
+        let (lines, info, cursor) = buf.get_visible_lines_wrapped(10, 20);
+        assert_eq!(info.total_lines, 3);
+        assert_eq!(lines.len(), 10); // padded to viewport height
+        assert!(cursor.is_some());
+        let (col, row) = cursor.unwrap();
+        // Cursor at col 50: on 3rd visual line (row 2), col 10
+        assert_eq!(row, 2);
+        assert_eq!(col, 10);
+
+        // Test cursor hide mode (\x1b[?25l)
+        buf.push_str("\x1b[?25l");
+        assert!(!buf.cursor_visible);
+        let (_, _, cursor_hidden) = buf.get_visible_lines_wrapped(10, 20);
+        assert!(cursor_hidden.is_none());
+
+        // Test cursor show mode (\x1b[?25h)
+        buf.push_str("\x1b[?25h");
+        assert!(buf.cursor_visible);
+        let (_, _, cursor_shown) = buf.get_visible_lines_wrapped(10, 20);
+        assert!(cursor_shown.is_some());
+    }
+
+    #[test]
+    fn test_relative_cursor_movement_after_newline() {
+        let mut buf = TerminalBuffer::new(100);
+        // Emulate AGY banner positioning:
+        // Line 1: cursor moved to col 5, prints 4 half-blocks (cols 5..8, cursor ends at col 9)
+        // Line 2: newline, then cursor back 5 -> col 4, prints 6 half-blocks (cols 4..9)
+        // Line 3: newline, then cursor back 7 -> col 3, prints 8 half-blocks (cols 3..10)
+        buf.push_str("\n\x1b[5C▄▀▀▄\n\x1b[5D▀▀▀▀▀▀\n\x1b[7D▀▀▀▀▀▀▀▀\r\n");
+        assert_eq!(buf.lines.len(), 4);
+        assert_eq!(buf.lines[1].to_plain_string(), "     ▄▀▀▄");
+        assert_eq!(buf.lines[2].to_plain_string(), "    ▀▀▀▀▀▀");
+        assert_eq!(buf.lines[3].to_plain_string(), "   ▀▀▀▀▀▀▀▀");
     }
 }

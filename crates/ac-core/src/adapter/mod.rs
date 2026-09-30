@@ -66,6 +66,13 @@ pub trait AdapterFactory {
         event_tx: mpsc::Sender<AdapterEvent>,
     ) -> Result<AdapterHandle>;
 
+    /// Validate that a session can be launched (e.g. credentials are usable)
+    /// without spawning anything. Used before destructive steps such as
+    /// stopping a predecessor during hand-off.
+    fn preflight(&self, _ctx: &SessionContext) -> Result<()> {
+        Ok(())
+    }
+
     fn create_simple(
         &mut self,
         session_id: Id,
@@ -119,6 +126,13 @@ impl Default for CompositeAdapterFactory {
 }
 
 impl AdapterFactory for CompositeAdapterFactory {
+    fn preflight(&self, ctx: &SessionContext) -> Result<()> {
+        match ctx.agent_type.as_str() {
+            "agy" | "antigravity" => Self::preflight_agy(ctx),
+            _ => Ok(()),
+        }
+    }
+
     fn capabilities(&self, agent_type: &str) -> ProviderCapabilities {
         match agent_type {
             "claude-code" | "claude" => claude::ClaudeAdapter::capabilities(),
@@ -153,12 +167,19 @@ impl AdapterFactory for CompositeAdapterFactory {
             "agy" | "antigravity" => {
                 let mut agy_cfg = self.pty_config.clone();
                 agy_cfg.program = resolve_real_antigravity_bin();
-                let task_trimmed = ctx.task_description.trim();
-                if !task_trimmed.is_empty() {
-                    agy_cfg.args.push("-i".to_string());
-                    agy_cfg.args.push(task_trimmed.to_string());
-                }
-                pty::GenericPtyAdapter::spawn(&ctx, agy_cfg, event_tx)
+                agy_cfg.envs.extend(agy_account_env(&ctx)?);
+                agy_cfg.env_remove.extend(crate::agy_auth::AMBIENT_AUTH_ENV.iter().map(|s| s.to_string()));
+                agy_cfg.args.extend(
+                    crate::agy_launch::AgyLaunchOptions::from_agent_config(ctx.agent_config.as_ref()).args(),
+                );
+                agy_cfg.args.extend(agy_task_args(&ctx.task_description));
+                pty::GenericPtyAdapter::spawn(&ctx, agy_cfg, event_tx).map_err(|e| {
+                    crate::agy_auth::AgyAuthError::LaunchFailure {
+                        label: ctx.account_id.as_ref().map(|a| a.0.clone()).unwrap_or_default(),
+                        reason: e.to_string(),
+                    }
+                    .into()
+                })
             }
             "mock" => {
                 if let Some(ref mut mock) = self.mock_factory {
@@ -176,6 +197,44 @@ impl AdapterFactory for CompositeAdapterFactory {
                 pty::GenericPtyAdapter::spawn(&ctx, fallback_cfg, event_tx)
             }
         }
+    }
+}
+
+impl CompositeAdapterFactory {
+    fn preflight_agy(ctx: &SessionContext) -> Result<()> {
+        let (Some(aid), Some(cref)) = (&ctx.account_id, &ctx.credential_ref) else {
+            return Err(crate::agy_auth::AgyAuthError::NoAccountSelected.into());
+        };
+        crate::agy_auth::validate_credential(cref, &aid.0)?;
+        Ok(())
+    }
+}
+
+/// Environment for an `agy` process: the selected account's isolated profile.
+/// There is deliberately no path that launches `agy` without an account.
+fn agy_account_env(ctx: &SessionContext) -> Result<std::collections::HashMap<String, String>> {
+    let (Some(aid), Some(cref)) = (&ctx.account_id, &ctx.credential_ref) else {
+        return Err(crate::agy_auth::AgyAuthError::NoAccountSelected.into());
+    };
+    #[cfg(unix)]
+    {
+        Ok(crate::agy_auth::prepare_profile(aid, cref)?)
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = (aid, cref);
+        anyhow::bail!("Antigravity account profiles are only supported on Unix")
+    }
+}
+
+/// Arguments derived from the session task. Interactive sessions start a plain
+/// `agy` terminal; only a real, explicit task becomes an initial prompt.
+pub fn agy_task_args(task_description: &str) -> Vec<String> {
+    let t = task_description.trim();
+    if t.is_empty() || t.starts_with("[interactive]") {
+        vec![]
+    } else {
+        vec!["-i".to_string(), t.to_string()]
     }
 }
 

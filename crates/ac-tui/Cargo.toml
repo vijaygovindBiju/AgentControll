@@ -29,6 +29,7 @@ tokio-stream = { workspace = true }
 
 # Core types and IPC client shared with the daemon
 ac-core = { path = "../ac-core" }
+unicode-width = "0.1.14"
 
 [dev-dependencies]
 tempfile = { workspace = true }

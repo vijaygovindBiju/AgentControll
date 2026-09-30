@@ -72,6 +72,17 @@ agy account add
 
 ---
 
+Antigravity account management (see [docs/ANTIGRAVITY_ACCOUNTS.md](docs/ANTIGRAVITY_ACCOUNTS.md)):
+
+```bash
+agy account add                      # browser sign-in (or import the local agy login)
+agy account list                     # names, IDs, status, credential validity
+agy "College Google"                 # launch as that account (exact name or account ID)
+agy account remove "College Google"  # remove account, credential and profile
+```
+
+Each account runs `agy` in its own profile; Agent Control never falls back to the machine's default agy login.
+
 ### 3. Power-User / Automation CLI (`ac`)
 
 Keep granular, scriptable control over daemon subsystems:
@@ -119,6 +130,7 @@ as clients — they never become internal dependencies.
 | [`docs/DATA_FLOW.md`](docs/DATA_FLOW.md) | Conceptual runtime flows |
 | [`docs/INTERFACES.md`](docs/INTERFACES.md) | Control API, adapter contract, error model (conceptual) |
 | [`docs/SECURITY.md`](docs/SECURITY.md) | Threat model and security controls |
+| [`docs/ANTIGRAVITY_ACCOUNTS.md`](docs/ANTIGRAVITY_ACCOUNTS.md) | Antigravity accounts: add, select, switch, remove, profiles, expiry, troubleshooting |
 | [`docs/TESTING.md`](docs/TESTING.md) | Testing and validation strategy |
 | [`docs/ROADMAP.md`](docs/ROADMAP.md) | Phases 0–8, MVP definition, exit criteria |
 | [`docs/DECISIONS.md`](docs/DECISIONS.md) | Architecture decision log, including open decisions |

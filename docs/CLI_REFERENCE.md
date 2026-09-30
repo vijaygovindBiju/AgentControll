@@ -227,19 +227,21 @@ List all configured accounts, active sessions, concurrency capacities, states (`
 ac account list
 ```
 
-### 4.2. `ac login` (and `ac account login` / `ac account add`)
-Log in and register a new account (e.g., Google OAuth for Antigravity).
+### 4.2. `ac login` (and `ac account login` / `ac account add` / `agy account add`)
+Add an Antigravity account. See [ANTIGRAVITY_ACCOUNTS.md](ANTIGRAVITY_ACCOUNTS.md) for the full guide.
 
 ```bash
 ac login [OPTIONS]
 ```
 
 * **Options:**
-  * `-n, --name <NAME>`: Friendly label for the account (e.g. `test1`, `"Work Account"`).
-  * `--cli`: Terminal-only authentication mode without opening a web browser.
-* **Modes:**
-  * **Browser OAuth Mode (default):** Spawns Google OAuth sign-in in your browser and listens on loopback (`http://localhost:54321/oauth2callback`). Automatically completes token exchange and saves credentials securely (`0600` permissions under `~/.config/agentcontrol/credentials/`).
-  * **CLI Mode (`--cli`):** Displays the Google sign-in URL. Open the URL on any device, copy the authorization code, and paste it into the terminal.
+  * `-n, --name <NAME>`: Friendly label for the account (e.g. `"Personal Google"`). Must be unique.
+  * `--cli`: Don't open a browser; print the sign-in URL and paste the final redirect address back (headless / SSH machines).
+* **Methods:**
+  * **Browser sign-in (default):** Opens Google sign-in. The loopback callback listens on a dynamically chosen `127.0.0.1` port and the token exchange uses that same redirect URI (with `state` and PKCE). The account is registered **only** after a real token has been obtained and validated.
+  * **Import local agy login:** Offered when `~/.gemini/antigravity-cli/antigravity-oauth-token` exists; copies that login into a new account.
+  * Antigravity does not accept API tokens; the old "Token" option was removed.
+* Any failure (callback error, timeout, invalid code, rejected exchange, malformed response, storage error) prints `Login failed. Account was NOT saved as authenticated.` and nothing is written.
 
 ### 4.3. `ac account register`
 Register custom or generic provider accounts with manual credentials.
@@ -274,12 +276,16 @@ ac account disable <ACCOUNT_ID_OR_LABEL>
 ac account enable <ACCOUNT_ID_OR_LABEL>
 ```
 
-### 4.6. `ac account remove`
-Delete an account from the database. Allowed only when the account has 0 active sessions.
+### 4.6. `ac account remove` (and `agy account remove`)
+Remove an account. Refused while any session uses it. For Antigravity accounts the saved credential and the account profile (`~/.config/agentcontrol/profiles/<account-id>/`) are deleted too; nothing outside Agent Control's own directories is touched.
 
 ```bash
-ac account remove <ACCOUNT_ID_OR_LABEL>
+ac account remove <ACCOUNT_ID | EXACT_NAME> [--yes]
 ```
+
+* Accepts an exact account ID, or an exact name that matches exactly one account. Ambiguous or unknown names are an error — nothing is removed, and a number is never interpreted as "account #1".
+* Asks for confirmation unless `--yes` is given (required when stdin is not a terminal).
+* If the account is removed but cleanup of its staged files fails, the command exits non-zero and prints the path to delete.
 
 ---
 

@@ -126,6 +126,9 @@ pub struct AgentSession {
     pub updated_at: DateTime<Utc>,
     pub started_at: Option<DateTime<Utc>>,
     pub stopped_at: Option<DateTime<Utc>>,
+    /// Per-session launch options (permission mode, model, working directory).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub launch: Option<crate::agy_launch::AgyLaunchOptions>,
 }
 
 impl AgentSession {
@@ -147,6 +150,7 @@ impl AgentSession {
             updated_at: now,
             started_at: None,
             stopped_at: None,
+            launch: None,
         }
     }
 }
@@ -173,6 +177,7 @@ pub enum EventKind {
     SessionRestartSucceeded,
     SessionFailed,
     SessionHandedOff,
+    SessionRemoved,
     // Agent I/O
     AgentOutputReceived,
     AgentQuestion,
@@ -426,6 +431,15 @@ pub enum AgentCommand {
     Steer {
         message: String,
     },
+    /// Direct raw input bytes/text to agent PTY stdin.
+    Input {
+        data: String,
+    },
+    /// Resize PTY terminal dimensions.
+    Resize {
+        rows: u16,
+        cols: u16,
+    },
     Snapshot,
     Respond {
         allow: bool,
@@ -628,6 +642,9 @@ pub struct SessionContext {
     pub agent_type: String,
     pub workspace_path: Option<String>,
     pub credential_ref: Option<String>,
+    /// Account selected for this session (used for per-account agent profiles).
+    #[serde(default)]
+    pub account_id: Option<Id>,
     pub context_snapshot: Option<String>,
     pub agent_config: Option<serde_json::Value>,
 }
@@ -640,6 +657,7 @@ impl SessionContext {
             agent_type,
             workspace_path: None,
             credential_ref: None,
+            account_id: None,
             context_snapshot: None,
             agent_config: None,
         }
@@ -651,6 +669,12 @@ impl SessionContext {
     }
 
     pub fn with_credential_ref(mut self, cred: impl Into<String>) -> Self {
+        self.credential_ref = Some(cred.into());
+        self
+    }
+
+    pub fn with_account(mut self, account_id: Id, cred: impl Into<String>) -> Self {
+        self.account_id = Some(account_id);
         self.credential_ref = Some(cred.into());
         self
     }

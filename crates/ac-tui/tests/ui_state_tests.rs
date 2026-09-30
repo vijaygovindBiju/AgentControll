@@ -78,24 +78,24 @@ fn test_navigation_and_tab_switching() {
     assert_eq!(app.current_tab, Tab::Sessions);
 
     app.next_tab();
-    assert_eq!(app.current_tab, Tab::Inbox);
-
-    app.next_tab();
     assert_eq!(app.current_tab, Tab::Accounts);
 
     app.next_tab();
-    assert_eq!(app.current_tab, Tab::Projects);
+    assert_eq!(app.current_tab, Tab::Activity);
 
     app.next_tab();
-    assert_eq!(app.current_tab, Tab::Activity);
+    assert_eq!(app.current_tab, Tab::Agents);
+
+    app.next_tab();
+    assert_eq!(app.current_tab, Tab::Settings);
 
     // Wraps around to Dashboard
     app.next_tab();
     assert_eq!(app.current_tab, Tab::Dashboard);
 
-    // Previous tab wraps around to Activity
+    // Previous tab wraps around to Settings
     app.prev_tab();
-    assert_eq!(app.current_tab, Tab::Activity);
+    assert_eq!(app.current_tab, Tab::Settings);
 
     // Direct tab selection
     app.set_tab(Tab::Sessions);
@@ -125,13 +125,22 @@ fn test_selection_and_row_navigation() {
     app.prev_row();
     assert_eq!(app.selected_session, 2);
 
-    // On Inbox tab
-    app.set_tab(Tab::Inbox);
-    assert_eq!(app.selected_interaction, 0);
+    // On Accounts tab
+    let a2 = Account::new(
+        "Secondary Anthropic".into(),
+        "anthropic".into(),
+        vec!["claude-code".into()],
+        "ref:anthropic_key_2".into(),
+        3,
+        vec!["staging".into()],
+    );
+    app.accounts.push(a2);
+    app.set_tab(Tab::Accounts);
+    assert_eq!(app.selected_account, 0);
     app.next_row();
-    assert_eq!(app.selected_interaction, 1);
+    assert_eq!(app.selected_account, 1);
     app.next_row();
-    assert_eq!(app.selected_interaction, 0);
+    assert_eq!(app.selected_account, 0);
 }
 
 #[test]
@@ -263,27 +272,26 @@ fn test_render_all_views_headless() {
     assert!(content.contains("Agent Terminal"));
     app.close_session_detail();
 
-    // 4. Inbox View
-    app.set_tab(Tab::Inbox);
-    terminal.draw(|f| ui::draw(f, &app)).unwrap();
-    let buffer = terminal.backend().buffer().clone();
-    let content = format!("{:?}", buffer);
-    assert!(content.contains("Pending Interactions"));
-    assert!(content.contains("APPROVAL"));
-
-    // 5. Accounts View
+    // 4. Accounts View
     app.set_tab(Tab::Accounts);
     terminal.draw(|f| ui::draw(f, &app)).unwrap();
     let buffer = terminal.backend().buffer().clone();
     let content = format!("{:?}", buffer);
     assert!(content.contains("Primary Anthropic"));
 
-    // 6. Projects View
-    app.set_tab(Tab::Projects);
+    // 5. Activity View
+    app.set_tab(Tab::Activity);
     terminal.draw(|f| ui::draw(f, &app)).unwrap();
     let buffer = terminal.backend().buffer().clone();
     let content = format!("{:?}", buffer);
-    assert!(content.contains("agent-control"));
+    assert!(content.contains("Activity Stream"));
+
+    // 6. Settings View
+    app.set_tab(Tab::Settings);
+    terminal.draw(|f| ui::draw(f, &app)).unwrap();
+    let buffer = terminal.backend().buffer().clone();
+    let content = format!("{:?}", buffer);
+    assert!(content.contains("Settings"));
 
     // 7. Activity View
     app.set_tab(Tab::Activity);
@@ -386,14 +394,13 @@ fn test_btop_dashboard_and_sidebar_rendering() {
     let backend = TestBackend::new(140, 45);
     let mut terminal = Terminal::new(backend).unwrap();
 
-    // 1. Dashboard View with Sidebar & 6-Panel Grid
+    // 1. Dashboard View with Full-Width 6-Panel Grid (No Sidebar Menu)
     terminal.draw(|f| ui::draw(f, &app)).unwrap();
     let buffer = terminal.backend().buffer().clone();
     let content = format!("{:?}", buffer);
 
     assert!(content.contains("AGENT CONTROL v1.0.0"));
-    assert!(content.contains("Menu"));
-    assert!(content.contains("Quick Launch"));
+    assert!(!content.contains("▸ Menu"));
     assert!(content.contains("System Status"));
     assert!(content.contains("Recent Events"));
     assert!(content.contains("Details"));
@@ -413,9 +420,10 @@ fn test_btop_dashboard_and_sidebar_rendering() {
     terminal.draw(|f| ui::draw(f, &app)).unwrap();
     let buffer = terminal.backend().buffer().clone();
     let content = format!("{:?}", buffer);
-    assert!(content.contains("System Settings & Environment"));
-    assert!(content.contains("Control Socket"));
-    assert!(content.contains("events.db"));
+    assert!(content.contains("Settings"));
+    assert!(content.contains("General"));
+    assert!(content.contains("Accounts"));
+    assert!(content.contains("Projects & Workspaces"));
 }
 
 #[test]
@@ -445,10 +453,19 @@ fn test_session_detail_terminal_buffer_rendering_and_scrolling() {
     // Verify target layout elements
     assert!(content.contains("Agent Terminal"));
     assert!(content.contains("● LIVE"));
-    assert!(content.contains("Session Info"));
-    assert!(content.contains("Pending Interactions: 0"));
+    assert!(content.contains("Agent Control"));
+    assert!(content.contains("Ctrl+P"));
+    assert!(content.contains("Esc"));
     assert!(content.contains("All 195 tests passed"));
     assert!(content.contains("Compiling ac-core"));
+
+    // Verify Session Info is available in SessionInfo modal
+    app.active_modal = Some(Modal::SessionInfo { session_id: sid.clone() });
+    terminal.draw(|f| ui::draw(f, &app)).unwrap();
+    let buffer_modal = terminal.backend().buffer().clone();
+    let content_modal = format!("{:?}", buffer_modal);
+    assert!(content_modal.contains("Session Info"));
+    app.active_modal = None;
 
     // Verify escape codes never leaked into the buffer text
     assert!(!content.contains("\\u{1b}[?25l"));
@@ -467,5 +484,194 @@ fn test_session_detail_terminal_buffer_rendering_and_scrolling() {
     let buffer_restored = terminal.backend().buffer().clone();
     let content_restored = format!("{:?}", buffer_restored);
     assert!(content_restored.contains("● LIVE"));
+}
+
+#[test]
+fn test_terminal_cursor_and_edge_to_edge_rendering() {
+    let mut app = create_sample_app();
+    let backend = TestBackend::new(80, 24);
+    let mut terminal = Terminal::new(backend).unwrap();
+
+    let sid = app.sessions[0].id.clone();
+    app.session_detail_id = Some(sid.clone());
+
+    let pty_chunk = AgentEvent::new(
+        EventKind::AgentOutputReceived,
+        Some(sid.clone()),
+        serde_json::json!({
+            "text": "agent> "
+        }),
+        "adapter",
+    );
+    app.apply_event(pty_chunk);
+
+    terminal.draw(|f| ui::draw(f, &app)).unwrap();
+    let cursor_pos = terminal.get_cursor_position().unwrap();
+
+    // Verify cursor is set right at the end of "agent> " (column 7, line 1 because line 0 is compact header)
+    assert_eq!(cursor_pos.x, 7);
+    assert_eq!(cursor_pos.y, 1);
+}
+
+#[test]
+fn test_remove_session_state_and_modal_rendering() {
+    let mut app = create_sample_app();
+    let backend = TestBackend::new(100, 30);
+    let mut terminal = Terminal::new(backend).unwrap();
+
+    let sid = app.sessions[0].id.clone();
+    assert_eq!(app.sessions.len(), 3);
+
+    // 1. Open session detail and establish terminal buffer
+    app.session_detail_id = Some(sid.clone());
+    app.session_terminal_buffers.insert(sid.0.clone(), Default::default());
+
+    // 2. Render ConfirmRemoveSession modal
+    app.active_modal = Some(Modal::ConfirmRemoveSession {
+        session_id: sid.clone(),
+    });
+    terminal.draw(|f| ui::draw(f, &app)).unwrap();
+    let buffer = terminal.backend().buffer().clone();
+    let content = format!("{:?}", buffer);
+
+    assert!(content.contains("Confirm Remove Session"));
+    assert!(content.contains("Permanently remove session"));
+    assert!(content.contains("[y/Enter] Confirm Remove"));
+    assert!(content.contains("[n/Esc] Cancel"));
+
+    // 3. Test reactive removal via EventKind::SessionRemoved
+    app.active_modal = None;
+    let remove_evt = AgentEvent::new(
+        EventKind::SessionRemoved,
+        Some(sid.clone()),
+        serde_json::json!({ "session_id": sid.0 }),
+        "human",
+    );
+    app.apply_event(remove_evt);
+
+    // Verify session was purged from sessions, buffers, and active detail
+    assert_eq!(app.sessions.len(), 2);
+    assert!(app.sessions.iter().all(|s| s.id != sid));
+    assert!(!app.session_terminal_buffers.contains_key(&sid.0));
+    assert_eq!(app.session_detail_id, None);
+    assert!(app.selected_session < app.sessions.len());
+}
+
+#[test]
+fn test_agy_session_rendering_flow_and_visual_polish() {
+    let mut app = create_sample_app();
+    let backend = TestBackend::new(80, 24);
+    let mut terminal = Terminal::new(backend).unwrap();
+
+    // 1. Open an AGY session
+    let sid = Id::from("session-agy-001");
+    let mut agy_session = AgentSession::new(sid.clone(), "interactive".into(), "agy".into());
+    agy_session.state = SessionState::Working;
+    app.sessions.push(agy_session);
+    app.session_detail_id = Some(sid.clone());
+
+    // Initial draw: verify minimal header with LIVE, WORKING, Antigravity, and Gemini model
+    terminal.draw(|f| ui::draw(f, &app)).unwrap();
+    let buffer = terminal.backend().buffer().clone();
+    let content = format!("{:?}", buffer);
+    assert!(content.contains("● LIVE"));
+    assert!(content.contains("WORKING"));
+    assert!(content.contains("Agent Control • Antigravity"));
+    assert!(content.contains("Gemini 3.8 Flash · medium"));
+    assert!(content.contains("Ctrl+P"));
+    assert!(content.contains("Esc"));
+
+    // 2. Type "say hi" prompt: AGY terminal prompt sequence
+    let prompt_chunk = AgentEvent::new(
+        EventKind::AgentOutputReceived,
+        Some(sid.clone()),
+        serde_json::json!({
+            "text": "─────────────────────────────────────────────────────────────\n> say hi"
+        }),
+        "adapter",
+    );
+    app.apply_event(prompt_chunk);
+    terminal.draw(|f| ui::draw(f, &app)).unwrap();
+    let cursor_pos = terminal.get_cursor_position().unwrap();
+    // Cursor should be right after "say hi" on line 2 (line 0 is header, line 1 is line rule, line 2 is prompt)
+    assert_eq!(cursor_pos.x, 8); // "> say hi" is 8 characters
+    assert_eq!(cursor_pos.y, 2);
+
+    // 3. Generating state with cursor hidden (\x1b[?25l)
+    let gen_chunk = AgentEvent::new(
+        EventKind::AgentOutputReceived,
+        Some(sid.clone()),
+        serde_json::json!({
+            "text": "\n─────────────────────────────────────────────────────────────\n\x1b[?25l⣾ Generating..."
+        }),
+        "adapter",
+    );
+    app.apply_event(gen_chunk);
+    terminal.draw(|f| ui::draw(f, &app)).unwrap();
+    let gen_buffer = terminal.backend().buffer().clone();
+    let gen_content = format!("{:?}", gen_buffer);
+    assert!(gen_content.contains("Generating..."));
+
+    // 4. Observe response: AGY outputs text response that wraps
+    let long_response = "Antigravity CLI is Google DeepMind's advanced coding assistant for native environments. ".repeat(3);
+    let resp_chunk = AgentEvent::new(
+        EventKind::AgentOutputReceived,
+        Some(sid.clone()),
+        serde_json::json!({
+            "text": format!("\n{}\n", long_response)
+        }),
+        "adapter",
+    );
+    app.apply_event(resp_chunk);
+    terminal.draw(|f| ui::draw(f, &app)).unwrap();
+    let resp_buffer = terminal.backend().buffer().clone();
+    let resp_content = format!("{:?}", resp_buffer);
+    assert!(resp_content.contains("advanced coding assistant"));
+
+    // 5. Enter another prompt and restore cursor (\x1b[?25h)
+    let prompt2_chunk = AgentEvent::new(
+        EventKind::AgentOutputReceived,
+        Some(sid.clone()),
+        serde_json::json!({
+            "text": "─────────────────────────────────────────────────────────────\n> tell me a joke\x1b[?25h"
+        }),
+        "adapter",
+    );
+    app.apply_event(prompt2_chunk);
+    terminal.draw(|f| ui::draw(f, &app)).unwrap();
+    let p2_cursor = terminal.get_cursor_position().unwrap();
+    assert!(p2_cursor.x > 0);
+
+    // 6. Scroll through previous output
+    app.scroll_session_terminal_up(&sid.0, 5);
+    terminal.draw(|f| ui::draw(f, &app)).unwrap();
+    let scroll_content = format!("{:?}", terminal.backend().buffer());
+    assert!(scroll_content.contains("SCROLL: 5 lines up") || scroll_content.contains("SCROLL MODE"));
+
+    // Snap back to live
+    app.scroll_session_terminal_bottom(&sid.0);
+    terminal.draw(|f| ui::draw(f, &app)).unwrap();
+    let live_content = format!("{:?}", terminal.backend().buffer());
+    assert!(live_content.contains("● LIVE"));
+
+    // 7. Resize the terminal window
+    let mut resized_terminal = Terminal::new(TestBackend::new(120, 40)).unwrap();
+    resized_terminal.draw(|f| ui::draw(f, &app)).unwrap();
+    let resize_content = format!("{:?}", resized_terminal.backend().buffer());
+    assert!(resize_content.contains("● LIVE"));
+    assert!(resize_content.contains("Gemini 3.8 Flash · medium"));
+
+    // 8. Return with Esc
+    app.close_session_detail();
+    terminal.draw(|f| ui::draw(f, &app)).unwrap();
+    let dashboard_content = format!("{:?}", terminal.backend().buffer());
+    assert!(!dashboard_content.contains("Gemini 3.8 Flash · medium"));
+
+    // 9. Re-enter the session
+    app.session_detail_id = Some(sid.clone());
+    terminal.draw(|f| ui::draw(f, &app)).unwrap();
+    let reentered_content = format!("{:?}", terminal.backend().buffer());
+    assert!(reentered_content.contains("● LIVE"));
+    assert!(reentered_content.contains("Gemini 3.8 Flash · medium"));
 }
 

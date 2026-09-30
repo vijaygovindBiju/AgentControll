@@ -32,6 +32,8 @@ pub enum SessionCmd {
         project_id: Option<Id>,
         /// Phase 2: explicit account override; if None, auto-select.
         account_id: Option<Id>,
+        /// Per-session launch options (permission mode, model, working directory).
+        launch: Option<crate::agy_launch::AgyLaunchOptions>,
         reply: tokio::sync::oneshot::Sender<Result<Id>>,
     },
     Start {
@@ -306,6 +308,7 @@ impl SessionManager {
                 session.context_snapshot_id = event.payload["context_snapshot_id"]
                     .as_str()
                     .map(Id::from);
+                session.launch = serde_json::from_value(event.payload["launch"].clone()).ok();
                 self.sessions.insert(id.0, session);
             }
             EventKind::StateChanged => {
@@ -371,8 +374,8 @@ impl SessionManager {
 
     async fn handle_cmd(&mut self, cmd: SessionCmd) {
         match cmd {
-            SessionCmd::Create { task_description, agent_type, project_id, account_id, reply } => {
-                let result = self.cmd_create(task_description, agent_type, project_id, account_id);
+            SessionCmd::Create { task_description, agent_type, project_id, account_id, launch, reply } => {
+                let result = self.cmd_create(task_description, agent_type, project_id, account_id, launch);
                 let _ = reply.send(result);
             }
             SessionCmd::Start { session_id, reply } => {
@@ -502,7 +505,17 @@ impl SessionManager {
 
     // ── Command implementations ────────────────────────────────────────────
 
-    fn cmd_create(&mut self, task_description: String, agent_type: String, project_id: Option<Id>, explicit_account_id: Option<Id>) -> Result<Id> {
+    fn cmd_create(
+        &mut self,
+        task_description: String,
+        agent_type: String,
+        project_id: Option<Id>,
+        explicit_account_id: Option<Id>,
+        launch: Option<crate::agy_launch::AgyLaunchOptions>,
+    ) -> Result<Id> {
+        if let Some(l) = &launch {
+            l.validate().map_err(|e| anyhow::anyhow!("ValidationError: {e}"))?;
+        }
         // ── Phase 2: resolve account ──────────────────────────────────────
         let resolved_account_id: Option<Id> = if let Some(aid) = explicit_account_id {
             // Explicit override: validate it exists, supports agent_type, and is available
@@ -554,6 +567,7 @@ impl SessionManager {
         session.project_id = project_id.clone();
         session.account_id = resolved_account_id.clone();
         session.workspace_id = resolved_workspace_id.clone();
+        session.launch = launch.clone();
         self.sessions.insert(id.0.clone(), session);
 
         // ── Increment account load ────────────────────────────────────────
@@ -572,6 +586,7 @@ impl SessionManager {
                 "project_id": project_id,
                 "account_id": resolved_account_id,
                 "workspace_id": resolved_workspace_id,
+                "launch": launch,
             }),
             "human",
         ))?;
@@ -623,6 +638,9 @@ impl SessionManager {
         } else {
             None
         };
+        // A project workspace wins; otherwise the directory chosen at launch.
+        let launch = session.launch.clone();
+        let workspace_path = workspace_path.or_else(|| launch.as_ref().and_then(|l| l.working_dir.clone()));
         let credential_ref = if let Some(aid) = &session.account_id {
             if let Some(h) = &self.account_mgr {
                 h.0.lock().unwrap().get(aid).map(|a| a.credential_ref.clone())
@@ -643,7 +661,7 @@ impl SessionManager {
             credential_ref,
             account_id,
             context_snapshot: None,
-            agent_config: None,
+            agent_config: launch.and_then(|l| serde_json::to_value(l).ok()),
         };
 
         let (adapter_event_tx, adapter_event_rx) = mpsc::channel(512);
@@ -920,10 +938,10 @@ impl SessionManager {
 
     fn cmd_input(&mut self, session_id: Id, data: String) -> Result<()> {
         if let Some(live) = self.adapters.get_mut(&session_id.0) {
-            trace!("cmd_input: forwarding {} bytes to session {}", data.len(), session_id);
+            debug!("cmd_input: forwarding {} bytes to session {}", data.len(), session_id);
             live.handle.send_command(AgentCommand::Input { data })?;
         } else {
-            trace!("cmd_input: no live adapter for session {}", session_id);
+            warn!("cmd_input: no live adapter for session {}; {} input byte(s) dropped", session_id, data.len());
         }
         Ok(())
     }
@@ -1255,7 +1273,7 @@ impl SessionManager {
         target_account_id: Id,
     ) -> Result<Id> {
         // 1. Validate predecessor
-        let (task_description, agent_type, project_id, old_account_id, workspace_id, workspace_path) = {
+        let (task_description, agent_type, project_id, old_account_id, workspace_id, workspace_path, launch) = {
             let session = self.get_session_or_err(&predecessor_id)?;
             if session.state.is_terminal() {
                 bail!(
@@ -1279,7 +1297,8 @@ impl SessionManager {
                 session.project_id.clone(),
                 session.account_id.clone(),
                 session.workspace_id.clone(),
-                ws_path,
+                ws_path.or_else(|| session.launch.as_ref().and_then(|l| l.working_dir.clone())),
+                session.launch.clone(),
             )
         };
 
@@ -1421,6 +1440,7 @@ impl SessionManager {
         successor.workspace_id = workspace_id.clone(); // Workspace preserved!
         successor.predecessor_id = Some(predecessor_id.clone());
         successor.context_snapshot_id = Some(snapshot.id.clone());
+        successor.launch = launch.clone();
         self.sessions.insert(successor_id.0.clone(), successor);
 
         // Increment target account load
@@ -1439,6 +1459,7 @@ impl SessionManager {
                 "workspace_id": workspace_id,
                 "predecessor_id": predecessor_id,
                 "context_snapshot_id": snapshot.id,
+                "launch": launch,
             }),
             "system",
         ))?;
@@ -1472,7 +1493,7 @@ impl SessionManager {
             credential_ref: Some(target_credential_ref),
             account_id: Some(target_account_id.clone()),
             context_snapshot: Some(snapshot.to_context_string()),
-            agent_config: None,
+            agent_config: launch.and_then(|l| serde_json::to_value(l).ok()),
         };
 
         let (adapter_event_tx, adapter_event_rx) = mpsc::channel(512);
@@ -1972,6 +1993,7 @@ impl SessionManagerHandle {
             agent_type,
             project_id: None,
             account_id: None,
+            launch: None,
             reply,
         })
         .await?
@@ -1985,11 +2007,24 @@ impl SessionManagerHandle {
         project_id: Option<Id>,
         account_id: Option<Id>,
     ) -> Result<Id> {
+        self.create_with_launch(task, agent_type, project_id, account_id, None).await
+    }
+
+    /// Create a session with explicit per-session launch options.
+    pub async fn create_with_launch(
+        &self,
+        task: String,
+        agent_type: String,
+        project_id: Option<Id>,
+        account_id: Option<Id>,
+        launch: Option<crate::agy_launch::AgyLaunchOptions>,
+    ) -> Result<Id> {
         self.send_and_wait(|reply| SessionCmd::Create {
             task_description: task,
             agent_type,
             project_id,
             account_id,
+            launch,
             reply,
         })
         .await?

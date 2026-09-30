@@ -10,6 +10,7 @@ pub mod activity;
 pub mod agents;
 pub mod settings;
 pub mod modal;
+pub mod start_session;
 
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
@@ -122,47 +123,32 @@ pub fn render_header(f: &mut Frame, app: &App, area: Rect) {
     let now_str = chrono::Local::now().format("%a %b %d %H:%M").to_string();
 
     // Line 1: AGENT CONTROL title + description + date/time
-    let left_title = Span::styled("AGENT CONTROL v1.0.0", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD));
-    let center_desc = Span::styled("Coding Agents • Multiple Accounts • Full Control", Style::default().fg(Color::Rgb(140, 150, 165)));
-    let right_time = Span::styled(now_str, Style::default().fg(Color::DarkGray));
+    let header_line1 = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Length(23),
+            Constraint::Min(20),
+            Constraint::Length(18),
+        ])
+        .split(chunks[0]);
 
-    let total_w = area.width as usize;
-    let title_w = 21; // "AGENT CONTROL v1.0.0"
-    let desc_w = 48;
-    let time_w = 16;
-    let space_left = if total_w > title_w + desc_w + time_w {
-        (total_w - title_w - desc_w - time_w) / 2
-    } else {
-        2
-    };
-    let space_right = total_w.saturating_sub(title_w + desc_w + time_w + space_left);
+    let left_title = Paragraph::new(Span::styled(" AGENT CONTROL v1.0.0", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)));
+    let center_desc = Paragraph::new(Span::styled("Coding Agents • Multiple Accounts • Full Control", Style::default().fg(Color::Rgb(140, 150, 165))))
+        .alignment(ratatui::layout::Alignment::Center);
+    let right_time = Paragraph::new(Span::styled(format!("{now_str} "), Style::default().fg(Color::DarkGray)))
+        .alignment(ratatui::layout::Alignment::Right);
 
-    let top_line = Line::from(vec![
-        Span::raw(" "),
-        left_title,
-        Span::raw(" ".repeat(space_left)),
-        center_desc,
-        Span::raw(" ".repeat(space_right.max(2))),
-        right_time,
-        Span::raw(" "),
-    ]);
-    f.render_widget(Paragraph::new(top_line), chunks[0]);
-
-    // Line 2: Navigation sub-bar / tabs & daemon status
-    let pending_count = app.pending_interactions().len();
-    let inbox_title = if pending_count > 0 {
-        format!("3: Inbox ({pending_count})")
-    } else {
-        "3: Inbox".to_string()
-    };
+    f.render_widget(left_title, header_line1[0]);
+    f.render_widget(center_desc, header_line1[1]);
+    f.render_widget(right_time, header_line1[2]);
 
     let titles = vec![
         Line::from("1: Dashboard"),
         Line::from(format!("2: Sessions ({})", app.sessions.len())),
-        Line::from(inbox_title),
-        Line::from(format!("4: Accounts ({})", app.accounts.len())),
-        Line::from(format!("5: Projects ({})", app.projects.len())),
-        Line::from("6: Activity"),
+        Line::from(format!("3: Accounts ({})", app.accounts.len())),
+        Line::from("4: Activity"),
+        Line::from("5: Agents"),
+        Line::from("6: Settings"),
     ];
 
     let selected_index = if app.session_detail_id.is_some() {
@@ -347,24 +333,11 @@ pub fn render_footer(f: &mut Frame, app: &App, area: Rect) {
             tag_pill("x", "Stop"),
             tag_pill("q", "Quit"),
         ],
-        (Tab::Inbox, false) => vec![
-            tag_pill("↑↓", "Navigate"),
-            tag_pill("a", "Approve"),
-            tag_pill("d", "Deny"),
-            tag_pill("r", "Reply"),
-            tag_pill("x", "Dismiss"),
-            tag_pill("q", "Quit"),
-        ],
         (Tab::Accounts, false) => vec![
             tag_pill("↑↓", "Navigate"),
             tag_pill("a", "Add Account"),
             tag_pill("d", "Delete Account"),
-            tag_pill("r", "Refresh"),
-            tag_pill("?", "Help"),
-            tag_pill("q", "Quit"),
-        ],
-        (Tab::Projects, false) => vec![
-            tag_pill("↑↓", "Navigate"),
+            tag_pill("s", "Set Default"),
             tag_pill("r", "Refresh"),
             tag_pill("?", "Help"),
             tag_pill("q", "Quit"),
@@ -384,9 +357,13 @@ pub fn render_footer(f: &mut Frame, app: &App, area: Rect) {
             tag_pill("q", "Quit"),
         ],
         (Tab::Settings, false) => vec![
+            tag_pill("↑↓", "Select"),
+            tag_pill("Enter/→", "Focus Panel"),
+            tag_pill("Esc/←", "Sections"),
+            tag_pill("a", "Add/Register"),
+            tag_pill("d", "Remove"),
+            tag_pill("s", "Set Default"),
             tag_pill("1-6", "Tabs"),
-            tag_pill("r", "Refresh"),
-            tag_pill("?", "Help"),
             tag_pill("q", "Quit"),
         ],
     };

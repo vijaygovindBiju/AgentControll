@@ -16,25 +16,30 @@ use crate::terminal_buffer::TerminalBuffer;
 pub enum Tab {
     Dashboard = 0,
     Sessions = 1,
-    Inbox = 2,
-    Accounts = 3,
-    Projects = 4,
-    Activity = 5,
-    Agents = 6,
-    Settings = 7,
+    Accounts = 2,
+    Activity = 3,
+    Agents = 4,
+    Settings = 5,
 }
 
 impl Tab {
+    pub const ALL: [Self; 6] = [
+        Tab::Dashboard,
+        Tab::Sessions,
+        Tab::Accounts,
+        Tab::Activity,
+        Tab::Agents,
+        Tab::Settings,
+    ];
+
     pub fn from_index(index: usize) -> Self {
         match index {
             0 => Tab::Dashboard,
             1 => Tab::Sessions,
-            2 => Tab::Inbox,
-            3 => Tab::Accounts,
-            4 => Tab::Projects,
-            5 => Tab::Activity,
-            6 => Tab::Agents,
-            7 => Tab::Settings,
+            2 => Tab::Accounts,
+            3 => Tab::Activity,
+            4 => Tab::Agents,
+            5 => Tab::Settings,
             _ => Tab::Dashboard,
         }
     }
@@ -47,12 +52,71 @@ impl Tab {
         match self {
             Tab::Dashboard => "Dashboard",
             Tab::Sessions => "Sessions",
-            Tab::Inbox => "Inbox",
             Tab::Accounts => "Accounts",
-            Tab::Projects => "Projects",
             Tab::Activity => "Activity",
             Tab::Agents => "Agents",
             Tab::Settings => "Settings",
+        }
+    }
+}
+
+/// Sections inside the Settings configuration view.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SettingsSection {
+    General = 0,
+    Accounts = 1,
+    Projects = 2,
+    Agents = 3,
+    Models = 4,
+    Permissions = 5,
+    Authentication = 6,
+    Terminal = 7,
+    Security = 8,
+}
+
+impl SettingsSection {
+    pub const ALL: [Self; 9] = [
+        Self::General,
+        Self::Accounts,
+        Self::Projects,
+        Self::Agents,
+        Self::Models,
+        Self::Permissions,
+        Self::Authentication,
+        Self::Terminal,
+        Self::Security,
+    ];
+
+    pub fn from_index(index: usize) -> Self {
+        match index {
+            0 => Self::General,
+            1 => Self::Accounts,
+            2 => Self::Projects,
+            3 => Self::Agents,
+            4 => Self::Models,
+            5 => Self::Permissions,
+            6 => Self::Authentication,
+            7 => Self::Terminal,
+            8 => Self::Security,
+            _ => Self::General,
+        }
+    }
+
+    pub fn to_index(self) -> usize {
+        self as usize
+    }
+
+    pub fn title(self) -> &'static str {
+        match self {
+            Self::General => "General",
+            Self::Accounts => "Accounts",
+            Self::Projects => "Projects & Workspaces",
+            Self::Agents => "Agents",
+            Self::Models => "Models",
+            Self::Permissions => "Permissions",
+            Self::Authentication => "Authentication",
+            Self::Terminal => "Terminal",
+            Self::Security => "Security",
         }
     }
 }
@@ -86,11 +150,52 @@ pub struct AccountOption {
     pub reason: Option<String>,
 }
 
+/// Steps of the "Add Antigravity Account" dialog.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AgyAddStep {
+    /// Enter a friendly account name.
+    Name { error: Option<String> },
+    /// Choose Login with Browser (default) or Import.
+    Method,
+    /// Browser login in progress. `url` is empty until the listener is ready.
+    Waiting { url: String, browser_opened: bool, deadline: Instant },
+    /// Shareable login link. `paste` holds the redirect address the user pastes
+    /// back after signing in on another device; `notice` reports rejections.
+    Link { url: String, deadline: Instant, paste: String, notice: Option<String> },
+    Success { account_id: Id, email: Option<String> },
+    Failed { reason: String },
+}
+
+/// Progress reported by the background Antigravity login task.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AgyLoginUpdate {
+    Waiting { url: String, browser_opened: bool },
+    /// A login link was generated (nothing was opened locally).
+    LinkReady { url: String },
+    /// A pasted redirect address was rejected; the login keeps waiting.
+    PasteRejected { reason: String },
+    Succeeded { account_id: Id, email: Option<String> },
+    Failed { reason: String },
+}
+
+/// Handle to the single in-flight Antigravity login. Aborting it drops the
+/// callback listener and all temporary OAuth state (state, PKCE verifier).
+#[derive(Debug, Clone)]
+pub struct AgyLoginTask {
+    pub abort: tokio::task::AbortHandle,
+    pub updates: std::sync::Arc<std::sync::Mutex<Vec<AgyLoginUpdate>>>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Modal {
     Steer { session_id: Id, input: String },
     Reply { interaction_id: Id, input: String },
     ConfirmStop { session_id: Id },
+    ConfirmRemoveSession { session_id: Id },
+    /// Add an Antigravity account (name → browser login / import → result).
+    AgyAddAccount { label: String, step: AgyAddStep },
+    /// Confirm removal of an account. `active_sessions > 0` blocks removal.
+    ConfirmRemoveAccount { account_id: Id, label: String, provider: String, active_sessions: usize },
     FilterActivity { input: String },
     Help,
     SwitchAccount {
@@ -112,8 +217,36 @@ pub enum Modal {
     NewSession {
         account_index: usize,
         session_name: String,
-        task: String,
         active_field: usize,
+    },
+    /// Start an Antigravity session: account, permission mode, directory, model.
+    StartSession(Box<crate::launch::StartSessionForm>),
+    CommandPalette {
+        session_id: Id,
+        selected_index: usize,
+    },
+    Approval {
+        interaction_id: Id,
+        tool_name: Option<String>,
+        prompt: String,
+    },
+    SessionInfo {
+        session_id: Id,
+    },
+    RegisterProject {
+        name: String,
+        repo_path: String,
+        policy_index: usize,
+        active_field: usize,
+        error: Option<String>,
+    },
+    ConfirmRemoveProject {
+        project_id: Id,
+        name: String,
+    },
+    SetDefaultWorkingDir {
+        input: String,
+        error: Option<String>,
     },
 }
 
@@ -162,6 +295,31 @@ pub struct App {
     pub quick_launch_selected: usize,
     pub selected_agent: usize,
     pub start_time: Instant,
+
+    /// Results from background tasks (e.g. browser login), drained on tick.
+    pub background_notices: std::sync::Arc<std::sync::Mutex<Vec<(String, StatusType)>>>,
+
+    /// The in-flight Antigravity browser login, if any (at most one).
+    pub agy_login: Option<AgyLoginTask>,
+    /// Paste channel of an in-flight login-link login (redirect address handoff).
+    pub agy_login_paste: Option<tokio::sync::mpsc::Sender<String>>,
+    /// Selected option in the "Add Antigravity Account" method list.
+    pub agy_add_method: usize,
+    /// Start-session form to return to after adding an account from it.
+    pub resume_start_session: Option<Box<crate::launch::StartSessionForm>>,
+    /// Results of background launch-form work (directory listings, models).
+    pub launch_jobs: std::sync::Arc<std::sync::Mutex<Vec<crate::launch::JobResult>>>,
+    /// Models per account id, as reported by `agy models` (None = loading).
+    pub agy_models: HashMap<String, Option<Result<Vec<(String, String)>, String>>>,
+
+    // Settings state & persistence
+    pub user_settings: ac_core::settings::UserSettings,
+    pub settings_section_index: usize,
+    pub settings_focus_panel: bool,
+    pub settings_general_item: usize,
+    pub settings_account_selected: usize,
+    pub settings_project_selected: usize,
+    pub settings_model_selected: usize,
 }
 
 impl Default for App {
@@ -197,7 +355,25 @@ impl App {
             quick_launch_selected: 0,
             selected_agent: 0,
             start_time: Instant::now(),
+            background_notices: Default::default(),
+            agy_login: None,
+            agy_login_paste: None,
+            agy_add_method: 0,
+            resume_start_session: None,
+            launch_jobs: Default::default(),
+            agy_models: HashMap::new(),
+            user_settings: ac_core::settings::UserSettings::load(),
+            settings_section_index: 0,
+            settings_focus_panel: false,
+            settings_general_item: 0,
+            settings_account_selected: 0,
+            settings_project_selected: 0,
+            settings_model_selected: 0,
         }
+    }
+
+    pub fn current_settings_section(&self) -> SettingsSection {
+        SettingsSection::from_index(self.settings_section_index)
     }
 
     pub fn next_detail_subtab(&mut self) {
@@ -220,6 +396,16 @@ impl App {
         self.status_message = Some((message.into(), status_type, Instant::now()));
     }
 
+    /// Drain background notices into the status bar. Returns true if any arrived.
+    pub fn drain_background_notices(&mut self) -> bool {
+        let notices: Vec<_> = self.background_notices.lock().map(|mut v| v.drain(..).collect()).unwrap_or_default();
+        let any = !notices.is_empty();
+        for (msg, kind) in notices {
+            self.set_status(msg, kind);
+        }
+        any
+    }
+
     pub fn clear_expired_status(&mut self) {
         if let Some((_, _, time)) = self.status_message {
             if time.elapsed() > Duration::from_secs(6) {
@@ -238,25 +424,21 @@ impl App {
             Tab::Agents => 1,
             Tab::Accounts => 2,
             Tab::Sessions => 3,
-            Tab::Activity => 6,
+            Tab::Activity => 4,
             Tab::Settings => 7,
-            _ => self.sidebar_selected,
         };
     }
 
     pub fn next_tab(&mut self) {
-        let next_idx = (self.current_tab.to_index() + 1) % 6;
-        self.current_tab = Tab::from_index(next_idx);
+        let next_idx = (self.current_tab.to_index() + 1) % Tab::ALL.len();
+        self.set_tab(Tab::from_index(next_idx));
         self.session_detail_id = None;
     }
 
     pub fn prev_tab(&mut self) {
-        let prev_idx = if self.current_tab.to_index() == 0 {
-            5
-        } else {
-            self.current_tab.to_index() - 1
-        };
-        self.current_tab = Tab::from_index(prev_idx);
+        let count = Tab::ALL.len();
+        let prev_idx = (self.current_tab.to_index() + count - 1) % count;
+        self.set_tab(Tab::from_index(prev_idx));
         self.session_detail_id = None;
     }
 
@@ -270,20 +452,9 @@ impl App {
             Tab::Agents => {
                 self.selected_agent = (self.selected_agent + 1) % 3;
             }
-            Tab::Inbox => {
-                let count = self.pending_interactions().len();
-                if count > 0 {
-                    self.selected_interaction = (self.selected_interaction + 1) % count;
-                }
-            }
             Tab::Accounts => {
                 if !self.accounts.is_empty() {
                     self.selected_account = (self.selected_account + 1) % self.accounts.len();
-                }
-            }
-            Tab::Projects => {
-                if !self.projects.is_empty() {
-                    self.selected_project = (self.selected_project + 1) % self.projects.len();
                 }
             }
             Tab::Activity => {
@@ -292,7 +463,36 @@ impl App {
                     self.selected_event = (self.selected_event + 1) % count;
                 }
             }
-            Tab::Settings => {}
+            Tab::Settings => {
+                if self.settings_focus_panel {
+                    match self.current_settings_section() {
+                        SettingsSection::General => {
+                            self.settings_general_item = (self.settings_general_item + 1) % 6;
+                        }
+                        SettingsSection::Accounts => {
+                            if !self.accounts.is_empty() {
+                                self.settings_account_selected = (self.settings_account_selected + 1) % self.accounts.len();
+                                self.selected_account = self.settings_account_selected;
+                            }
+                        }
+                        SettingsSection::Projects => {
+                            if !self.projects.is_empty() {
+                                self.settings_project_selected = (self.settings_project_selected + 1) % self.projects.len();
+                                self.selected_project = self.settings_project_selected;
+                            }
+                        }
+                        SettingsSection::Agents => {
+                            self.selected_agent = (self.selected_agent + 1) % 3;
+                        }
+                        SettingsSection::Models => {
+                            self.settings_model_selected = self.settings_model_selected.saturating_add(1);
+                        }
+                        _ => {}
+                    }
+                } else {
+                    self.settings_section_index = (self.settings_section_index + 1) % SettingsSection::ALL.len();
+                }
+            }
         }
     }
 
@@ -310,31 +510,12 @@ impl App {
             Tab::Agents => {
                 self.selected_agent = if self.selected_agent == 0 { 2 } else { self.selected_agent - 1 };
             }
-            Tab::Inbox => {
-                let count = self.pending_interactions().len();
-                if count > 0 {
-                    self.selected_interaction = if self.selected_interaction == 0 {
-                        count - 1
-                    } else {
-                        self.selected_interaction - 1
-                    };
-                }
-            }
             Tab::Accounts => {
                 if !self.accounts.is_empty() {
                     self.selected_account = if self.selected_account == 0 {
                         self.accounts.len() - 1
                     } else {
                         self.selected_account - 1
-                    };
-                }
-            }
-            Tab::Projects => {
-                if !self.projects.is_empty() {
-                    self.selected_project = if self.selected_project == 0 {
-                        self.projects.len() - 1
-                    } else {
-                        self.selected_project - 1
                     };
                 }
             }
@@ -348,7 +529,45 @@ impl App {
                     };
                 }
             }
-            Tab::Settings => {}
+            Tab::Settings => {
+                if self.settings_focus_panel {
+                    match self.current_settings_section() {
+                        SettingsSection::General => {
+                            self.settings_general_item = if self.settings_general_item == 0 { 5 } else { self.settings_general_item - 1 };
+                        }
+                        SettingsSection::Accounts => {
+                            if !self.accounts.is_empty() {
+                                self.settings_account_selected = if self.settings_account_selected == 0 {
+                                    self.accounts.len() - 1
+                                } else {
+                                    self.settings_account_selected - 1
+                                };
+                                self.selected_account = self.settings_account_selected;
+                            }
+                        }
+                        SettingsSection::Projects => {
+                            if !self.projects.is_empty() {
+                                self.settings_project_selected = if self.settings_project_selected == 0 {
+                                    self.projects.len() - 1
+                                } else {
+                                    self.settings_project_selected - 1
+                                };
+                                self.selected_project = self.settings_project_selected;
+                            }
+                        }
+                        SettingsSection::Agents => {
+                            self.selected_agent = if self.selected_agent == 0 { 2 } else { self.selected_agent - 1 };
+                        }
+                        SettingsSection::Models => {
+                            self.settings_model_selected = self.settings_model_selected.saturating_sub(1);
+                        }
+                        _ => {}
+                    }
+                } else {
+                    let total = SettingsSection::ALL.len();
+                    self.settings_section_index = if self.settings_section_index == 0 { total - 1 } else { self.settings_section_index - 1 };
+                }
+            }
         }
     }
 
@@ -360,6 +579,20 @@ impl App {
 
     pub fn close_session_detail(&mut self) {
         self.session_detail_id = None;
+    }
+
+    pub fn remove_session(&mut self, session_id: &str) {
+        self.sessions.retain(|s| s.id.0 != session_id);
+        self.session_terminal_buffers.remove(session_id);
+        self.session_transcripts.remove(session_id);
+        if let Some(detail_id) = &self.session_detail_id {
+            if detail_id.0 == session_id {
+                self.session_detail_id = None;
+            }
+        }
+        if self.selected_session >= self.sessions.len() && !self.sessions.is_empty() {
+            self.selected_session = self.sessions.len() - 1;
+        }
     }
 
     // ── Queries / Filtered Views ────────────────────────────────────────────
@@ -430,65 +663,15 @@ impl App {
         if let Some(session_id) = &event.session_id {
             let time_str = event.timestamp.format("%H:%M:%S").to_string();
 
-            // 1. Update live terminal buffer
+            // 1. Update live terminal buffer with pure agent output
             let term_buf = self
                 .session_terminal_buffers
                 .entry(session_id.0.clone())
                 .or_default();
 
-            match event.kind {
-                EventKind::AgentOutputReceived => {
-                    let text = event.payload["text"].as_str().unwrap_or("");
-                    term_buf.push_str(text);
-                }
-                EventKind::StateChanged => {
-                    let from = event.payload["from"].as_str().unwrap_or("?");
-                    let to = event.payload["to"].as_str().unwrap_or("?");
-                    term_buf.push_system_line(
-                        &format!("  {time_str}  ● State changed: {from} -> {to}"),
-                        ratatui::style::Style::default().fg(ratatui::style::Color::Cyan),
-                    );
-                }
-                EventKind::AgentSteeringReceived => {
-                    let msg = event.payload["message"].as_str().unwrap_or("");
-                    term_buf.push_system_line(
-                        &format!("  {time_str}  ➜ User steering: {msg}"),
-                        ratatui::style::Style::default().fg(ratatui::style::Color::Green),
-                    );
-                }
-                EventKind::AgentApprovalRequested => {
-                    let tool = event.payload["tool_name"].as_str().unwrap_or("tool");
-                    term_buf.push_system_line(
-                        &format!("  {time_str}  ⚠ Tool approval requested: {tool}"),
-                        ratatui::style::Style::default().fg(ratatui::style::Color::Yellow),
-                    );
-                }
-                EventKind::AgentQuestion => {
-                    let prompt = event.payload["prompt"].as_str().unwrap_or("");
-                    term_buf.push_system_line(
-                        &format!("  {time_str}  ❓ Agent question: {prompt}"),
-                        ratatui::style::Style::default().fg(ratatui::style::Color::Yellow),
-                    );
-                }
-                EventKind::SessionCrashed => {
-                    term_buf.push_system_line(
-                        &format!("  {time_str}  ✖ Session crashed"),
-                        ratatui::style::Style::default().fg(ratatui::style::Color::Red),
-                    );
-                }
-                EventKind::SessionFailed => {
-                    term_buf.push_system_line(
-                        &format!("  {time_str}  ✖ Session failed"),
-                        ratatui::style::Style::default().fg(ratatui::style::Color::Red),
-                    );
-                }
-                EventKind::SessionStopped => {
-                    term_buf.push_system_line(
-                        &format!("  {time_str}  ■ Session stopped"),
-                        ratatui::style::Style::default().fg(ratatui::style::Color::DarkGray),
-                    );
-                }
-                _ => {}
+            if let EventKind::AgentOutputReceived = event.kind {
+                let text = event.payload["text"].as_str().unwrap_or("");
+                term_buf.push_str(text);
             }
 
             // 2. Also keep legacy transcript for simple queries/tests
@@ -613,6 +796,43 @@ impl App {
             _ => {}
         }
 
+        // Handle session removal
+        if event.kind == EventKind::SessionRemoved {
+            if let Some(session_id) = &event.session_id {
+                self.remove_session(&session_id.0);
+            }
+        }
+
+        // If approval is requested for the active session, present the approval modal overlay
+        if (event.kind == EventKind::ApprovalRequested || event.kind == EventKind::AgentApprovalRequested)
+            && event.session_id.is_some()
+            && event.session_id.as_ref() == self.session_detail_id.as_ref()
+        {
+            let interaction_id = event
+                .payload
+                .get("interaction_id")
+                .and_then(|v| v.as_str())
+                .map(Id::from)
+                .unwrap_or_else(|| Id::from("unknown"));
+            let tool_name = event
+                .payload
+                .get("tool_name")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+            let prompt = event
+                .payload
+                .get("prompt")
+                .and_then(|v| v.as_str())
+                .unwrap_or("Action requires human approval")
+                .to_string();
+
+            self.active_modal = Some(Modal::Approval {
+                interaction_id,
+                tool_name,
+                prompt,
+            });
+        }
+
         // Prepend event to events list
         self.events.insert(0, event);
         if self.events.len() > 1000 {
@@ -642,5 +862,23 @@ impl App {
         if let Some(buf) = self.session_terminal_buffers.get_mut(session_id) {
             buf.scroll_to_bottom();
         }
+    }
+
+    pub fn clear_session_terminal(&mut self, session_id: &str) {
+        if let Some(buf) = self.session_terminal_buffers.get_mut(session_id) {
+            buf.clear();
+        }
+    }
+
+    /// Keep every terminal grid the same size as the PTYs (`rows` × `cols`).
+    pub fn resize_session_terminals(&mut self, rows: u16, cols: u16) {
+        for buf in self.session_terminal_buffers.values_mut() {
+            buf.resize(rows as usize, cols as usize);
+        }
+    }
+
+    /// Whether the session's program currently owns the alternate screen.
+    pub fn session_in_alt_screen(&self, session_id: &str) -> bool {
+        self.session_terminal_buffers.get(session_id).is_some_and(|b| b.in_alt_screen())
     }
 }

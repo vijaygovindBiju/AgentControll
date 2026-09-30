@@ -5,6 +5,7 @@
 //!   agy "Personal Google"   Launch Antigravity using the saved account "Personal Google"
 //!   agy account add         Add a new Antigravity account (browser login / manual code)
 //!   agy account list        List all configured Antigravity accounts
+//!   agy account remove <ACCOUNT>  Remove an account (ID or exact name)
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
@@ -45,7 +46,7 @@ enum Commands {
         /// Optional friendly label for the account.
         #[arg(short, long)]
         name: Option<String>,
-        /// Perform login purely in terminal without browser.
+        /// Don't open a browser: print the login URL and paste the redirect URL back.
         #[arg(long)]
         cli: bool,
     },
@@ -60,12 +61,19 @@ enum AccountAction {
         /// Optional friendly label for the account.
         #[arg(short, long)]
         name: Option<String>,
-        /// Perform login purely in terminal without browser.
+        /// Don't open a browser: print the login URL and paste the redirect URL back.
         #[arg(long)]
         cli: bool,
     },
     /// List all configured Antigravity accounts.
     List,
+    /// Remove an Antigravity account (exact account ID or unambiguous name).
+    Remove {
+        account: String,
+        /// Skip the confirmation prompt.
+        #[arg(short, long)]
+        yes: bool,
+    },
 }
 
 #[tokio::main]
@@ -87,6 +95,9 @@ async fn main() -> Result<()> {
                 }
                 AccountAction::List => {
                     list_antigravity_accounts(&client).await?;
+                }
+                AccountAction::Remove { account, yes } => {
+                    launcher::remove_account_command(&client, &account, yes).await?;
                 }
             },
             Commands::Add { name, cli } => {
@@ -117,8 +128,8 @@ async fn list_antigravity_accounts(client: &DaemonClient) -> Result<()> {
     }
 
     println!("\nConfigured Antigravity Accounts:");
-    println!("{:<24}  {:<12}  {}", "ACCOUNT NAME", "STATUS", "CONCURRENCY");
-    println!("{}", "-".repeat(50));
+    println!("{:<24}  {:<12}  {:<11}  {:<26}  {}", "ACCOUNT NAME", "STATUS", "CONCURRENCY", "ACCOUNT ID", "CREDENTIAL");
+    println!("{}", "-".repeat(100));
 
     for a in agy_accounts {
         let status = match a.state {
@@ -136,7 +147,12 @@ async fn list_antigravity_accounts(client: &DaemonClient) -> Result<()> {
             ac_core::types::AccountState::Disabled => "Disabled".to_string(),
             ac_core::types::AccountState::Invalid => "Invalid".to_string(),
         };
-        println!("{:<24}  {:<12}  {}/{}", a.label, status, a.active_session_count, a.concurrency_cap);
+        let credential = match ac_core::agy_auth::validate_credential(&a.credential_ref, &a.label) {
+            Ok(c) => c.email.unwrap_or_else(|| "valid".into()),
+            Err(_) => "INVALID - sign in again".into(),
+        };
+        let conc = format!("{}/{}", a.active_session_count, a.concurrency_cap);
+        println!("{:<24}  {:<12}  {:<11}  {:<26}  {}", a.label, status, conc, a.id, credential);
     }
     println!();
     Ok(())

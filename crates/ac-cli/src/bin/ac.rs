@@ -70,7 +70,7 @@ enum Commands {
         /// Optional friendly label for the account.
         #[arg(short, long)]
         name: Option<String>,
-        /// Perform login purely in terminal without browser.
+        /// Don't open a browser: print the login URL and paste the redirect URL back.
         #[arg(long)]
         cli: bool,
     },
@@ -134,6 +134,12 @@ enum SessionCmd {
         /// Optional reason for stopping.
         #[arg(short, long)]
         reason: Option<String>,
+    },
+    /// Remove/delete a session permanently.
+    #[command(alias = "delete")]
+    Remove {
+        /// Session ID.
+        session_id: String,
     },
     /// List all sessions.
     List,
@@ -218,14 +224,20 @@ enum AccountCmd {
     Disable { account_id: String },
     /// Re-enable a disabled account.
     Enable { account_id: String },
-    /// Remove an account (only if idle).
-    Remove { account_id: String },
+    /// Remove an account (only if it has no active sessions).
+    /// Accepts an exact account ID or an unambiguous exact account name.
+    Remove {
+        account: String,
+        /// Skip the confirmation prompt.
+        #[arg(short, long)]
+        yes: bool,
+    },
     /// Add a new Antigravity account.
     Add {
         /// Optional friendly label for the account.
         #[arg(short, long)]
         name: Option<String>,
-        /// Perform login purely in terminal without browser.
+        /// Don't open a browser: print the login URL and paste the redirect URL back.
         #[arg(long)]
         cli: bool,
     },
@@ -234,7 +246,7 @@ enum AccountCmd {
         /// Optional friendly label for the account.
         #[arg(short, long)]
         name: Option<String>,
-        /// Perform login purely in terminal without browser.
+        /// Don't open a browser: print the login URL and paste the redirect URL back.
         #[arg(long)]
         cli: bool,
     },
@@ -454,6 +466,12 @@ async fn main() -> Result<()> {
         return Ok(());
     }
 
+    if let Commands::Account(AccountCmd::Remove { ref account, yes }) = cli.command {
+        let client = ac_cli::client::DaemonClient::new(cli.socket);
+        client.ensure_daemon_running().await?;
+        return ac_cli::launcher::remove_account_command(&client, account, yes).await;
+    }
+
     if let Commands::Events(EventsCmd::Verify { ref db }) = cli.command {
         let db_path = match db {
             Some(p) => p.clone(),
@@ -574,6 +592,10 @@ fn build_request(commands: &Commands) -> Result<(String, serde_json::Value)> {
                 "session.stop".to_owned(),
                 json!({ "session_id": session_id, "reason": reason }),
             ),
+            SessionCmd::Remove { session_id } => (
+                "session.remove".to_owned(),
+                json!({ "session_id": session_id }),
+            ),
             SessionCmd::List => ("session.list".to_owned(), json!({})),
             SessionCmd::Get { session_id } => (
                 "session.get".to_owned(),
@@ -650,11 +672,7 @@ fn build_request(commands: &Commands) -> Result<(String, serde_json::Value)> {
                 "account.enable".to_owned(),
                 json!({ "account_id": account_id }),
             ),
-            AccountCmd::Remove { account_id } => (
-                "account.remove".to_owned(),
-                json!({ "account_id": account_id }),
-            ),
-            AccountCmd::Add { .. } | AccountCmd::Login { .. } => unreachable!(),
+            AccountCmd::Add { .. } | AccountCmd::Login { .. } | AccountCmd::Remove { .. } => unreachable!(),
         },
 
         Commands::Project(p) => match p {

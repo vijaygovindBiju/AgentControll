@@ -20,7 +20,6 @@ use tempfile::tempdir;
 use tokio::sync::broadcast;
 
 use ac_cli::{
-    auth,
     client::DaemonClient,
     launcher::is_antigravity_account,
 };
@@ -255,19 +254,21 @@ async fn test_credential_persistence_and_zero_secret_leakage() {
     let tmp = tempdir().unwrap();
     std::env::set_var("XDG_CONFIG_HOME", tmp.path());
 
-    let cred_id = "01TESTCRED000000000000001";
     let label = "Personal Google";
+    let token = ac_core::agy_auth::AgyToken::from_native(serde_json::json!({
+        "token": {"access_token": "SECRET-ACCESS", "refresh_token": "SECRET-REFRESH", "expiry": "2099-01-01T00:00:00Z"},
+        "auth_method": "consumer", "id_token": ""
+    })).unwrap();
 
-    let cred_ref = auth::save_credential(cred_id, label, "oauth2").unwrap();
-    assert_eq!(cred_ref, format!("ref:antigravity:{cred_id}"));
+    let cred_ref = ac_core::agy_auth::save_new_credential(label, &token, "browser_login").unwrap();
+    assert!(cred_ref.starts_with("ref:agy:"));
+    assert!(!cred_ref.contains("SECRET"), "reference must never contain secrets");
 
-    let cred_file = tmp.path().join("agentcontrol/credentials").join(format!("antigravity_{cred_id}.json"));
-    assert!(cred_file.exists());
-
-    // Verify file content has metadata, not raw credentials in reference
+    let cred_file = ac_core::agy_auth::credential_path(&cred_ref).unwrap();
+    assert!(cred_file.starts_with(tmp.path()));
     let content = std::fs::read_to_string(&cred_file).unwrap();
     assert!(content.contains("Personal Google"));
-    assert!(content.contains("oauth2"));
+    assert!(content.contains("\"credential_type\": \"antigravity_oauth\""));
 
     #[cfg(unix)]
     {

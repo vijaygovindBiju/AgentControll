@@ -107,6 +107,82 @@ impl PtyConfig {
     }
 }
 
+/// Terminal queries a TUI may emit and wait on for a reply from the emulator.
+/// Only the names are logged, never surrounding output.
+const TERMINAL_QUERIES: &[(&[u8], &str)] = &[
+    (b"\x1b[6n", "DSR cursor position"),
+    (b"\x1b[c", "DA1"),
+    (b"\x1b[>c", "DA2"),
+    (b"\x1b[?u", "kitty keyboard flags"),
+    (b"\x1b]10;?", "OSC 10 fg colour"),
+    (b"\x1b]11;?", "OSC 11 bg colour"),
+    (b"$p", "DECRQM"),
+    (b"\x1b[18t", "XTWINOPS size"),
+];
+
+fn detect_terminal_queries(data: &[u8]) -> Vec<&'static str> {
+    TERMINAL_QUERIES
+        .iter()
+        .filter(|(pat, _)| data.windows(pat.len()).any(|w| w == *pat))
+        .map(|(_, name)| *name)
+        .collect()
+}
+
+/// Decode a PTY read as UTF-8 without corrupting characters that straddle two
+/// reads. An incomplete trailing sequence (at most 3 bytes) is carried into the
+/// next read instead of becoming U+FFFD; genuinely invalid bytes are still
+/// replaced. Everything else is emitted immediately, exactly as before.
+pub(crate) fn decode_utf8_stream(carry: &mut Vec<u8>, data: &[u8]) -> String {
+    carry.extend_from_slice(data);
+    let mut out = String::with_capacity(carry.len());
+    let mut rest: &[u8] = carry;
+    loop {
+        match std::str::from_utf8(rest) {
+            Ok(s) => {
+                out.push_str(s);
+                rest = &[];
+                break;
+            }
+            Err(e) => {
+                let (valid, after) = rest.split_at(e.valid_up_to());
+                out.push_str(std::str::from_utf8(valid).unwrap_or_default());
+                match e.error_len() {
+                    Some(bad) => {
+                        out.push(char::REPLACEMENT_CHARACTER);
+                        rest = &after[bad..];
+                    }
+                    None => {
+                        rest = after;
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    let tail = rest.to_vec();
+    *carry = tail;
+    out
+}
+
+/// Writes input to the PTY, logging only sizes, timing and failures.
+fn write_pty(w: &Arc<Mutex<Box<dyn Write + Send>>>, bytes: &[u8], pid: Option<u32>) {
+    let started = std::time::Instant::now();
+    let res = match w.lock() {
+        Ok(mut lock) => lock.write_all(bytes).and_then(|_| lock.flush()),
+        Err(_) => Err(std::io::Error::other("PTY writer lock poisoned")),
+    };
+    match res {
+        Ok(()) => debug!(
+            "PTY stdin (pid={:?}): wrote {} byte(s) in {:?}{}",
+            pid,
+            bytes.len(),
+            started.elapsed(),
+            if bytes.ends_with(b"\r") || bytes.ends_with(b"\n") { " [ends with newline/CR]" } else { "" }
+        ),
+        Err(e) => warn!("PTY stdin (pid={:?}): write of {} byte(s) failed: {e}", pid, bytes.len()),
+    }
+}
+
 /// Active Generic PTY adapter instance.
 pub struct GenericPtyAdapter;
 
@@ -165,6 +241,14 @@ impl GenericPtyAdapter {
         drop(pair.slave); // Crucial: close slave in parent so master gets EOF on child exit
 
         let child_pid = child.process_id();
+        debug!(
+            "PTY spawned {} (pid={:?}, {} arg(s), cwd={:?}, 80x24, env overrides={:?})",
+            config.program,
+            child_pid,
+            config.args.len(),
+            ctx.workspace_path,
+            config.envs.keys().collect::<Vec<_>>()
+        );
         let reader = pair.master.try_clone_reader().context("cloning PTY reader")?;
         let writer = pair.master.take_writer().context("taking PTY writer")?;
         let writer = Arc::new(Mutex::new(writer));
@@ -181,24 +265,19 @@ impl GenericPtyAdapter {
                 match cmd {
                     AgentCommand::Input { data } => {
                         let w = writer_cmd.clone();
-                        let _ = tokio::task::spawn_blocking(move || {
-                            if let Ok(mut lock) = w.lock() {
-                                let _ = lock.write_all(data.as_bytes());
-                                let _ = lock.flush();
-                            }
-                        })
-                        .await;
+                        let _ = tokio::task::spawn_blocking(move || write_pty(&w, data.as_bytes(), child_pid)).await;
                     }
                     AgentCommand::Resize { rows, cols } => {
                         let m = master_cmd.clone();
                         let _ = tokio::task::spawn_blocking(move || {
                             if let Ok(lock) = m.lock() {
-                                let _ = lock.resize(portable_pty::PtySize {
+                                let res = lock.resize(portable_pty::PtySize {
                                     rows,
                                     cols,
                                     pixel_width: 0,
                                     pixel_height: 0,
                                 });
+                                debug!("PTY resize (pid={:?}) to {}x{}: {:?}", child_pid, cols, rows, res.err());
                             }
                         })
                         .await;
@@ -212,24 +291,12 @@ impl GenericPtyAdapter {
                             "n\r\n".to_string()
                         };
                         let w = writer_cmd.clone();
-                        let _ = tokio::task::spawn_blocking(move || {
-                            if let Ok(mut lock) = w.lock() {
-                                let _ = lock.write_all(text.as_bytes());
-                                let _ = lock.flush();
-                            }
-                        })
-                        .await;
+                        let _ = tokio::task::spawn_blocking(move || write_pty(&w, text.as_bytes(), child_pid)).await;
                     }
                     AgentCommand::Steer { message } => {
                         let text = format!("{}\r\n", message);
                         let w = writer_cmd.clone();
-                        let _ = tokio::task::spawn_blocking(move || {
-                            if let Ok(mut lock) = w.lock() {
-                                let _ = lock.write_all(text.as_bytes());
-                                let _ = lock.flush();
-                            }
-                        })
-                        .await;
+                        let _ = tokio::task::spawn_blocking(move || write_pty(&w, text.as_bytes(), child_pid)).await;
                     }
                     AgentCommand::Pause => {
                         #[cfg(unix)]
@@ -293,8 +360,10 @@ impl GenericPtyAdapter {
             // channel filling up and causing back-pressure.
             let mut buf = [0u8; 8192];
             let mut line_buffer = String::new();
+            let mut utf8_carry: Vec<u8> = Vec::new();
             let mut total_bytes: u64 = 0;
             let mut total_chunks: u64 = 0;
+            let mut last_report = std::time::Instant::now();
 
             debug!("PTY reader thread started (pid={:?})", child_pid);
 
@@ -313,7 +382,22 @@ impl GenericPtyAdapter {
                     Ok(n) => {
                         total_bytes += n as u64;
                         total_chunks += 1;
-                        let chunk = String::from_utf8_lossy(&buf[..n]).to_string();
+                        trace!("PTY stdout (pid={:?}): chunk #{} of {} byte(s)", child_pid, total_chunks, n);
+                        if last_report.elapsed() >= Duration::from_secs(2) {
+                            debug!(
+                                "PTY stdout (pid={:?}): {} bytes / {} chunks so far, {} dropped",
+                                child_pid, total_bytes, total_chunks, dropped_chunks.load(Ordering::Relaxed)
+                            );
+                            last_report = std::time::Instant::now();
+                        }
+                        let queries = detect_terminal_queries(&buf[..n]);
+                        if !queries.is_empty() {
+                            debug!("PTY stdout (pid={:?}): child sent terminal queries {:?}", child_pid, queries);
+                        }
+                        let chunk = decode_utf8_stream(&mut utf8_carry, &buf[..n]);
+                        if chunk.is_empty() {
+                            continue;
+                        }
 
                         // Non-blocking send: if the channel is full, drop
                         // the chunk rather than blocking this thread.
@@ -394,7 +478,13 @@ impl GenericPtyAdapter {
 
                         // Cap buffer to avoid unbounded growth
                         if line_buffer.len() > 16384 {
-                            let keep = line_buffer.split_off(line_buffer.len() - 8192);
+                            // Cut on a char boundary: AGY output is full of multi-byte
+                            // glyphs, and splitting mid-char panics the reader thread.
+                            let mut cut = line_buffer.len() - 8192;
+                            while !line_buffer.is_char_boundary(cut) {
+                                cut += 1;
+                            }
+                            let keep = line_buffer.split_off(cut);
                             line_buffer = keep;
                         }
                     }
@@ -497,6 +587,21 @@ mod tests {
     use super::*;
     use crate::types::Id;
 
+    #[test]
+    fn utf8_split_across_reads_is_not_corrupted() {
+        let text = "▄▀█ ⣾ ▸ ok";
+        let bytes = text.as_bytes();
+        for split in 0..=bytes.len() {
+            let mut carry = Vec::new();
+            let mut out = decode_utf8_stream(&mut carry, &bytes[..split]);
+            out.push_str(&decode_utf8_stream(&mut carry, &bytes[split..]));
+            assert_eq!(out, text, "split at {split}");
+            assert!(carry.is_empty());
+        }
+        let mut carry = Vec::new();
+        assert_eq!(decode_utf8_stream(&mut carry, b"a\xffb"), "a\u{FFFD}b");
+    }
+
     #[tokio::test]
     async fn test_pty_process_startup_and_output() {
         let (tx, mut rx) = mpsc::channel(32);
@@ -532,6 +637,29 @@ mod tests {
         assert!(got_ready, "should receive Ready");
         assert!(got_output, "should receive OutputChunk");
         assert!(got_completed, "should receive Completed");
+    }
+
+    /// Regression: trimming the pattern buffer mid-UTF-8 char panicked the
+    /// reader thread, freezing AGY output at "Generating...".
+    #[tokio::test]
+    async fn test_pty_reader_survives_multibyte_output_past_buffer_cap() {
+        let (tx, mut rx) = mpsc::channel(4096);
+        let ctx = SessionContext::new(Id::new(), "utf8 test".into(), "generic-pty".into());
+        // 1 ASCII byte shifts the 3-byte glyphs off any fixed cut offset.
+        let script = "printf x; i=0; while [ $i -lt 8000 ]; do printf '⣾'; i=$((i+1)); done; echo; echo AFTER_CAP_MARKER";
+        let config = PtyConfig::new("sh").with_args(["-c", script]);
+        let _handle = GenericPtyAdapter::spawn(&ctx, config, tx).unwrap();
+
+        let mut out = String::new();
+        let start = std::time::Instant::now();
+        while start.elapsed() < Duration::from_secs(10) && !out.contains("AFTER_CAP_MARKER") {
+            match tokio::time::timeout(Duration::from_millis(500), rx.recv()).await {
+                Ok(Some(AdapterEvent::OutputChunk { text, .. })) => out.push_str(&text),
+                Ok(None) => break,
+                _ => {}
+            }
+        }
+        assert!(out.contains("AFTER_CAP_MARKER"), "reader stopped after {} bytes", out.len());
     }
 
     #[tokio::test]

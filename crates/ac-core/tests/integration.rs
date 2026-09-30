@@ -358,3 +358,99 @@ async fn pause_idle_session_is_rejected() {
     let session = mgr.get(id.clone()).await.unwrap().unwrap();
     assert_eq!(session.state, SessionState::Idle);
 }
+
+// ── Session removal ─────────────────────────────────────────────────────────
+
+#[tokio::test]
+async fn remove_session_stops_and_removes_from_manager() {
+    let store = EventStore::open_in_memory().unwrap();
+    let (mgr, mut rx) = make_manager(store);
+
+    let id = mgr.create("test task".into(), "mock".into()).await.unwrap();
+    mgr.start(id.clone()).await.unwrap();
+
+    wait_for_event(&mut rx, |e| {
+        e.kind == EventKind::StateChanged && e.payload["to"].as_str() == Some("working")
+    })
+    .await;
+
+    // Remove the running session
+    mgr.remove(id.clone()).await.unwrap();
+
+    // Verify SessionRemoved event was broadcast
+    let removed_event = wait_for_event(&mut rx, |e| {
+        e.kind == EventKind::SessionRemoved && e.session_id == Some(id.clone())
+    })
+    .await;
+    assert_eq!(removed_event.payload["session_id"].as_str(), Some(id.0.as_str()));
+
+    // Verify session no longer exists in manager
+    let session = mgr.get(id.clone()).await.unwrap();
+    assert!(session.is_none());
+
+    let all_sessions = mgr.list().await.unwrap();
+    assert!(all_sessions.iter().all(|s| s.id != id));
+}
+
+#[tokio::test]
+async fn remove_idle_session_removes_immediately() {
+    let store = EventStore::open_in_memory().unwrap();
+    let (mgr, mut rx) = make_manager(store);
+
+    let id = mgr.create("idle task".into(), "mock".into()).await.unwrap();
+    assert!(mgr.get(id.clone()).await.unwrap().is_some());
+
+    mgr.remove(id.clone()).await.unwrap();
+
+    let removed_event = wait_for_event(&mut rx, |e| {
+        e.kind == EventKind::SessionRemoved && e.session_id == Some(id.clone())
+    })
+    .await;
+    assert_eq!(removed_event.session_id, Some(id.clone()));
+
+    assert!(mgr.get(id.clone()).await.unwrap().is_none());
+}
+
+#[tokio::test]
+async fn recovery_replayed_removed_session_stays_removed() {
+    let dir = tempfile::tempdir().unwrap();
+    let db_path = dir.path().join("test_events.db");
+    let session_id: Id;
+
+    {
+        let store = EventStore::open(&db_path).unwrap();
+        let (mgr, mut rx) = make_manager(store);
+
+        session_id = mgr.create("task to remove".into(), "mock".into()).await.unwrap();
+        mgr.start(session_id.clone()).await.unwrap();
+
+        wait_for_event(&mut rx, |e| {
+            e.kind == EventKind::StateChanged && e.payload["to"].as_str() == Some("working")
+        })
+        .await;
+
+        mgr.remove(session_id.clone()).await.unwrap();
+        assert!(mgr.get(session_id.clone()).await.unwrap().is_none());
+    }
+
+    {
+        let store = EventStore::open(&db_path).unwrap();
+        let (cmd_tx, cmd_rx) = mpsc::channel(64);
+        let (event_tx, _) = broadcast::channel::<AgentEvent>(256);
+
+        let mut manager = SessionManager::new(
+            store,
+            cmd_rx,
+            event_tx,
+            3,
+            Box::new(MockAdapterFactory::always(default_script())),
+        );
+        manager.recover_from_store().unwrap();
+        tokio::spawn(async move { manager.run().await });
+
+        let mgr = SessionManagerHandle::new(cmd_tx);
+        let session = mgr.get(session_id.clone()).await.unwrap();
+        assert!(session.is_none(), "Removed session should remain absent after store recovery");
+    }
+}
+

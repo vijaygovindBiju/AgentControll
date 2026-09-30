@@ -431,6 +431,23 @@ impl AccountManager {
         Ok(())
     }
 
+    /// Reconcile active session counts based on live active sessions.
+    pub fn reconcile_active_counts(&mut self, active_counts: &HashMap<Id, u8>) -> Result<()> {
+        for account in self.accounts.values_mut() {
+            let actual = active_counts.get(&account.id).copied().unwrap_or(0);
+            if account.active_session_count != actual {
+                info!(
+                    "Reconciling account {} ({}) active sessions: {} -> {}",
+                    account.id, account.label, account.active_session_count, actual
+                );
+                account.active_session_count = actual;
+                account.updated_at = Utc::now();
+                self.store.update(account)?;
+            }
+        }
+        Ok(())
+    }
+
     // ── Account selection ─────────────────────────────────────────────────
 
     /// Explicit selection: validate that an account exists, is active, supports
@@ -441,13 +458,22 @@ impl AccountManager {
         account_id: &Id,
         agent_type: &str,
     ) -> Result<&Account> {
-        let account = self
-            .accounts
-            .get(&account_id.0)
-            .or_else(|| self.accounts.values().find(|a| a.label.eq_ignore_ascii_case(&account_id.0)))
-            .ok_or_else(|| {
-                anyhow::anyhow!("AccountNotFound: account {} not found", account_id)
-            })?;
+        // Exact ID first; a label is accepted only when it is unambiguous.
+        let account = match self.accounts.get(&account_id.0) {
+            Some(a) => a,
+            None => {
+                let by_label = self.find_by_label(&account_id.0);
+                match by_label.len() {
+                    1 => by_label[0],
+                    0 => bail!("AccountNotFound: account {} not found", account_id),
+                    n => bail!(
+                        "AmbiguousAccount: {} accounts are named '{}'; select one by account ID",
+                        n,
+                        account_id
+                    ),
+                }
+            }
+        };
 
         if !account.supports_agent_type(agent_type) {
             bail!(
@@ -628,6 +654,17 @@ mod tests {
     fn manager() -> AccountManager {
         let store = AccountStore::open_in_memory().unwrap();
         AccountManager::new(store).unwrap()
+    }
+
+    #[test]
+    fn explicit_selection_never_guesses_between_duplicate_labels() {
+        let mut mgr = manager();
+        let a = mgr.register(make_account("Personal Google", vec![])).unwrap();
+        mgr.register(make_account("Personal Google", vec![])).unwrap();
+        let err = mgr.validate_and_select_explicit(&Id::from("Personal Google"), "mock").unwrap_err();
+        assert!(err.to_string().contains("AmbiguousAccount"), "{err}");
+        assert_eq!(mgr.validate_and_select_explicit(&a, "mock").unwrap().id, a);
+        assert!(mgr.validate_and_select_explicit(&Id::from("Wrong"), "mock").is_err());
     }
 
     #[test]

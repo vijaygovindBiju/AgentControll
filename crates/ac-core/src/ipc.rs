@@ -124,7 +124,11 @@ pub fn is_mutating_cmd(cmd: &str) -> bool {
             | "session.pause"
             | "session.resume"
             | "session.stop"
+            | "session.remove"
+            | "session.delete"
             | "session.steer"
+            | "session.input"
+            | "session.resize"
             | "session.select_account"
             | "session.switch_account"
             | "session.handoff"
@@ -144,6 +148,15 @@ pub fn is_mutating_cmd(cmd: &str) -> bool {
             | "policy.remove"
             | "policy.delete"
     )
+}
+
+/// Optional `launch` options of `session.create`. Unknown fields or values are
+/// rejected rather than silently mapped to some other permission mode.
+fn parse_launch(params: &serde_json::Value) -> Result<Option<crate::agy_launch::AgyLaunchOptions>, String> {
+    match params.get("launch") {
+        None | Some(serde_json::Value::Null) => Ok(None),
+        Some(v) => serde_json::from_value(v.clone()).map(Some).map_err(|e| format!("invalid launch options: {e}")),
+    }
 }
 
 /// Unified command dispatcher shared between Unix socket IPC and WebSocket servers.
@@ -314,7 +327,11 @@ pub async fn handle_session_cmd(
             let agent_type = req.params["agent_type"].as_str().unwrap_or("agy").to_owned();
             let project_id = req.params["project_id"].as_str().map(Id::from);
             let account_id = req.params["account_id"].as_str().map(Id::from);
-            match mgr.create_with_context(task, agent_type, project_id, account_id).await {
+            let launch = match parse_launch(&req.params) {
+                Ok(l) => l,
+                Err(e) => return ApiResponse::err(&req.id, "ValidationError", e),
+            };
+            match mgr.create_with_launch(task, agent_type, project_id, account_id, launch).await {
                 Ok(id) => ApiResponse::ok(&req.id, json!({"session_id": id})),
                 Err(e) => ApiResponse::err(&req.id, classify_error(&e), e.to_string()),
             }
@@ -334,7 +351,11 @@ pub async fn handle_session_cmd(
             let agent_type = req.params["agent_type"].as_str().unwrap_or("agy").to_owned();
             let project_id = req.params["project_id"].as_str().map(Id::from);
             let account_id = req.params["account_id"].as_str().map(Id::from);
-            let id = match mgr.create_with_context(task, agent_type, project_id, account_id).await {
+            let launch = match parse_launch(&req.params) {
+                Ok(l) => l,
+                Err(e) => return ApiResponse::err(&req.id, "ValidationError", e),
+            };
+            let id = match mgr.create_with_launch(task, agent_type, project_id, account_id, launch).await {
                 Ok(id) => id,
                 Err(e) => return ApiResponse::err(&req.id, classify_error(&e), e.to_string()),
             };
@@ -374,6 +395,16 @@ pub async fn handle_session_cmd(
                 Err(e) => ApiResponse::err(&req.id, "InvalidState", e.to_string()),
             }
         }
+        "session.remove" | "session.delete" => {
+            let sid = match get_id(&req.params, "session_id") {
+                Ok(id) => id,
+                Err(e) => return ApiResponse::err(&req.id, "ValidationError", e.to_string()),
+            };
+            match mgr.remove(sid).await {
+                Ok(()) => ApiResponse::ok(&req.id, json!({})),
+                Err(e) => ApiResponse::err(&req.id, classify_error(&e), e.to_string()),
+            }
+        }
         "session.list" => {
             match mgr.list().await {
                 Ok(sessions) => ApiResponse::ok(&req.id, json!({"sessions": sessions})),
@@ -401,6 +432,29 @@ pub async fn handle_session_cmd(
             };
             let message = req.params["message"].as_str().unwrap_or("").to_owned();
             match mgr.steer(sid, message).await {
+                Ok(()) => ApiResponse::ok(&req.id, json!({})),
+                Err(e) => ApiResponse::err(&req.id, "InvalidState", e.to_string()),
+            }
+        }
+        "session.input" => {
+            let sid = match get_id(&req.params, "session_id") {
+                Ok(id) => id,
+                Err(e) => return ApiResponse::err(&req.id, "ValidationError", e.to_string()),
+            };
+            let data = req.params["data"].as_str().unwrap_or("").to_owned();
+            match mgr.input(sid, data).await {
+                Ok(()) => ApiResponse::ok(&req.id, json!({})),
+                Err(e) => ApiResponse::err(&req.id, "InvalidState", e.to_string()),
+            }
+        }
+        "session.resize" => {
+            let sid = match get_id(&req.params, "session_id") {
+                Ok(id) => id,
+                Err(e) => return ApiResponse::err(&req.id, "ValidationError", e.to_string()),
+            };
+            let rows = req.params["rows"].as_u64().unwrap_or(24) as u16;
+            let cols = req.params["cols"].as_u64().unwrap_or(80) as u16;
+            match mgr.resize(sid, rows, cols).await {
                 Ok(()) => ApiResponse::ok(&req.id, json!({})),
                 Err(e) => ApiResponse::err(&req.id, "InvalidState", e.to_string()),
             }
@@ -510,6 +564,11 @@ pub async fn handle_account_cmd(
                 .as_array()
                 .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
                 .unwrap_or_default();
+            if provider == crate::agy_auth::PROVIDER {
+                if let Err(e) = crate::agy_auth::validate_credential(&credential_ref, &label) {
+                    return ApiResponse::err(&req.id, "InvalidCredential", e.to_string());
+                }
+            }
             let account = Account::new(label, provider, agent_types, credential_ref, concurrency_cap, tags);
             match mgr_handle.0.lock().unwrap().register(account) {
                 Ok(id) => ApiResponse::ok(&req.id, json!({"account_id": id})),
@@ -576,14 +635,65 @@ pub async fn handle_account_cmd(
                 Ok(id) => id,
                 Err(e) => return ApiResponse::err(&req.id, "ValidationError", e.to_string()),
             };
-            let result = mgr_handle.0.lock().unwrap().remove(&aid);
-            match result {
-                Ok(()) => ApiResponse::ok(&req.id, json!({})),
-                Err(e) => ApiResponse::err(&req.id, "InvalidState", e.to_string()),
-            }
+            remove_account(req, mgr_handle, session_mgr, aid).await
         }
         other => ApiResponse::err(&req.id, "NotFound", format!("Unknown command: {other}")),
     }
+}
+
+/// Remove an account safely:
+///  1. refuse while any non-terminal session uses it,
+///  2. (Antigravity) move credential + profile out of the active locations,
+///  3. delete the database record (rolling back step 2 on failure),
+///  4. permanently delete the staged data, reporting any cleanup failure.
+async fn remove_account(
+    req: &ApiRequest,
+    mgr_handle: &AccountManagerHandle,
+    session_mgr: &SessionManagerHandle,
+    aid: Id,
+) -> ApiResponse {
+    let Some(account) = mgr_handle.0.lock().unwrap().get(&aid).cloned() else {
+        return ApiResponse::err(&req.id, "NotFound", format!("Account \"{}\" does not exist.", aid));
+    };
+    let live = session_mgr
+        .list()
+        .await
+        .map(|v| v.iter().filter(|s| s.account_id.as_ref() == Some(&aid) && !s.state.is_terminal()).count())
+        .unwrap_or(0);
+    let active = live.max(account.active_session_count as usize);
+    if active > 0 {
+        return ApiResponse::err(
+            &req.id,
+            "AccountInUse",
+            format!(
+                "Cannot remove \"{}\".\n\nActive sessions:\n{}\n\nStop the session first before removing this account.",
+                account.label, active
+            ),
+        );
+    }
+
+    let is_agy = account.provider == crate::agy_auth::PROVIDER;
+    let mut staging = if is_agy {
+        match crate::agy_auth::stage_account_removal(&aid, &account.credential_ref) {
+            Ok(s) => Some(s),
+            Err(e) => return ApiResponse::err(&req.id, "CleanupFailed", format!("Account \"{}\" was not removed: {e}", account.label)),
+        }
+    } else {
+        None
+    };
+
+    let result = mgr_handle.0.lock().unwrap().remove(&aid);
+    if let Err(e) = result {
+        if let Some(s) = staging.as_mut() {
+            s.rollback();
+        }
+        return ApiResponse::err(&req.id, "InvalidState", e.to_string());
+    }
+    let cleanup_errors = staging.map(|s| s.commit()).unwrap_or_default();
+    ApiResponse::ok(
+        &req.id,
+        json!({ "removed": true, "account_id": aid, "label": account.label, "cleanup_errors": cleanup_errors }),
+    )
 }
 
 // ── Project commands ──────────────────────────────────────────────────────────
@@ -1076,6 +1186,8 @@ fn classify_error(e: &anyhow::Error) -> &'static str {
         "HandOffFailed"
     } else if msg.contains("StaleSession") {
         "StaleSession"
+    } else if msg.starts_with("ValidationError") {
+        "ValidationError"
     } else if msg.contains("not found") || msg.contains("Not found") {
         "NotFound"
     } else if msg.contains("not available") || msg.contains("InvalidState") {

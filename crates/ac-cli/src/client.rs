@@ -179,6 +179,21 @@ impl DaemonClient {
         Ok(aid)
     }
 
+    /// Remove an account by exact ID. Returns cleanup errors (empty on full success).
+    pub async fn remove_account(&self, account_id: &Id) -> Result<Vec<String>> {
+        let resp = self
+            .send_command("account.remove", json!({ "account_id": account_id }))
+            .await?;
+        if !resp.ok {
+            let msg = resp.error.map(|e| e.message).unwrap_or_else(|| "Unknown error".into());
+            anyhow::bail!("{msg}");
+        }
+        Ok(resp
+            .result
+            .and_then(|r| serde_json::from_value(r["cleanup_errors"].clone()).ok())
+            .unwrap_or_default())
+    }
+
     /// List all sessions.
     pub async fn list_sessions(&self) -> Result<Vec<AgentSession>> {
         let resp = self.send_command("session.list", json!({})).await?;
@@ -278,6 +293,21 @@ impl DaemonClient {
         if !resp.ok {
             let msg = resp.error.map(|e| e.message).unwrap_or_else(|| "Unknown error".into());
             anyhow::bail!("Failed to stop session: {msg}");
+        }
+        Ok(())
+    }
+
+    /// Remove/delete a session.
+    pub async fn remove_session(&self, session_id: &Id) -> Result<()> {
+        let resp = self
+            .send_command(
+                "session.remove",
+                json!({ "session_id": session_id }),
+            )
+            .await?;
+        if !resp.ok {
+            let msg = resp.error.map(|e| e.message).unwrap_or_else(|| "Unknown error".into());
+            anyhow::bail!("Failed to remove session: {msg}");
         }
         Ok(())
     }

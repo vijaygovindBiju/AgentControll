@@ -270,11 +270,16 @@ with:
 - The credential store integration uses ADR-006 indirection (`credential_ref`).
 
 ### Antigravity OAuth 2.0 Security
-- **Loopback isolation**: Authentication listens strictly on `127.0.0.1:0` with an ephemeral port, protected by local kernel socket isolation.
-- **Short-lived listener**: The listener is terminated immediately upon token receipt or after a 120-second timeout.
-- **Strict permissions**: Received tokens are persisted directly to `~/.config/agentcontrol/credentials/antigravity_<id>.json` with POSIX `0600` permissions. The parent directory is created with `0700` permissions.
-- **Zero raw credentials in IPC or persistence**: Only the reference string (`ref:antigravity:<id>`) is communicated over Unix domain socket IPC to the daemon and persisted in SQLite `accounts` table.
-- **Zero token logging**: The redaction pipeline and tracing subscribers ensure tokens are never logged or emitted in event streams.
+Implemented once in `ac_core::agy_auth` and shared by the CLI, the TUI and the daemon. Full guide: [ANTIGRAVITY_ACCOUNTS.md](ANTIGRAVITY_ACCOUNTS.md).
+
+- **Same-port loopback flow**: the callback listener binds `127.0.0.1:0`. The authorization URL and the token exchange use that listener's exact redirect URI. Requests carry `state` (checked on callback) and PKCE S256. The listener closes after the callback or after a 180-second timeout. If the port cannot be bound, the login fails with a visible error.
+- **No secrets in process arguments**: the token exchange uses an in-process HTTPS client (`reqwest` with rustls). No `curl` is spawned. The authorization code, PKCE verifier and client secret travel only in the POST body, so they never appear in `ps`, `/proc/<pid>/cmdline` or shell history. `agy` itself is started with no credential arguments.
+- **OAuth client secret (decision)**: Antigravity uses a Google *installed-application* client. For that client type Google does not treat the secret as confidential (the same value ships inside the `agy` binary). Security comes from loopback + `state` + PKCE instead. The secret is therefore not kept in source control. It is read at runtime from `AC_AGY_OAUTH_CLIENT_ID`/`AC_AGY_OAUTH_CLIENT_SECRET` or from `~/.config/agentcontrol/antigravity-oauth-client.json` (`0600`). The `Debug` implementation of the client type omits the secret, and error messages never include it.
+- **Typed credentials**: `credentials/agy_<id>.json` (`0600`, written atomically) has `"credential_type": "antigravity_oauth"`. A one-time authorization code, an empty value or arbitrary text is never accepted as a credential. The daemon refuses to register an `agy` account whose credential does not validate.
+- **Per-account isolation**: `agy` runs with `HOME=~/.config/agentcontrol/profiles/<account-id>` (`0700`). Ambient Google/Gemini credential environment variables are removed. There is no code path that starts `agy` without a validated, selected account, so the machine's default `~/.gemini` login is never used as a fallback.
+- **Errors without secrets**: all user-facing errors (`AgyAuthError`) name the account and the reason only. Token-endpoint errors are reduced to the sanitized `error` / `error_description` fields.
+- **Zero raw credentials in IPC or persistence**: only `ref:agy:<id>` travels over IPC and is stored in SQLite. Tests scan the SQLite files and the event stream for token material.
+- **Removal**: credential and profile are staged atomically, the database row is deleted (with rollback on failure), and the staged data is then deleted. Deletion never follows symlinks, so user files outside Agent Control's directories cannot be removed.
 
 Credentials are:
 - Looked up by `credential_ref` at session-start time.

@@ -151,7 +151,9 @@ fn render_session_quick_info(f: &mut Frame, app: &App, area: Rect) {
                 Span::raw(" | "),
                 Span::styled("[p] Pause", Style::default().fg(Color::Blue)),
                 Span::raw(" | "),
-                Span::styled("[x] Stop", Style::default().fg(Color::Red)),
+                Span::styled("[x] Stop", Style::default().fg(Color::Yellow)),
+                Span::raw(" | "),
+                Span::styled("[d] Remove", Style::default().fg(Color::Red)),
             ]),
         ];
         let p = Paragraph::new(lines).block(block);

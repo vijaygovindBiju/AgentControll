@@ -1,57 +1,236 @@
 //! Keyboard input and async event handling.
 
 use anyhow::Result;
-use crossterm::event::{KeyCode, KeyEvent};
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
-use ac_core::types::{PolicyDecision, SessionState};
+use ac_core::types::{Id, PolicyDecision, SessionState};
 use crate::{
-    app::{App, Modal, StatusType, Tab},
+    app::{AgyAddStep, AgyLoginTask, AgyLoginUpdate, App, Modal, StatusType, Tab},
     client::ApiClient,
 };
 
-fn open_google_oauth_and_listen(app: &mut App, client: ApiClient) {
-    let auth_url = ac_core::credentials::default_google_oauth_url();
-    ac_core::credentials::open_browser(&auth_url);
-    app.set_status("Opening Google sign-in in browser... Copy code or allow callback.", StatusType::Info);
+/// Collapse a multi-line user-facing error into one status-bar line.
+pub fn one_line(msg: &str) -> String {
+    msg.split('\n').map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>().join(" ")
+}
 
-    tokio::spawn(async move {
-        let bind_addr = format!("127.0.0.1:{}", ac_core::credentials::DEFAULT_OAUTH_PORT);
-        if let Ok(listener) = tokio::net::TcpListener::bind(&bind_addr).await {
-            use tokio::io::{AsyncReadExt, AsyncWriteExt};
-            if let Ok(Ok((mut socket, _))) = tokio::time::timeout(std::time::Duration::from_secs(120), listener.accept()).await {
-                let mut buf = [0u8; 2048];
-                let n = socket.read(&mut buf).await.unwrap_or(0);
-                let req_str = String::from_utf8_lossy(&buf[..n]);
+/// Register a freshly saved Antigravity credential; on failure the credential
+/// file is deleted so no partially authenticated account remains.
+async fn register_agy_account(client: &ApiClient, label: &str, credential_ref: &str) -> std::result::Result<Id, String> {
+    client
+        .register_account(label, ac_core::agy_auth::PROVIDER, &ac_core::agy_auth::AGENT_TYPES, credential_ref, 2, &["google"])
+        .await
+        .map_err(|e| {
+            ac_core::agy_auth::discard_credential(credential_ref);
+            format!("Registering the account failed: {e}")
+        })
+}
 
-                let code = ac_core::credentials::extract_code_from_http_request(&req_str)
-                    .unwrap_or_else(|| "auth_completed".to_string());
+/// Extract the human-readable reason from a multi-line auth error.
+pub fn failure_reason(msg: &str) -> String {
+    one_line(msg.split_once("Reason:").map(|(_, r)| r).unwrap_or(msg))
+}
 
-                let html_resp = ac_core::credentials::build_oauth_success_html(&code);
-                let http_resp = format!(
-                    "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=UTF-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
-                    html_resp.as_bytes().len(),
-                    html_resp
-                );
-                let _ = socket.write_all(http_resp.as_bytes()).await;
-                let _ = socket.flush().await;
+/// Open the "Add Antigravity Account" dialog.
+pub fn open_agy_add_account(app: &mut App) {
+    app.active_modal = Some(Modal::AgyAddAccount { label: String::new(), step: AgyAddStep::Name { error: None } });
+}
 
-                // Also exchange code and register account in the background
-                if !code.is_empty() && code != "auth_completed" {
-                    let redirect_uri = format!("http://localhost:{}/oauth2callback", ac_core::credentials::DEFAULT_OAUTH_PORT);
-                    if let Ok(json_tokens) = ac_core::credentials::exchange_code_for_google_tokens(&code, &redirect_uri).await {
-                        let cred_id = ulid::Ulid::new().to_string();
-                        let email = json_tokens["id_token"].as_str()
-                            .and_then(ac_core::credentials::extract_email_from_jwt)
-                            .unwrap_or_else(|| "Personal Google".to_string());
-                        let token_str = serde_json::to_string_pretty(&json_tokens).unwrap_or_else(|_| code.clone());
-                        if let Ok(cred_ref) = ac_core::credentials::save_credential("agy", &cred_id, &email, "oauth2_token", Some(token_str)) {
-                            let _ = client.register_account(&email, "agy", &["agy", "antigravity"], &cred_ref, 2, &["google"]).await;
-                        }
+/// Start the shared Antigravity browser login in the background. At most one
+/// login runs at a time; cancelling aborts the task, which closes the callback
+/// listener and drops the in-memory OAuth state and PKCE verifier.
+pub fn start_agy_browser_login(app: &mut App, client: ApiClient, label: String) {
+    start_agy_login(app, client, label, false)
+}
+
+/// Start an Antigravity login in the background.
+///
+/// `link = false`: open the browser and wait for the loopback callback.
+/// `link = true`: generate a shareable login link without opening anything;
+/// it completes through the loopback callback (link opened on this machine) or
+/// through the redirect address the user pastes back (link opened elsewhere).
+/// Both use the same short-lived state + PKCE login; see
+/// `ac_core::agy_auth::finish_login_with_handoff`.
+pub fn start_agy_login(app: &mut App, client: ApiClient, label: String, link: bool) {
+    if app.agy_login.as_ref().is_some_and(|t| !t.abort.is_finished()) {
+        app.set_status("An Antigravity login is already in progress.", StatusType::Warning);
+        return;
+    }
+    let updates: std::sync::Arc<std::sync::Mutex<Vec<AgyLoginUpdate>>> = Default::default();
+    let tx = updates.clone();
+    let push = move |u: AgyLoginUpdate| {
+        if let Ok(mut v) = tx.lock() {
+            v.push(u);
+        }
+    };
+    let (paste_tx, mut paste_rx) = tokio::sync::mpsc::channel::<String>(4);
+    let lbl = label.clone();
+    let handle = tokio::spawn(async move {
+        let result: std::result::Result<(Id, Option<String>), String> = async {
+            let login = ac_core::agy_auth::begin_browser_login().await.map_err(|e| e.to_string())?;
+            let timeout = ac_core::agy_auth::LOGIN_TIMEOUT;
+            let (cref, token) = if link {
+                push(AgyLoginUpdate::LinkReady { url: login.authorization_url().to_string() });
+                let rejected = |reason: String| push(AgyLoginUpdate::PasteRejected { reason: one_line(&reason) });
+                ac_core::agy_auth::finish_login_with_handoff(&login, &lbl, timeout, &mut paste_rx, rejected).await
+            } else {
+                let opened = login.open_in_browser();
+                push(AgyLoginUpdate::Waiting { url: login.authorization_url().to_string(), browser_opened: opened });
+                ac_core::agy_auth::finish_browser_login(&login, &lbl, timeout).await
+            }
+            .map_err(|e| e.to_string())?;
+            let id = register_agy_account(&client, &lbl, &cref).await?;
+            Ok((id, token.email()))
+        }
+        .await;
+        push(match result {
+            Ok((account_id, email)) => AgyLoginUpdate::Succeeded { account_id, email },
+            Err(e) => AgyLoginUpdate::Failed { reason: failure_reason(&e) },
+        });
+    });
+    app.agy_login = Some(AgyLoginTask { abort: handle.abort_handle(), updates });
+    app.agy_login_paste = link.then_some(paste_tx);
+    app.active_modal = Some(Modal::AgyAddAccount {
+        label,
+        step: AgyAddStep::Waiting {
+            url: String::new(),
+            browser_opened: !link,
+            deadline: std::time::Instant::now() + ac_core::agy_auth::LOGIN_TIMEOUT,
+        },
+    });
+}
+
+/// Cancel the in-flight login (if any). Aborting the task drops the callback
+/// listener, the OAuth state and the PKCE verifier, so the link stops working.
+pub fn cancel_agy_login(app: &mut App) {
+    app.agy_login_paste = None;
+    if let Some(t) = app.agy_login.take() {
+        t.abort.abort();
+    }
+}
+
+/// Close the add-account dialog, returning to the start-session form if it was opened from there.
+fn close_add_account(app: &mut App) {
+    match app.resume_start_session.take() {
+        Some(form) => crate::launch::open_form(app, form),
+        None => app.active_modal = None,
+    }
+}
+
+/// Copy the login link to the clipboard and describe the result.
+fn copy_notice(url: &str) -> String {
+    if crate::clipboard::copy(url) {
+        "Login link copied to the clipboard.".into()
+    } else {
+        "Could not access the clipboard — select the link above to copy it.".into()
+    }
+}
+
+/// Apply background login progress to the dialog. Called on every tick.
+pub async fn poll_agy_login(app: &mut App, client: &ApiClient) {
+    let Some(task) = app.agy_login.clone() else { return };
+    let updates: Vec<AgyLoginUpdate> = task.updates.lock().map(|mut v| v.drain(..).collect()).unwrap_or_default();
+    for u in updates {
+        let label = match &app.active_modal {
+            Some(Modal::AgyAddAccount { label, .. }) => label.clone(),
+            _ => String::new(),
+        };
+        let step = match u {
+            AgyLoginUpdate::Waiting { url, browser_opened } => AgyAddStep::Waiting {
+                url,
+                browser_opened,
+                deadline: std::time::Instant::now() + ac_core::agy_auth::LOGIN_TIMEOUT,
+            },
+            AgyLoginUpdate::LinkReady { url } => AgyAddStep::Link {
+                url,
+                deadline: std::time::Instant::now() + ac_core::agy_auth::LOGIN_TIMEOUT,
+                paste: String::new(),
+                notice: None,
+            },
+            AgyLoginUpdate::PasteRejected { reason } => match &app.active_modal {
+                Some(Modal::AgyAddAccount { step: AgyAddStep::Link { url, deadline, paste, .. }, .. }) => AgyAddStep::Link {
+                    url: url.clone(),
+                    deadline: *deadline,
+                    paste: paste.clone(),
+                    notice: Some(format!("Not accepted: {reason}")),
+                },
+                _ => continue,
+            },
+            AgyLoginUpdate::Succeeded { account_id, email } => {
+                app.agy_login = None;
+                app.agy_login_paste = None;
+                refresh_data(app, client).await;
+                if let Some(i) = app.accounts.iter().position(|a| a.id == account_id) {
+                    app.selected_account = i;
+                }
+                AgyAddStep::Success { account_id, email }
+            }
+            AgyLoginUpdate::Failed { reason } => {
+                app.agy_login = None;
+                app.agy_login_paste = None;
+                AgyAddStep::Failed { reason }
+            }
+        };
+        if matches!(app.active_modal, Some(Modal::AgyAddAccount { .. })) {
+            app.active_modal = Some(Modal::AgyAddAccount { label, step });
+        }
+    }
+}
+
+/// Import the machine's existing agy login as a new account.
+async fn import_agy_login(app: &mut App, client: &ApiClient, label: String) {
+    let step = match ac_core::agy_auth::detect_local_login() {
+        None => AgyAddStep::Failed { reason: "No valid existing agy login was found on this machine.".into() },
+        Some((_, tok)) => match ac_core::agy_auth::save_new_credential(&label, &tok, "local_import") {
+            Err(e) => AgyAddStep::Failed { reason: failure_reason(&e.to_string()) },
+            Ok(cref) => match register_agy_account(client, &label, &cref).await {
+                Err(e) => AgyAddStep::Failed { reason: e },
+                Ok(account_id) => {
+                    refresh_data(app, client).await;
+                    if let Some(i) = app.accounts.iter().position(|a| a.id == account_id) {
+                        app.selected_account = i;
                     }
+                    AgyAddStep::Success { account_id, email: tok.email() }
+                }
+            },
+        },
+    };
+    app.active_modal = Some(Modal::AgyAddAccount { label, step });
+}
+
+/// Create and start a session, then open its terminal.
+pub async fn launch_session_and_open(
+    app: &mut App,
+    client: &ApiClient,
+    task_desc: &str,
+    agent_type: &str,
+    account: Option<&Id>,
+    launch: Option<&ac_core::agy_launch::AgyLaunchOptions>,
+) {
+    match client.create_session_with_launch(task_desc, agent_type, None, account, launch).await {
+        Ok(new_id) => match client.start_session(&new_id).await {
+            Ok(()) => {
+                app.set_status(format!("✓ Launched session {} successfully!", new_id.0), StatusType::Success);
+                refresh_data(app, client).await;
+                app.set_tab(Tab::Sessions);
+                app.session_detail_id = Some(new_id.clone());
+                load_session_history_if_needed(app, client, &new_id).await;
+                if let Ok((cols, rows)) = crossterm::terminal::size() {
+                    let _ = client.resize_session(&new_id, rows.saturating_sub(2), cols).await;
                 }
             }
-        }
-    });
+            Err(e) => app.set_status(format!("Created session {} but failed to start: {e}", new_id.0), StatusType::Error),
+        },
+        Err(e) => app.set_status(format!("Failed to create session: {e}"), StatusType::Error),
+    }
+}
+
+/// Number of non-terminal sessions currently bound to an account.
+pub fn active_sessions_for_account(app: &App, account_id: &Id) -> usize {
+    app.sessions
+        .iter()
+        .filter(|s| s.account_id.as_ref() == Some(account_id) && !s.state.is_terminal())
+        .count()
 }
 
 /// Handle a key event received from the terminal.
@@ -124,6 +303,7 @@ pub async fn handle_key(app: &mut App, client: &ApiClient, key: KeyEvent) -> Res
                     app.active_modal = None;
                     match client.stop_session(&session_id, None).await {
                         Ok(()) => {
+                            app.close_session_detail();
                             app.set_status(format!("Stopped session {}", session_id.0), StatusType::Success);
                             refresh_data(app, client).await;
                         }
@@ -135,6 +315,150 @@ pub async fn handle_key(app: &mut App, client: &ApiClient, key: KeyEvent) -> Res
                 }
                 _ => {
                     app.active_modal = Some(Modal::ConfirmStop { session_id });
+                }
+            },
+
+            Modal::StartSession(form) => crate::launch::handle_key(app, client, form, key).await,
+
+            Modal::AgyAddAccount { mut label, step } => match step {
+                AgyAddStep::Name { .. } => match key.code {
+                    KeyCode::Esc => close_add_account(app),
+                    KeyCode::Char('o') | KeyCode::Char('O') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                        app.active_modal = Some(Modal::AddAccount {
+                            label,
+                            provider: "claude".into(),
+                            auth_method: 1,
+                            token: String::new(),
+                            active_field: 0,
+                        });
+                    }
+                    KeyCode::Enter => {
+                        let name = label.trim().to_string();
+                        let error = if name.is_empty() {
+                            Some("Account name cannot be empty.".to_string())
+                        } else if app.accounts.iter().any(|a| a.label.eq_ignore_ascii_case(&name)) {
+                            Some(format!("You already have an account named \"{name}\"."))
+                        } else {
+                            None
+                        };
+                        let step = if error.is_some() { AgyAddStep::Name { error } } else { AgyAddStep::Method };
+                        app.active_modal = Some(Modal::AgyAddAccount { label: name, step });
+                    }
+                    KeyCode::Backspace => {
+                        label.pop();
+                        app.active_modal = Some(Modal::AgyAddAccount { label, step: AgyAddStep::Name { error: None } });
+                    }
+                    KeyCode::Char(c) => {
+                        label.push(c);
+                        app.active_modal = Some(Modal::AgyAddAccount { label, step: AgyAddStep::Name { error: None } });
+                    }
+                    _ => app.active_modal = Some(Modal::AgyAddAccount { label, step: AgyAddStep::Name { error: None } }),
+                },
+                AgyAddStep::Method => match key.code {
+                    KeyCode::Up | KeyCode::Down => {
+                        app.agy_add_method = if key.code == KeyCode::Down { (app.agy_add_method + 1) % 3 } else { (app.agy_add_method + 2) % 3 };
+                        app.active_modal = Some(Modal::AgyAddAccount { label, step: AgyAddStep::Method });
+                    }
+                    KeyCode::Enter => match app.agy_add_method {
+                        1 => start_agy_login(app, client.clone(), label, true),
+                        2 => import_agy_login(app, client, label).await,
+                        _ => start_agy_browser_login(app, client.clone(), label),
+                    },
+                    KeyCode::Char('l') | KeyCode::Char('L') => start_agy_login(app, client.clone(), label, true),
+                    KeyCode::Char('i') | KeyCode::Char('I') => import_agy_login(app, client, label).await,
+                    KeyCode::Esc => close_add_account(app),
+                    _ => app.active_modal = Some(Modal::AgyAddAccount { label, step: AgyAddStep::Method }),
+                },
+                AgyAddStep::Waiting { .. } | AgyAddStep::Link { .. } if key.code == KeyCode::Esc => {
+                    cancel_agy_login(app);
+                    close_add_account(app);
+                    app.set_status("Antigravity login cancelled. No credential was saved.", StatusType::Info);
+                }
+                AgyAddStep::Link { url, deadline, mut paste, notice } => {
+                    let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+                    let mut notice = notice;
+                    match key.code {
+                        KeyCode::Char('y') | KeyCode::Char('Y') if ctrl => notice = Some(copy_notice(&url)),
+                        KeyCode::Char('c') | KeyCode::Char('C') if paste.is_empty() && !ctrl => notice = Some(copy_notice(&url)),
+                        KeyCode::Char(c) if !ctrl => paste.push(c),
+                        KeyCode::Backspace => {
+                            paste.pop();
+                        }
+                        KeyCode::Enter if !paste.trim().is_empty() => {
+                            let sent = app.agy_login_paste.as_ref().is_some_and(|tx| tx.try_send(std::mem::take(&mut paste)).is_ok());
+                            notice = Some(if sent { "Verifying…".into() } else { "The login is no longer active.".into() });
+                        }
+                        _ => {}
+                    }
+                    app.active_modal = Some(Modal::AgyAddAccount { label, step: AgyAddStep::Link { url, deadline, paste, notice } });
+                }
+                AgyAddStep::Failed { .. } if matches!(key.code, KeyCode::Char('r') | KeyCode::Char('R')) => {
+                    let link = app.agy_add_method == 1;
+                    start_agy_login(app, client.clone(), label, link);
+                }
+                AgyAddStep::Failed { .. } if key.code == KeyCode::Esc => close_add_account(app),
+                AgyAddStep::Success { account_id, .. } if matches!(key.code, KeyCode::Enter | KeyCode::Esc) => {
+                    match app.resume_start_session.take() {
+                        Some(mut form) => {
+                            let accts = crate::launch::agy_accounts(app);
+                            form.account_index = accts.iter().position(|a| a.id == account_id).unwrap_or(form.account_index);
+                            form.error = None;
+                            crate::launch::open_form(app, form);
+                        }
+                        None => {
+                            app.active_modal = None;
+                            app.set_tab(Tab::Accounts);
+                        }
+                    }
+                }
+                step => app.active_modal = Some(Modal::AgyAddAccount { label, step }),
+            },
+
+            Modal::ConfirmRemoveAccount { account_id, label, provider, active_sessions } => match key.code {
+                KeyCode::Enter if active_sessions == 0 => {
+                    app.active_modal = None;
+                    match client.remove_account(&account_id).await {
+                        Ok(errors) if errors.is_empty() => {
+                            app.set_status(format!("✓ Account \"{label}\" removed"), StatusType::Success);
+                        }
+                        Ok(errors) => {
+                            app.set_status(
+                                format!("Account \"{label}\" removed, but cleanup failed: {} — please delete it to finish cleanup.", errors.join("; ")),
+                                StatusType::Warning,
+                            );
+                        }
+                        Err(e) => app.set_status(one_line(&format!("Failed to remove account: {e}")), StatusType::Error),
+                    }
+                    refresh_data(app, client).await;
+                    if app.selected_account >= app.accounts.len() {
+                        app.selected_account = app.accounts.len().saturating_sub(1);
+                    }
+                }
+                KeyCode::Esc | KeyCode::Char('n') | KeyCode::Char('q') => {
+                    app.active_modal = None;
+                }
+                _ => {
+                    app.active_modal = Some(Modal::ConfirmRemoveAccount { account_id, label, provider, active_sessions });
+                }
+            },
+
+            Modal::ConfirmRemoveSession { session_id } => match key.code {
+                KeyCode::Char('y') | KeyCode::Enter => {
+                    app.active_modal = None;
+                    match client.remove_session(&session_id).await {
+                        Ok(()) => {
+                            app.remove_session(&session_id.0);
+                            app.set_status(format!("Removed session {}", session_id.0), StatusType::Success);
+                            refresh_data(app, client).await;
+                        }
+                        Err(e) => app.set_status(format!("Failed to remove session: {e}"), StatusType::Error),
+                    }
+                }
+                KeyCode::Char('n') | KeyCode::Esc => {
+                    app.active_modal = None;
+                }
+                _ => {
+                    app.active_modal = Some(Modal::ConfirmRemoveSession { session_id });
                 }
             },
 
@@ -277,6 +601,7 @@ pub async fn handle_key(app: &mut App, client: &ApiClient, key: KeyEvent) -> Res
                         app.active_modal = None;
                         match client.switch_account(&session_id, &target_account_id).await {
                             Ok(active_id) => {
+                                app.session_detail_id = Some(active_id.clone());
                                 app.set_status(
                                     format!("Switched session to {} (active session: {})", target_account_label, active_id.0),
                                     StatusType::Success,
@@ -326,7 +651,11 @@ pub async fn handle_key(app: &mut App, client: &ApiClient, key: KeyEvent) -> Res
             if key.modifiers.contains(crossterm::event::KeyModifiers::CONTROL)
                 && (key.code == KeyCode::Char('o') || key.code == KeyCode::Char('O'))
             {
-                open_google_oauth_and_listen(app, client.clone());
+                if provider == "agy" {
+                    app.active_modal = Some(Modal::AgyAddAccount { label, step: AgyAddStep::Name { error: None } });
+                } else {
+                    app.active_modal = Some(Modal::AddAccount { label, provider, auth_method, token, active_field });
+                }
                 return Ok(());
             }
 
@@ -430,8 +759,9 @@ pub async fn handle_key(app: &mut App, client: &ApiClient, key: KeyEvent) -> Res
                             if c == '1' { auth_method = 0; }
                             else if c == '2' { auth_method = 1; }
                             else if c == '3' { auth_method = 2; }
-                            else if c == 'o' || c == 'O' {
-                                open_google_oauth_and_listen(app, client.clone());
+                            else if (c == 'o' || c == 'O') && provider == "agy" {
+                                app.active_modal = Some(Modal::AgyAddAccount { label, step: AgyAddStep::Name { error: None } });
+                                return Ok(());
                             }
                         }
                         3 => { token.push(c); }
@@ -445,130 +775,85 @@ pub async fn handle_key(app: &mut App, client: &ApiClient, key: KeyEvent) -> Res
                         active_field,
                     });
                 }
+                KeyCode::Enter if provider == "agy" => {
+                    app.active_modal = Some(Modal::AgyAddAccount { label, step: AgyAddStep::Name { error: None } });
+                }
                 KeyCode::Enter => {
-                    if active_field == 2 && auth_method == 0 && token.trim().is_empty() {
-                        open_google_oauth_and_listen(app, client.clone());
-                        app.active_modal = Some(Modal::AddAccount {
-                            label,
-                            provider,
-                            auth_method,
-                            token,
-                            active_field: 3,
-                        });
+                    if auth_method != 1 {
+                        app.set_status("Only Token / Key is supported for this provider.", StatusType::Error);
+                        app.active_modal = Some(Modal::AddAccount { label, provider, auth_method, token, active_field });
                         return Ok(());
                     }
-
                     let cred_id = ulid::Ulid::new().to_string();
-                    let (auth_mode, token_data, default_label) = match auth_method {
-                        0 => {
-                            let t = if token.trim().is_empty() {
-                                None
-                            } else {
-                                let c = token.trim();
-                                let redirect_uri = format!("http://localhost:{}/oauth2callback", ac_core::credentials::DEFAULT_OAUTH_PORT);
-                                let token_val = match ac_core::credentials::exchange_code_for_google_tokens(c, &redirect_uri).await {
-                                    Ok(json_tokens) => {
-                                        if let Some(jwt) = json_tokens["id_token"].as_str() {
-                                            if let Some(email) = ac_core::credentials::extract_email_from_jwt(jwt) {
-                                                if label.trim().is_empty() {
-                                                    label = email;
-                                                }
-                                            }
-                                        }
-                                        serde_json::to_string_pretty(&json_tokens).unwrap_or_else(|_| c.to_string())
-                                    }
-                                    Err(_) => c.to_string(),
-                                };
-                                Some(token_val)
-                            };
-                            ("oauth2_token", t, "Personal Google".to_string())
-                        }
-                        1 => {
-                            let t = if token.trim().is_empty() { None } else { Some(token.trim().to_string()) };
-                            ("api_token", t, if provider == "claude" { "Claude Account".to_string() } else { "Personal Google".to_string() })
-                        }
-                        2 => {
-                            let detected = ac_core::credentials::detect_existing_antigravity_token();
-                            let (ident, content) = match detected {
-                                Some((i, c)) => (i, Some(c)),
-                                None => ("Personal Google".to_string(), None),
-                            };
-                            ("imported_session", content, if ident.is_empty() { "Personal Google".to_string() } else { ident })
-                        }
-                        _ => ("api_token", None, "Personal Google".to_string()),
+                    let token_data = if token.trim().is_empty() { None } else { Some(token.trim().to_string()) };
+                    let default_label = if provider == "claude" { "Claude Account".to_string() } else { "Personal Google".to_string() };
+                    let final_label = if label.trim().is_empty() {
+                        default_label
+                    } else {
+                        label.trim().to_string()
                     };
 
-                        let final_label = if label.trim().is_empty() {
-                            default_label
-                        } else {
-                            label.trim().to_string()
-                        };
+                    match ac_core::credentials::save_credential(
+                        &provider,
+                        &cred_id,
+                        &final_label,
+                        "api_token",
+                        token_data,
+                    ) {
+                        Ok(cred_ref) => {
+                            let agent_types: Vec<&str> = match provider.as_str() {
+                                "claude" => vec!["claude", "claude-code"],
+                                _ => vec!["pty", "generic-pty"],
+                            };
 
-                        match ac_core::credentials::save_credential(
-                            &provider,
-                            &cred_id,
-                            &final_label,
-                            auth_mode,
-                            token_data,
-                        ) {
-                            Ok(cred_ref) => {
-                                let agent_types: Vec<&str> = match provider.as_str() {
-                                    "agy" => vec!["agy", "antigravity"],
-                                    "claude" => vec!["claude", "claude-code"],
-                                    _ => vec!["pty", "generic-pty"],
-                                };
-
-                                match client.register_account(
-                                    &final_label,
-                                    &provider,
-                                    &agent_types,
-                                    &cred_ref,
-                                    2,
-                                    &[],
-                                ).await {
-                                    Ok(_) => {
-                                        app.active_modal = None;
-                                        app.set_status(format!("✓ Account \"{}\" added successfully!", final_label), StatusType::Success);
-                                        refresh_data(app, client).await;
-                                    }
-                                    Err(e) => {
-                                        app.set_status(format!("Failed to register account: {}", e), StatusType::Error);
-                                    }
+                            match client.register_account(
+                                &final_label,
+                                &provider,
+                                &agent_types,
+                                &cred_ref,
+                                2,
+                                &[],
+                            ).await {
+                                Ok(_) => {
+                                    app.active_modal = None;
+                                    app.set_status(format!("✓ Account \"{}\" added successfully!", final_label), StatusType::Success);
+                                    refresh_data(app, client).await;
+                                }
+                                Err(e) => {
+                                    app.set_status(format!("Failed to register account: {}", e), StatusType::Error);
                                 }
                             }
-                            Err(e) => {
-                                app.set_status(format!("Failed to save credential: {}", e), StatusType::Error);
-                            }
+                        }
+                        Err(e) => {
+                            app.set_status(format!("Failed to save credential: {}", e), StatusType::Error);
                         }
                     }
-                    _ => {}
                 }
+                _ => {}
+            }
             }
 
             Modal::NewSession {
                 mut account_index,
                 mut session_name,
-                mut task,
                 mut active_field,
             } => match key.code {
                 KeyCode::Esc => {
                     app.active_modal = None;
                 }
                 KeyCode::Tab | KeyCode::Down => {
-                    active_field = (active_field + 1) % 3;
+                    active_field = (active_field + 1) % 2;
                     app.active_modal = Some(Modal::NewSession {
                         account_index,
                         session_name,
-                        task,
                         active_field,
                     });
                 }
                 KeyCode::BackTab | KeyCode::Up => {
-                    active_field = if active_field == 0 { 2 } else { active_field - 1 };
+                    active_field = if active_field == 0 { 1 } else { active_field - 1 };
                     app.active_modal = Some(Modal::NewSession {
                         account_index,
                         session_name,
-                        task,
                         active_field,
                     });
                 }
@@ -583,7 +868,6 @@ pub async fn handle_key(app: &mut App, client: &ApiClient, key: KeyEvent) -> Res
                     app.active_modal = Some(Modal::NewSession {
                         account_index,
                         session_name,
-                        task,
                         active_field,
                     });
                 }
@@ -594,7 +878,6 @@ pub async fn handle_key(app: &mut App, client: &ApiClient, key: KeyEvent) -> Res
                     app.active_modal = Some(Modal::NewSession {
                         account_index,
                         session_name,
-                        task,
                         active_field,
                     });
                 }
@@ -605,233 +888,466 @@ pub async fn handle_key(app: &mut App, client: &ApiClient, key: KeyEvent) -> Res
                     app.active_modal = Some(Modal::NewSession {
                         account_index,
                         session_name,
-                        task,
                         active_field,
                     });
                 }
                 KeyCode::Backspace => {
-                    match active_field {
-                        1 => { session_name.pop(); }
-                        2 => { task.pop(); }
-                        _ => {}
+                    if active_field == 1 {
+                        session_name.pop();
                     }
                     app.active_modal = Some(Modal::NewSession {
                         account_index,
                         session_name,
-                        task,
                         active_field,
                     });
                 }
                 KeyCode::Char(c) => {
-                    match active_field {
-                        1 => { session_name.push(c); }
-                        2 => { task.push(c); }
-                        _ => {}
+                    if active_field == 1 {
+                        session_name.push(c);
                     }
                     app.active_modal = Some(Modal::NewSession {
                         account_index,
                         session_name,
-                        task,
                         active_field,
                     });
                 }
                 KeyCode::Enter => {
                     let name_trimmed = session_name.trim().to_string();
-                    let task_trimmed = task.trim().to_string();
-                    if name_trimmed.is_empty() && task_trimmed.is_empty() {
-                        app.set_status("Session name or task cannot be empty", StatusType::Warning);
-                        app.active_modal = Some(Modal::NewSession {
-                            account_index,
-                            session_name,
-                            task,
-                            active_field,
-                        });
+                    let session_title = if name_trimmed.is_empty() {
+                        "session".to_string()
                     } else {
-                        app.active_modal = None;
-                        let full_task = if !name_trimmed.is_empty() && !task_trimmed.is_empty() {
-                            format!("{}: {}", name_trimmed, task_trimmed)
-                        } else if !task_trimmed.is_empty() {
-                            task_trimmed
-                        } else {
-                            name_trimmed
-                        };
+                        name_trimmed
+                    };
+                    app.active_modal = None;
 
-                        let chosen_acct = if !app.accounts.is_empty() {
-                            let idx = account_index % app.accounts.len();
-                            Some(app.accounts[idx].id.clone())
-                        } else {
-                            None
+                    let (agent_type, chosen_acct) = if !app.accounts.is_empty() {
+                        let idx = account_index % app.accounts.len();
+                        let a = &app.accounts[idx];
+                        let agent = match a.provider.to_lowercase().as_str() {
+                            p if p.contains("claude") => "claude",
+                            p if p.contains("codex") => "codex",
+                            _ => "agy",
                         };
+                        (agent, Some(a.id.clone()))
+                    } else {
+                        ("agy", None)
+                    };
 
-                        match client
-                            .create_session(&full_task, "agy", None, chosen_acct.as_ref())
-                            .await
-                        {
-                            Ok(new_id) => match client.start_session(&new_id).await {
-                                Ok(()) => {
-                                    app.set_status(
-                                        format!("✓ Launched session {} successfully!", new_id.0),
-                                        StatusType::Success,
-                                    );
-                                    refresh_data(app, client).await;
-                                    app.set_tab(Tab::Sessions);
-                                }
-                                Err(e) => {
-                                    app.set_status(
-                                        format!(
-                                            "Created session {} but failed to start: {e}",
-                                            new_id.0
-                                        ),
-                                        StatusType::Error,
-                                    );
-                                }
-                            },
-                            Err(e) => {
-                                app.set_status(
-                                    format!("Failed to create session: {e}"),
-                                    StatusType::Error,
-                                );
-                            }
-                        }
-                    }
+                    let task_desc = format!("[interactive] {}", session_title);
+                    launch_session_and_open(app, client, &task_desc, agent_type, chosen_acct.as_ref(), None).await;
                 }
                 _ => {
                     app.active_modal = Some(Modal::NewSession {
                         account_index,
                         session_name,
-                        task,
                         active_field,
                     });
                 }
+            },
+
+            Modal::CommandPalette { session_id, mut selected_index } => match key.code {
+                KeyCode::Esc => {
+                    app.active_modal = None;
+                }
+                KeyCode::Up | KeyCode::Char('k') => {
+                    selected_index = if selected_index == 0 { 8 } else { selected_index - 1 };
+                    app.active_modal = Some(Modal::CommandPalette { session_id, selected_index });
+                }
+                KeyCode::Down | KeyCode::Char('j') => {
+                    selected_index = (selected_index + 1) % 9;
+                    app.active_modal = Some(Modal::CommandPalette { session_id, selected_index });
+                }
+                KeyCode::Enter => {
+                    app.active_modal = None;
+                    match selected_index {
+                        0 => {
+                            // Pause
+                            let sid = session_id.clone();
+                            match client.pause_session(&sid).await {
+                                Ok(()) => app.set_status(format!("Paused session {}", sid.0), StatusType::Success),
+                                Err(e) => app.set_status(format!("Failed to pause: {e}"), StatusType::Error),
+                            }
+                        }
+                        1 => {
+                            // Resume
+                            if let Some(s) = app.sessions.iter().find(|s| s.id == session_id).cloned() {
+                                handle_session_resume_or_run(app, client, &s).await;
+                            }
+                        }
+                        2 => {
+                            // Switch Account
+                            open_switch_account_modal(app, client).await;
+                        }
+                        3 => {
+                            // Stop Session
+                            app.active_modal = Some(Modal::ConfirmStop { session_id });
+                        }
+                        4 => {
+                            // Remove Session
+                            app.active_modal = Some(Modal::ConfirmRemoveSession { session_id });
+                        }
+                        5 => {
+                            // Session Info
+                            app.active_modal = Some(Modal::SessionInfo { session_id });
+                        }
+                        6 => {
+                            // View Events
+                            app.close_session_detail();
+                            app.set_tab(Tab::Activity);
+                        }
+                        7 => {
+                            // Copy Session ID
+                            app.set_status(format!("Session ID: {}", session_id.0), StatusType::Info);
+                        }
+                        8 => {
+                            // Return to Sessions
+                            app.close_session_detail();
+                            app.set_tab(Tab::Sessions);
+                        }
+                        _ => {}
+                    }
+                }
+                _ => {
+                    app.active_modal = Some(Modal::CommandPalette { session_id, selected_index });
+                }
+            },
+
+            Modal::Approval { interaction_id, tool_name: _, prompt: _ } => match key.code {
+                KeyCode::Char('a') | KeyCode::Char('A') | KeyCode::Enter => {
+                    app.active_modal = None;
+                    match client
+                        .resolve_interaction(&interaction_id, Some(PolicyDecision::Allow), None)
+                        .await
+                    {
+                        Ok(_) => {
+                            app.set_status("Approved execution", StatusType::Success);
+                            refresh_data(app, client).await;
+                        }
+                        Err(e) => app.set_status(format!("Approval failed: {e}"), StatusType::Error),
+                    }
+                }
+                KeyCode::Char('d') | KeyCode::Char('D') => {
+                    app.active_modal = None;
+                    match client
+                        .resolve_interaction(&interaction_id, Some(PolicyDecision::Deny), None)
+                        .await
+                    {
+                        Ok(_) => {
+                            app.set_status("Denied execution", StatusType::Warning);
+                            refresh_data(app, client).await;
+                        }
+                        Err(e) => app.set_status(format!("Denial failed: {e}"), StatusType::Error),
+                    }
+                }
+                KeyCode::Esc => {
+                    app.active_modal = None;
+                }
+                _ => {}
+            },
+
+            Modal::SessionInfo { session_id: _ } => match key.code {
+                KeyCode::Esc | KeyCode::Enter => {
+                    app.active_modal = None;
+                }
+                _ => {}
+            },
+
+            Modal::RegisterProject {
+                mut name,
+                mut repo_path,
+                mut policy_index,
+                mut active_field,
+                error: _,
+            } => match key.code {
+                KeyCode::Esc => {
+                    app.active_modal = None;
+                }
+                KeyCode::Tab | KeyCode::Down => {
+                    active_field = (active_field + 1) % 5;
+                    app.active_modal = Some(Modal::RegisterProject { name, repo_path, policy_index, active_field, error: None });
+                }
+                KeyCode::BackTab | KeyCode::Up => {
+                    active_field = if active_field == 0 { 4 } else { active_field - 1 };
+                    app.active_modal = Some(Modal::RegisterProject { name, repo_path, policy_index, active_field, error: None });
+                }
+                KeyCode::Left | KeyCode::Right if active_field == 2 => {
+                    policy_index = (policy_index + 1) % 3;
+                    app.active_modal = Some(Modal::RegisterProject { name, repo_path, policy_index, active_field, error: None });
+                }
+                KeyCode::Left | KeyCode::Right if active_field == 3 || active_field == 4 => {
+                    active_field = if active_field == 3 { 4 } else { 3 };
+                    app.active_modal = Some(Modal::RegisterProject { name, repo_path, policy_index, active_field, error: None });
+                }
+                KeyCode::Backspace => {
+                    if active_field == 0 {
+                        name.pop();
+                    } else if active_field == 1 {
+                        repo_path.pop();
+                    }
+                    app.active_modal = Some(Modal::RegisterProject { name, repo_path, policy_index, active_field, error: None });
+                }
+                KeyCode::Char(c) if active_field == 0 => {
+                    name.push(c);
+                    app.active_modal = Some(Modal::RegisterProject { name, repo_path, policy_index, active_field, error: None });
+                }
+                KeyCode::Char(c) if active_field == 1 => {
+                    repo_path.push(c);
+                    app.active_modal = Some(Modal::RegisterProject { name, repo_path, policy_index, active_field, error: None });
+                }
+                KeyCode::Enter => {
+                    if active_field == 4 {
+                        app.active_modal = None;
+                        return Ok(());
+                    }
+                    let trimmed_name = name.trim().to_string();
+                    let trimmed_repo = repo_path.trim().to_string();
+                    if trimmed_name.is_empty() {
+                        app.active_modal = Some(Modal::RegisterProject { name, repo_path, policy_index, active_field: 0, error: Some("Project name cannot be empty".into()) });
+                        return Ok(());
+                    }
+                    if trimmed_repo.is_empty() {
+                        app.active_modal = Some(Modal::RegisterProject { name, repo_path, policy_index, active_field: 1, error: Some("Repository path cannot be empty".into()) });
+                        return Ok(());
+                    }
+                    let policies = ["isolated-worktree", "read-only-workspace", "current-working-dir"];
+                    let pol = policies.get(policy_index).copied();
+                    match client.register_project(&trimmed_name, &trimmed_repo, Some("agy"), &[], pol).await {
+                        Ok(pid) => {
+                            app.active_modal = None;
+                            app.set_status(format!("Project '{}' registered ({})", trimmed_name, pid.0), StatusType::Success);
+                            refresh_data(app, client).await;
+                        }
+                        Err(e) => {
+                            app.active_modal = Some(Modal::RegisterProject { name, repo_path, policy_index, active_field, error: Some(format!("{e}")) });
+                        }
+                    }
+                }
+                _ => {}
+            },
+
+            Modal::ConfirmRemoveProject { project_id, name } => match key.code {
+                KeyCode::Char('y') | KeyCode::Char('Y') | KeyCode::Enter => {
+                    app.active_modal = None;
+                    match client.remove_project(&project_id).await {
+                        Ok(()) => {
+                            app.set_status(format!("Project '{name}' removed"), StatusType::Success);
+                            refresh_data(app, client).await;
+                        }
+                        Err(e) => {
+                            app.set_status(format!("Failed to remove project: {e}"), StatusType::Error);
+                        }
+                    }
+                }
+                KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => {
+                    app.active_modal = None;
+                }
+                _ => {}
+            },
+
+            Modal::SetDefaultWorkingDir { mut input, error: _ } => match key.code {
+                KeyCode::Esc => {
+                    app.active_modal = None;
+                }
+                KeyCode::Backspace => {
+                    input.pop();
+                    app.active_modal = Some(Modal::SetDefaultWorkingDir { input, error: None });
+                }
+                KeyCode::Char(c) => {
+                    input.push(c);
+                    app.active_modal = Some(Modal::SetDefaultWorkingDir { input, error: None });
+                }
+                KeyCode::Enter => {
+                    let trimmed = input.trim();
+                    let home = std::env::var("HOME").map(std::path::PathBuf::from).unwrap_or_else(|_| std::path::PathBuf::from("/"));
+                    let cwd = std::env::current_dir().unwrap_or_else(|_| home.clone());
+                    let resolved = ac_core::agy_launch::resolve_dir_input(trimmed, &cwd, &home);
+                    if !resolved.is_dir() {
+                        app.active_modal = Some(Modal::SetDefaultWorkingDir {
+                            input,
+                            error: Some(format!("Directory does not exist: {}", resolved.display())),
+                        });
+                        return Ok(());
+                    }
+                    app.active_modal = None;
+                    app.user_settings.default_working_dir = Some(trimmed.to_string());
+                    let _ = app.user_settings.save();
+                    app.set_status(format!("Default working directory set to: {trimmed}"), StatusType::Success);
+                }
+                _ => {}
             },
         }
         return Ok(());
     }
 
-    // ── 2. Session Detail View Keybindings ──────────────────────────────────
+    // ── 2. Terminal-First Session Mode (Direct Keyboard Input to PTY) ────────
     if let Some(detail_id) = app.session_detail_id.clone() {
-        match key.code {
-            KeyCode::Esc => {
-                app.close_session_detail();
-                return Ok(());
-            }
-            KeyCode::Char('s') => {
-                app.active_modal = Some(Modal::Steer {
-                    session_id: detail_id,
-                    input: String::new(),
-                });
-                return Ok(());
-            }
-            KeyCode::Char('p') => {
-                let sid = detail_id.clone();
-                match client.pause_session(&sid).await {
-                    Ok(()) => app.set_status(format!("Paused session {}", sid.0), StatusType::Success),
-                    Err(e) => app.set_status(format!("Failed to pause: {e}"), StatusType::Error),
+        let in_scroll_mode = app
+            .session_terminal_buffers
+            .get(&detail_id.0)
+            .map(|b| !b.follow)
+            .unwrap_or(false);
+
+        // Command palette shortcut: Ctrl+P or F1
+        if (key.modifiers.contains(KeyModifiers::CONTROL) && (key.code == KeyCode::Char('p') || key.code == KeyCode::Char('P')))
+            || key.code == KeyCode::F(1)
+        {
+            app.active_modal = Some(Modal::CommandPalette {
+                session_id: detail_id,
+                selected_index: 0,
+            });
+            return Ok(());
+        }
+
+        // A full-screen program (alternate screen) has no local scrollback:
+        // page keys go to the program itself, as in a normal terminal.
+        if app.session_in_alt_screen(&detail_id.0) && matches!(key.code, KeyCode::PageUp | KeyCode::PageDown) {
+            let seq = if key.code == KeyCode::PageUp { "\x1b[5~" } else { "\x1b[6~" };
+            let _ = client.send_input(&detail_id, seq).await;
+            return Ok(());
+        }
+
+        // Dedicated Scroll navigation
+        if key.code == KeyCode::PageUp {
+            app.scroll_session_terminal_up(&detail_id.0, 10);
+            return Ok(());
+        }
+        if key.code == KeyCode::PageDown {
+            app.scroll_session_terminal_down(&detail_id.0, 10);
+            return Ok(());
+        }
+
+        // If in scrollback mode, handle scroll keys or snap back on typing
+        if in_scroll_mode {
+            match key.code {
+                KeyCode::Up => {
+                    app.scroll_session_terminal_up(&detail_id.0, 1);
+                    return Ok(());
                 }
-                return Ok(());
-            }
-            KeyCode::Char('r') | KeyCode::Char(' ') | KeyCode::Char('u') => {
-                if let Some(s) = app.selected_session_or_detail().cloned() {
-                    handle_session_resume_or_run(app, client, &s).await;
+                KeyCode::Down => {
+                    app.scroll_session_terminal_down(&detail_id.0, 1);
+                    return Ok(());
                 }
-                return Ok(());
+                KeyCode::Home => {
+                    app.scroll_session_terminal_top(&detail_id.0);
+                    return Ok(());
+                }
+                KeyCode::End | KeyCode::Esc => {
+                    app.scroll_session_terminal_bottom(&detail_id.0);
+                    return Ok(());
+                }
+                _ => {
+                    // Typing any key immediately snaps back to live bottom to interact
+                    app.scroll_session_terminal_bottom(&detail_id.0);
+                }
             }
-            KeyCode::Char('x') => {
-                app.active_modal = Some(Modal::ConfirmStop {
-                    session_id: detail_id,
-                });
-                return Ok(());
-            }
-            KeyCode::Char('a') | KeyCode::Char('w') => {
-                open_switch_account_modal(app, client).await;
-                return Ok(());
-            }
-            KeyCode::Up | KeyCode::Char('k') => {
-                app.scroll_session_terminal_up(&detail_id.0, 1);
-                return Ok(());
-            }
-            KeyCode::Down | KeyCode::Char('j') => {
-                app.scroll_session_terminal_down(&detail_id.0, 1);
-                return Ok(());
-            }
-            KeyCode::PageUp => {
-                app.scroll_session_terminal_up(&detail_id.0, 10);
-                return Ok(());
-            }
-            KeyCode::PageDown => {
-                app.scroll_session_terminal_down(&detail_id.0, 10);
-                return Ok(());
-            }
-            KeyCode::Home => {
-                app.scroll_session_terminal_top(&detail_id.0);
-                return Ok(());
-            }
-            KeyCode::End => {
-                app.scroll_session_terminal_bottom(&detail_id.0);
-                return Ok(());
-            }
-            KeyCode::Char('q') => {
-                app.should_quit = true;
-                return Ok(());
-            }
-            KeyCode::Char('?') => {
-                app.active_modal = Some(Modal::Help);
-                return Ok(());
-            }
-            KeyCode::Tab => {
-                app.close_session_detail();
-                app.next_tab();
-                return Ok(());
-            }
-            KeyCode::BackTab => {
-                app.close_session_detail();
-                app.prev_tab();
-                return Ok(());
-            }
-            KeyCode::Char('1') => {
-                app.close_session_detail();
-                app.set_tab(Tab::Dashboard);
-                return Ok(());
-            }
-            KeyCode::Char('2') => {
-                app.close_session_detail();
-                app.set_tab(Tab::Sessions);
-                return Ok(());
-            }
-            KeyCode::Char('3') => {
-                app.close_session_detail();
-                app.set_tab(Tab::Inbox);
-                return Ok(());
-            }
-            KeyCode::Char('4') => {
-                app.close_session_detail();
-                app.set_tab(Tab::Accounts);
-                return Ok(());
-            }
-            KeyCode::Char('5') => {
-                app.close_session_detail();
-                app.set_tab(Tab::Projects);
-                return Ok(());
-            }
-            KeyCode::Char('6') => {
-                app.close_session_detail();
-                app.set_tab(Tab::Activity);
-                return Ok(());
-            }
-            KeyCode::Char('7') => {
-                app.close_session_detail();
-                app.set_tab(Tab::Agents);
-                return Ok(());
-            }
-            KeyCode::Char('8') => {
-                app.close_session_detail();
-                app.set_tab(Tab::Settings);
-                return Ok(());
-            }
-            _ => {
+        } else if key.code == KeyCode::Esc {
+            // Esc in live mode closes session terminal view and returns to sessions
+            app.close_session_detail();
+            return Ok(());
+        }
+
+        // Control characters: Map Ctrl+A..Z to ASCII control bytes 0x01..0x1A
+        if key.modifiers.contains(KeyModifiers::CONTROL) {
+            if let KeyCode::Char(c) = key.code {
+                let byte = match c.to_ascii_lowercase() {
+                    'a'..='z' => c.to_ascii_lowercase() as u8 - b'a' + 1,
+                    '@' | ' ' => 0x00,
+                    '[' => 0x1b,
+                    '\\' => 0x1c,
+                    ']' => 0x1d,
+                    '^' => 0x1e,
+                    '_' => 0x1f,
+                    _ => return Ok(()),
+                };
+                if byte == 0x0c {
+                    // Ctrl+L: clear terminal buffer
+                    app.clear_session_terminal(&detail_id.0);
+                }
+                let bytes = [byte];
+                let s = std::str::from_utf8(&bytes).unwrap_or("");
+                if !s.is_empty() {
+                    let _ = client.send_input(&detail_id, s).await;
+                }
                 return Ok(());
             }
         }
+
+        // Alt (Meta) combinations
+        if key.modifiers.contains(KeyModifiers::ALT) {
+            match key.code {
+                KeyCode::Char(c) => {
+                    let _ = client.send_input(&detail_id, &format!("\x1b{}", c)).await;
+                    return Ok(());
+                }
+                KeyCode::Backspace => {
+                    let _ = client.send_input(&detail_id, "\x1b\x7f").await;
+                    return Ok(());
+                }
+                _ => {}
+            }
+        }
+
+        // Direct keyboard input to agent PTY stdin
+        match key.code {
+            KeyCode::Char(c) => {
+                let _ = client.send_input(&detail_id, &c.to_string()).await;
+            }
+            KeyCode::Enter => {
+                let _ = client.send_input(&detail_id, "\r").await;
+            }
+            KeyCode::Backspace => {
+                let _ = client.send_input(&detail_id, "\x7f").await;
+            }
+            KeyCode::Tab => {
+                let _ = client.send_input(&detail_id, "\t").await;
+            }
+            KeyCode::BackTab => {
+                let _ = client.send_input(&detail_id, "\x1b[Z").await;
+            }
+            KeyCode::Delete => {
+                let _ = client.send_input(&detail_id, "\x1b[3~").await;
+            }
+            KeyCode::Insert => {
+                let _ = client.send_input(&detail_id, "\x1b[2~").await;
+            }
+            KeyCode::Up => {
+                if key.modifiers.contains(KeyModifiers::SHIFT) {
+                    let _ = client.send_input(&detail_id, "\x1b[1;2A").await;
+                } else {
+                    let _ = client.send_input(&detail_id, "\x1b[A").await;
+                }
+            }
+            KeyCode::Down => {
+                if key.modifiers.contains(KeyModifiers::SHIFT) {
+                    let _ = client.send_input(&detail_id, "\x1b[1;2B").await;
+                } else {
+                    let _ = client.send_input(&detail_id, "\x1b[B").await;
+                }
+            }
+            KeyCode::Right => {
+                if key.modifiers.contains(KeyModifiers::SHIFT) {
+                    let _ = client.send_input(&detail_id, "\x1b[1;2C").await;
+                } else {
+                    let _ = client.send_input(&detail_id, "\x1b[C").await;
+                }
+            }
+            KeyCode::Left => {
+                if key.modifiers.contains(KeyModifiers::SHIFT) {
+                    let _ = client.send_input(&detail_id, "\x1b[1;2D").await;
+                } else {
+                    let _ = client.send_input(&detail_id, "\x1b[D").await;
+                }
+            }
+            KeyCode::Home => {
+                let _ = client.send_input(&detail_id, "\x1b[H").await;
+            }
+            KeyCode::End => {
+                let _ = client.send_input(&detail_id, "\x1b[F").await;
+            }
+            _ => {}
+        }
+
+        return Ok(());
     }
 
     // ── 3. Global Keybindings ───────────────────────────────────────────────
@@ -866,26 +1382,18 @@ pub async fn handle_key(app: &mut App, client: &ApiClient, key: KeyEvent) -> Res
             return Ok(());
         }
         KeyCode::Char('3') => {
-            app.set_tab(Tab::Inbox);
-            return Ok(());
-        }
-        KeyCode::Char('4') => {
             app.set_tab(Tab::Accounts);
             return Ok(());
         }
-        KeyCode::Char('5') => {
-            app.set_tab(Tab::Projects);
-            return Ok(());
-        }
-        KeyCode::Char('6') => {
+        KeyCode::Char('4') => {
             app.set_tab(Tab::Activity);
             return Ok(());
         }
-        KeyCode::Char('7') => {
+        KeyCode::Char('5') => {
             app.set_tab(Tab::Agents);
             return Ok(());
         }
-        KeyCode::Char('8') => {
+        KeyCode::Char('6') => {
             app.set_tab(Tab::Settings);
             return Ok(());
         }
@@ -903,12 +1411,7 @@ pub async fn handle_key(app: &mut App, client: &ApiClient, key: KeyEvent) -> Res
         }
         KeyCode::Char('g') => {
             if app.current_tab == Tab::Dashboard {
-                app.active_modal = Some(Modal::NewSession {
-                    account_index: app.selected_account,
-                    session_name: String::new(),
-                    task: String::new(),
-                    active_field: 0,
-                });
+                crate::launch::open_new_session(app);
                 return Ok(());
             }
         }
@@ -930,26 +1433,28 @@ pub async fn handle_key(app: &mut App, client: &ApiClient, key: KeyEvent) -> Res
             KeyCode::Down | KeyCode::Char('j') => app.next_row(),
             KeyCode::Enter | KeyCode::Char('t') => {
                 app.open_selected_session_detail();
+                if let Some(ref sid) = app.session_detail_id.clone() {
+                    load_session_history_if_needed(app, client, sid).await;
+                    if let Ok((cols, rows)) = crossterm::terminal::size() {
+                        let _ = client.resize_session(sid, rows.saturating_sub(2), cols).await;
+                    }
+                }
             }
             KeyCode::Char('a') | KeyCode::Char('A') => {
-                app.active_modal = Some(Modal::AddAccount {
-                    label: String::new(),
-                    provider: "agy".to_string(),
-                    auth_method: 0,
-                    token: String::new(),
-                    active_field: 0,
-                });
+                open_agy_add_account(app);
             }
             KeyCode::Char('s') | KeyCode::Char('S') => {
                 app.set_tab(Tab::Sessions);
             }
             KeyCode::Char('n') | KeyCode::Char('N') => {
-                app.active_modal = Some(Modal::NewSession {
-                    account_index: app.selected_account,
-                    session_name: String::new(),
-                    task: String::new(),
-                    active_field: 0,
-                });
+                crate::launch::open_new_session(app);
+            }
+            KeyCode::Char('d') | KeyCode::Char('D') | KeyCode::Delete => {
+                if let Some(s) = app.selected_session() {
+                    app.active_modal = Some(Modal::ConfirmRemoveSession {
+                        session_id: s.id.clone(),
+                    });
+                }
             }
             _ => {}
         },
@@ -959,14 +1464,15 @@ pub async fn handle_key(app: &mut App, client: &ApiClient, key: KeyEvent) -> Res
             KeyCode::Down | KeyCode::Char('j') => app.next_row(),
             KeyCode::Enter | KeyCode::Char('t') => {
                 app.open_selected_session_detail();
+                if let Some(ref sid) = app.session_detail_id.clone() {
+                    load_session_history_if_needed(app, client, sid).await;
+                    if let Ok((cols, rows)) = crossterm::terminal::size() {
+                        let _ = client.resize_session(sid, rows.saturating_sub(2), cols).await;
+                    }
+                }
             }
             KeyCode::Char('n') | KeyCode::Char('N') => {
-                app.active_modal = Some(Modal::NewSession {
-                    account_index: app.selected_account,
-                    session_name: String::new(),
-                    task: String::new(),
-                    active_field: 0,
-                });
+                crate::launch::open_new_session(app);
             }
             KeyCode::Char('s') => {
                 if let Some(s) = app.selected_session() {
@@ -997,58 +1503,15 @@ pub async fn handle_key(app: &mut App, client: &ApiClient, key: KeyEvent) -> Res
                     });
                 }
             }
-            KeyCode::Char('w') => {
-                open_switch_account_modal(app, client).await;
-            }
-            _ => {}
-        },
-
-        Tab::Inbox => match key.code {
-            KeyCode::Up | KeyCode::Char('k') => app.prev_row(),
-            KeyCode::Down | KeyCode::Char('j') => app.next_row(),
-            KeyCode::Char('a') => {
-                if let Some(item) = app.selected_pending_interaction() {
-                    let iid = item.id.clone();
-                    match client.resolve_interaction(&iid, Some(PolicyDecision::Allow), None).await {
-                        Ok(_) => {
-                            app.set_status(format!("Approved interaction {}", iid.0), StatusType::Success);
-                            refresh_data(app, client).await;
-                        }
-                        Err(e) => app.set_status(format!("Failed to approve: {e}"), StatusType::Error),
-                    }
-                }
-            }
-            KeyCode::Char('d') => {
-                if let Some(item) = app.selected_pending_interaction() {
-                    let iid = item.id.clone();
-                    match client.resolve_interaction(&iid, Some(PolicyDecision::Deny), None).await {
-                        Ok(_) => {
-                            app.set_status(format!("Denied interaction {}", iid.0), StatusType::Success);
-                            refresh_data(app, client).await;
-                        }
-                        Err(e) => app.set_status(format!("Failed to deny: {e}"), StatusType::Error),
-                    }
-                }
-            }
-            KeyCode::Char('r') => {
-                if let Some(item) = app.selected_pending_interaction() {
-                    app.active_modal = Some(Modal::Reply {
-                        interaction_id: item.id.clone(),
-                        input: String::new(),
+            KeyCode::Char('d') | KeyCode::Char('D') | KeyCode::Delete => {
+                if let Some(s) = app.selected_session() {
+                    app.active_modal = Some(Modal::ConfirmRemoveSession {
+                        session_id: s.id.clone(),
                     });
                 }
             }
-            KeyCode::Char('x') => {
-                if let Some(item) = app.selected_pending_interaction() {
-                    let iid = item.id.clone();
-                    match client.dismiss_interaction(&iid).await {
-                        Ok(_) => {
-                            app.set_status(format!("Dismissed interaction {}", iid.0), StatusType::Success);
-                            refresh_data(app, client).await;
-                        }
-                        Err(e) => app.set_status(format!("Failed to dismiss: {e}"), StatusType::Error),
-                    }
-                }
+            KeyCode::Char('w') => {
+                open_switch_account_modal(app, client).await;
             }
             _ => {}
         },
@@ -1057,35 +1520,26 @@ pub async fn handle_key(app: &mut App, client: &ApiClient, key: KeyEvent) -> Res
             KeyCode::Up | KeyCode::Char('k') => app.prev_row(),
             KeyCode::Down | KeyCode::Char('j') => app.next_row(),
             KeyCode::Char('a') | KeyCode::Char('A') => {
-                app.active_modal = Some(Modal::AddAccount {
-                    label: String::new(),
-                    provider: "agy".to_string(),
-                    auth_method: 0,
-                    token: String::new(),
-                    active_field: 0,
-                });
+                open_agy_add_account(app);
             }
             KeyCode::Char('d') | KeyCode::Char('D') | KeyCode::Delete => {
                 if let Some(acct) = app.selected_account().cloned() {
-                    let aid = acct.id.clone();
-                    let label = acct.label.clone();
-                    match client.remove_account(&aid).await {
-                        Ok(()) => {
-                            app.set_status(format!("Removed account: {}", label), StatusType::Success);
-                            refresh_data(app, client).await;
-                        }
-                        Err(e) => {
-                            app.set_status(format!("Failed to remove account: {e}"), StatusType::Error);
-                        }
-                    }
+                    let active = active_sessions_for_account(app, &acct.id).max(acct.active_session_count as usize);
+                    app.active_modal = Some(Modal::ConfirmRemoveAccount {
+                        account_id: acct.id,
+                        label: acct.label,
+                        provider: acct.provider,
+                        active_sessions: active,
+                    });
                 }
             }
-            _ => {}
-        },
-
-        Tab::Projects => match key.code {
-            KeyCode::Up | KeyCode::Char('k') => app.prev_row(),
-            KeyCode::Down | KeyCode::Char('j') => app.next_row(),
+            KeyCode::Char('s') | KeyCode::Char('S') => {
+                if let Some(label) = app.selected_account().map(|a| a.label.clone()) {
+                    app.user_settings.default_account = Some(label.clone());
+                    let _ = app.user_settings.save();
+                    app.set_status(format!("Default account set to: {}", label), StatusType::Success);
+                }
+            }
             _ => {}
         },
 
@@ -1108,21 +1562,215 @@ pub async fn handle_key(app: &mut App, client: &ApiClient, key: KeyEvent) -> Res
             KeyCode::Up | KeyCode::Char('k') => app.prev_row(),
             KeyCode::Down | KeyCode::Char('j') => app.next_row(),
             KeyCode::Enter => {
-                app.active_modal = Some(Modal::NewSession {
-                    account_index: app.selected_account,
-                    session_name: String::new(),
-                    task: String::new(),
-                    active_field: 0,
-                });
+                crate::launch::open_new_session(app);
             }
             _ => {}
         },
 
-        Tab::Settings => match key.code {
-            KeyCode::Up | KeyCode::Char('k') => app.prev_row(),
-            KeyCode::Down | KeyCode::Char('j') => app.next_row(),
-            _ => {}
-        },
+        Tab::Settings => {
+            if !app.settings_focus_panel {
+                match key.code {
+                    KeyCode::Up | KeyCode::Char('k') => app.prev_row(),
+                    KeyCode::Down | KeyCode::Char('j') => app.next_row(),
+                    KeyCode::Enter | KeyCode::Right | KeyCode::Tab => {
+                        app.settings_focus_panel = true;
+                    }
+                    _ => {}
+                }
+            } else {
+                match key.code {
+                    KeyCode::Esc | KeyCode::BackTab => {
+                        app.settings_focus_panel = false;
+                    }
+                    _ => match app.current_settings_section() {
+                        crate::app::SettingsSection::General => match key.code {
+                            KeyCode::Up | KeyCode::Char('k') => app.prev_row(),
+                            KeyCode::Down | KeyCode::Char('j') => app.next_row(),
+                            KeyCode::Left | KeyCode::Right | KeyCode::Char(' ') | KeyCode::Enter => {
+                                let fwd = key.code != KeyCode::Left;
+                                match app.settings_general_item {
+                                    0 => {
+                                        let agents = ["Antigravity", "Claude Code", "Generic PTY"];
+                                        let cur = agents.iter().position(|a| *a == app.user_settings.default_agent).unwrap_or(0);
+                                        let next = if fwd { (cur + 1) % agents.len() } else { (cur + agents.len() - 1) % agents.len() };
+                                        app.user_settings.default_agent = agents[next].to_string();
+                                        let _ = app.user_settings.save();
+                                        app.set_status(format!("Default agent set to {}", app.user_settings.default_agent), StatusType::Success);
+                                    }
+                                    1 => {
+                                        let mut labels = vec![None];
+                                        labels.extend(app.accounts.iter().map(|a| Some(a.label.clone())));
+                                        let cur = labels.iter().position(|l| *l == app.user_settings.default_account).unwrap_or(0);
+                                        let next = if fwd { (cur + 1) % labels.len() } else { (cur + labels.len() - 1) % labels.len() };
+                                        app.user_settings.default_account = labels[next].clone();
+                                        let _ = app.user_settings.save();
+                                        let name = app.user_settings.default_account.as_deref().unwrap_or("None");
+                                        app.set_status(format!("Default account set to {name}"), StatusType::Success);
+                                    }
+                                    2 => {
+                                        app.active_modal = Some(Modal::SetDefaultWorkingDir {
+                                            input: app.user_settings.default_working_dir.clone().unwrap_or_default(),
+                                            error: None,
+                                        });
+                                    }
+                                    3 => {
+                                        let modes = ac_core::agy_launch::AgyExecutionMode::ALL;
+                                        let cur = modes.iter().position(|m| *m == app.user_settings.default_execution_mode).unwrap_or(0);
+                                        let next = if fwd { (cur + 1) % modes.len() } else { (cur + modes.len() - 1) % modes.len() };
+                                        app.user_settings.default_execution_mode = modes[next];
+                                        let _ = app.user_settings.save();
+                                        app.set_status(format!("Default execution mode: {}", app.user_settings.default_execution_mode.label()), StatusType::Success);
+                                    }
+                                    4 => {
+                                        let perms = ac_core::agy_launch::AgyPermissionMode::ALL;
+                                        let cur = perms.iter().position(|p| *p == app.user_settings.default_permission_mode).unwrap_or(0);
+                                        let next = if fwd { (cur + 1) % perms.len() } else { (cur + perms.len() - 1) % perms.len() };
+                                        app.user_settings.default_permission_mode = perms[next];
+                                        let _ = app.user_settings.save();
+                                        app.set_status(format!("Default permission mode: {}", app.user_settings.default_permission_mode.label()), StatusType::Success);
+                                    }
+                                    5 => {
+                                        let themes = ["Default", "Dark", "High-Contrast"];
+                                        let cur = themes.iter().position(|t| *t == app.user_settings.terminal_theme).unwrap_or(0);
+                                        let next = if fwd { (cur + 1) % themes.len() } else { (cur + themes.len() - 1) % themes.len() };
+                                        app.user_settings.terminal_theme = themes[next].to_string();
+                                        let _ = app.user_settings.save();
+                                        app.set_status(format!("Theme set to {}", app.user_settings.terminal_theme), StatusType::Success);
+                                    }
+                                    _ => {}
+                                }
+                            }
+                            KeyCode::Char('w') | KeyCode::Char('W') => {
+                                app.active_modal = Some(Modal::SetDefaultWorkingDir {
+                                    input: app.user_settings.default_working_dir.clone().unwrap_or_default(),
+                                    error: None,
+                                });
+                            }
+                            _ => {}
+                        },
+                        crate::app::SettingsSection::Accounts => match key.code {
+                            KeyCode::Up | KeyCode::Char('k') => app.prev_row(),
+                            KeyCode::Down | KeyCode::Char('j') => app.next_row(),
+                            KeyCode::Char('a') | KeyCode::Char('A') => {
+                                open_agy_add_account(app);
+                            }
+                            KeyCode::Char('d') | KeyCode::Char('D') | KeyCode::Delete => {
+                                if let Some(acct) = app.accounts.get(app.settings_account_selected).cloned() {
+                                    let active = active_sessions_for_account(app, &acct.id).max(acct.active_session_count as usize);
+                                    app.active_modal = Some(Modal::ConfirmRemoveAccount {
+                                        account_id: acct.id,
+                                        label: acct.label,
+                                        provider: acct.provider,
+                                        active_sessions: active,
+                                    });
+                                }
+                            }
+                            KeyCode::Char('s') | KeyCode::Char('S') => {
+                                if let Some(acct) = app.accounts.get(app.settings_account_selected) {
+                                    app.user_settings.default_account = Some(acct.label.clone());
+                                    let _ = app.user_settings.save();
+                                    app.set_status(format!("Default account set to: {}", acct.label), StatusType::Success);
+                                }
+                            }
+                            KeyCode::Char('r') | KeyCode::Char('R') => {
+                                refresh_data(app, client).await;
+                                app.set_status("Refreshed accounts", StatusType::Info);
+                            }
+                            _ => {}
+                        },
+                        crate::app::SettingsSection::Projects => match key.code {
+                            KeyCode::Up | KeyCode::Char('k') => app.prev_row(),
+                            KeyCode::Down | KeyCode::Char('j') => app.next_row(),
+                            KeyCode::Char('a') | KeyCode::Char('A') => {
+                                app.active_modal = Some(Modal::RegisterProject {
+                                    name: String::new(),
+                                    repo_path: String::new(),
+                                    policy_index: 0,
+                                    active_field: 0,
+                                    error: None,
+                                });
+                            }
+                            KeyCode::Char('d') | KeyCode::Char('D') | KeyCode::Delete => {
+                                if let Some(p) = app.projects.get(app.settings_project_selected).cloned() {
+                                    app.active_modal = Some(Modal::ConfirmRemoveProject {
+                                        project_id: p.id,
+                                        name: p.name,
+                                    });
+                                }
+                            }
+                            KeyCode::Char('s') | KeyCode::Char('S') => {
+                                if let Some(p) = app.projects.get(app.settings_project_selected) {
+                                    app.user_settings.default_project = Some(p.name.clone());
+                                    let _ = app.user_settings.save();
+                                    app.set_status(format!("Default project set to: {}", p.name), StatusType::Success);
+                                }
+                            }
+                            KeyCode::Char('w') | KeyCode::Char('W') => {
+                                app.active_modal = Some(Modal::SetDefaultWorkingDir {
+                                    input: app.user_settings.default_working_dir.clone().unwrap_or_default(),
+                                    error: None,
+                                });
+                            }
+                            KeyCode::Char('r') | KeyCode::Char('R') => {
+                                refresh_data(app, client).await;
+                                app.set_status("Refreshed projects", StatusType::Info);
+                            }
+                            _ => {}
+                        },
+                        crate::app::SettingsSection::Agents => match key.code {
+                            KeyCode::Char('s') | KeyCode::Char('S') | KeyCode::Enter => {
+                                let agents = ["Antigravity", "Claude Code", "Generic PTY"];
+                                let cur = (app.selected_agent + 1) % agents.len();
+                                app.selected_agent = cur;
+                                app.user_settings.default_agent = agents[cur].to_string();
+                                let _ = app.user_settings.save();
+                                app.set_status(format!("Default agent set to {}", agents[cur]), StatusType::Success);
+                            }
+                            _ => {}
+                        },
+                        crate::app::SettingsSection::Permissions => match key.code {
+                            KeyCode::Char('1') => {
+                                let modes = ac_core::agy_launch::AgyExecutionMode::ALL;
+                                let cur = modes.iter().position(|m| *m == app.user_settings.default_execution_mode).unwrap_or(0);
+                                app.user_settings.default_execution_mode = modes[(cur + 1) % modes.len()];
+                                let _ = app.user_settings.save();
+                                app.set_status(format!("Default execution mode: {}", app.user_settings.default_execution_mode.label()), StatusType::Success);
+                            }
+                            KeyCode::Char('2') => {
+                                let perms = ac_core::agy_launch::AgyPermissionMode::ALL;
+                                let cur = perms.iter().position(|p| *p == app.user_settings.default_permission_mode).unwrap_or(0);
+                                app.user_settings.default_permission_mode = perms[(cur + 1) % perms.len()];
+                                let _ = app.user_settings.save();
+                                app.set_status(format!("Default permission mode: {}", app.user_settings.default_permission_mode.label()), StatusType::Success);
+                            }
+                            _ => {}
+                        },
+                        crate::app::SettingsSection::Authentication => match key.code {
+                            KeyCode::Char('b') | KeyCode::Char('B') => {
+                                let lbl = format!("Account {}", app.accounts.len() + 1);
+                                start_agy_browser_login(app, client.clone(), lbl);
+                            }
+                            KeyCode::Char('l') | KeyCode::Char('L') => {
+                                let lbl = format!("Account {}", app.accounts.len() + 1);
+                                start_agy_login(app, client.clone(), lbl, true);
+                            }
+                            _ => {}
+                        },
+                        crate::app::SettingsSection::Terminal => match key.code {
+                            KeyCode::Left | KeyCode::Right | KeyCode::Char(' ') | KeyCode::Enter => {
+                                let themes = ["Default", "Dark", "High-Contrast"];
+                                let cur = themes.iter().position(|t| *t == app.user_settings.terminal_theme).unwrap_or(0);
+                                app.user_settings.terminal_theme = themes[(cur + 1) % themes.len()].to_string();
+                                let _ = app.user_settings.save();
+                                app.set_status(format!("Theme set to {}", app.user_settings.terminal_theme), StatusType::Success);
+                            }
+                            _ => {}
+                        },
+                        _ => {}
+                    },
+                }
+            }
+        }
     }
 
     Ok(())
@@ -1162,6 +1810,29 @@ pub async fn refresh_data(app: &mut App, client: &ApiClient) {
         }
     }
     app.daemon_connected = client.check_daemon().await;
+
+    // Preload history for the active session detail or currently selected session
+    if let Some(sid) = app.session_detail_id.clone() {
+        load_session_history_if_needed(app, client, &sid).await;
+    } else if let Some(s) = app.selected_session().cloned() {
+        load_session_history_if_needed(app, client, &s.id).await;
+    }
+}
+
+pub async fn load_session_history_if_needed(app: &mut App, client: &ApiClient, session_id: &Id) {
+    let needs_load = app
+        .session_terminal_buffers
+        .get(&session_id.0)
+        .map(|b| b.total_lines() == 0)
+        .unwrap_or(true);
+
+    if needs_load {
+        if let Ok(events) = client.query_events(Some(session_id), Some(2000)).await {
+            for event in events {
+                app.apply_event(event);
+            }
+        }
+    }
 }
 
 async fn open_switch_account_modal(app: &mut App, client: &ApiClient) {
