@@ -308,7 +308,7 @@ pub fn render_footer(f: &mut Frame, app: &App, area: Rect) {
             tag_pill("r", "Resume"),
             tag_pill("x", "Stop"),
             tag_pill("a", "Switch Account"),
-            tag_pill("Esc", "Back"),
+            tag_pill("Ctrl+Q", "Back"),
             tag_pill("↑↓", "Scroll"),
             tag_pill("End", "Follow"),
         ],

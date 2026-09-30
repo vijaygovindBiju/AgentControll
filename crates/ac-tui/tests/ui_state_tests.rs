@@ -455,7 +455,7 @@ fn test_session_detail_terminal_buffer_rendering_and_scrolling() {
     assert!(content.contains("● LIVE"));
     assert!(content.contains("Agent Control"));
     assert!(content.contains("Ctrl+P"));
-    assert!(content.contains("Esc"));
+    assert!(content.contains("Ctrl+Q"));
     assert!(content.contains("All 195 tests passed"));
     assert!(content.contains("Compiling ac-core"));
 
@@ -579,7 +579,7 @@ fn test_agy_session_rendering_flow_and_visual_polish() {
     assert!(content.contains("Agent Control • Antigravity"));
     assert!(content.contains("Gemini 3.8 Flash · medium"));
     assert!(content.contains("Ctrl+P"));
-    assert!(content.contains("Esc"));
+    assert!(content.contains("Ctrl+Q"));
 
     // 2. Type "say hi" prompt: AGY terminal prompt sequence
     let prompt_chunk = AgentEvent::new(
@@ -661,7 +661,7 @@ fn test_agy_session_rendering_flow_and_visual_polish() {
     assert!(resize_content.contains("● LIVE"));
     assert!(resize_content.contains("Gemini 3.8 Flash · medium"));
 
-    // 8. Return with Esc
+    // 8. Return with Ctrl+Q
     app.close_session_detail();
     terminal.draw(|f| ui::draw(f, &app)).unwrap();
     let dashboard_content = format!("{:?}", terminal.backend().buffer());

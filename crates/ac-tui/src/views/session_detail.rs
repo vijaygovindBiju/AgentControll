@@ -22,7 +22,7 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
     let session = match app.selected_session_or_detail() {
         Some(s) => s,
         None => {
-            let p = Paragraph::new("Session not found or has been removed. Press Esc to return.")
+            let p = Paragraph::new("Session not found or has been removed. Press Ctrl+Q or Esc to return.")
                 .style(Style::default().fg(Color::Red));
             f.render_widget(p, area);
             return;
@@ -141,7 +141,7 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
 
     let shortcuts_line = if scroll_info.follow {
         Line::from(vec![
-            Span::styled(" [Esc]", Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+            Span::styled(" [Ctrl+Q]", Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
             Span::styled(" Back  ", Style::default().fg(Color::DarkGray)),
             Span::styled("[Ctrl+P]", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
             Span::styled(" Control  ", Style::default().fg(Color::DarkGray)),

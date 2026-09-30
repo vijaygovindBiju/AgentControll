@@ -1181,6 +1181,24 @@ pub async fn handle_key(app: &mut App, client: &ApiClient, key: KeyEvent) -> Res
 
     // ── 2. Terminal-First Session Mode (Direct Keyboard Input to PTY) ────────
     if let Some(detail_id) = app.session_detail_id.clone() {
+        // If session not found or removed, allow Ctrl+Q or Esc to return
+        if app.selected_session_or_detail().is_none()
+            && (key.code == KeyCode::Esc
+                || (key.modifiers.contains(KeyModifiers::CONTROL)
+                    && (key.code == KeyCode::Char('q') || key.code == KeyCode::Char('Q'))))
+        {
+            app.close_session_detail();
+            return Ok(());
+        }
+
+        // Detach / Return from session view: Ctrl+Q
+        if key.modifiers.contains(KeyModifiers::CONTROL)
+            && (key.code == KeyCode::Char('q') || key.code == KeyCode::Char('Q'))
+        {
+            app.close_session_detail();
+            return Ok(());
+        }
+
         let in_scroll_mode = app
             .session_terminal_buffers
             .get(&detail_id.0)
@@ -1240,10 +1258,6 @@ pub async fn handle_key(app: &mut App, client: &ApiClient, key: KeyEvent) -> Res
                     app.scroll_session_terminal_bottom(&detail_id.0);
                 }
             }
-        } else if key.code == KeyCode::Esc {
-            // Esc in live mode closes session terminal view and returns to sessions
-            app.close_session_detail();
-            return Ok(());
         }
 
         // Control characters: Map Ctrl+A..Z to ASCII control bytes 0x01..0x1A
@@ -1309,6 +1323,9 @@ pub async fn handle_key(app: &mut App, client: &ApiClient, key: KeyEvent) -> Res
             }
             KeyCode::Insert => {
                 let _ = client.send_input(&detail_id, "\x1b[2~").await;
+            }
+            KeyCode::Esc => {
+                let _ = client.send_input(&detail_id, "\x1b").await;
             }
             KeyCode::Up => {
                 if key.modifiers.contains(KeyModifiers::SHIFT) {

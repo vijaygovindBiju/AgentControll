@@ -387,8 +387,22 @@ async fn test_keyboard_input_handling_and_modals() {
     // 5. Open Session Detail using Enter
     handle_key(&mut app, &client, make_key(KeyCode::Enter)).await.unwrap();
     assert!(app.session_detail_id.is_some());
-    // Close with Esc
+    // Esc is sent to PTY, does NOT close session
     handle_key(&mut app, &client, make_key(KeyCode::Esc)).await.unwrap();
+    assert!(app.session_detail_id.is_some());
+    // Close with Ctrl+Q
+    handle_key(
+        &mut app,
+        &client,
+        KeyEvent {
+            code: KeyCode::Char('q'),
+            modifiers: KeyModifiers::CONTROL,
+            kind: KeyEventKind::Press,
+            state: KeyEventState::empty(),
+        },
+    )
+    .await
+    .unwrap();
     assert!(app.session_detail_id.is_none());
 
     // 6. Quit with 'q'

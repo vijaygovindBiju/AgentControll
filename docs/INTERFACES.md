@@ -362,14 +362,20 @@ The TUI provides a complete keyboard-driven navigation model with contextual hin
 | `1` .. `6` | Global | Jump directly to tab (1=Dashboard, 2=Sessions, 3=Inbox, 4=Accounts, 5=Projects, 6=Activity) |
 | `↑` / `k`, `↓` / `j` | List Views | Move selection up / down |
 | `Enter` | Sessions list | Open Session Detail drilldown view |
-| `Esc` | Drilldown / Modals | Close detail view or dismiss active modal dialog |
+| `Ctrl+Q` | Session Terminal | Detach / exit active session terminal view back to dashboard |
+| `Esc` | Modals / Terminal | Dismiss active modal dialog (forwarded to PTY in session terminal) |
 | `q` | Global | Quit TUI application (or close active modal if open) |
 | `r` | Global | Force manual data refresh from Control API |
 | `?` | Global | Toggle keyboard shortcuts modal overlay |
 
 #### View-Specific Hotkeys
 
-- **Sessions & Session Detail**:
+- **Session Terminal View**:
+  - `Ctrl+Q` : Detach from session terminal view back to dashboard / sessions
+  - `Ctrl+P` / `F1` : Open Agent Control Command Palette
+  - `Esc` : Forwarded to agent PTY (cancels input or closes modal dialogs like Quota in agy)
+  - `PgUp` / `PgDn` : Scroll terminal history
+- **Sessions List**:
   - `s` : Start selected session (`Idle -> Starting`)
   - `p` : Pause selected session (`Working / WaitingForHuman -> Paused`)
   - `Space` : Resume selected session (`Paused -> Working / WaitingForHuman`)
