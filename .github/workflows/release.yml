@@ -57,9 +57,13 @@ jobs:
           VERSION="${{ steps.vars.outputs.version }}"
           TARGET="${{ matrix.target }}"
           ARCHIVE_NAME="agentcontroll-v${VERSION}-${TARGET}.tar.gz"
+          BIN_DIR="target/${TARGET}/release"
           
           mkdir -p dist
-          tar -czf "dist/${ARCHIVE_NAME}" -C "target/${TARGET}/release" agentcontroll agent-control agentcontrold agy ac
+          # Ensure all required binaries are executable before packaging:
+          # agentcontroll (primary), agent-control, ac, agy, agentcontrold
+          chmod +x "${BIN_DIR}/agentcontroll" "${BIN_DIR}/agent-control" "${BIN_DIR}/ac" "${BIN_DIR}/agy" "${BIN_DIR}/agentcontrold"
+          tar -czf "dist/${ARCHIVE_NAME}" -C "${BIN_DIR}" agentcontroll agent-control ac agy agentcontrold
           
           cd dist
           if command -v sha256sum >/dev/null 2>&1; then
@@ -78,6 +82,8 @@ jobs:
     name: Create Draft GitHub Release
     needs: build-release
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -110,7 +116,7 @@ jobs:
     needs: [build-release, create-draft-release]
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
       id-token: write
     steps:
       - name: Checkout repository
@@ -119,7 +125,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
           registry-url: 'https://registry.npmjs.org'
 
       - name: Publish to NPM via OIDC Trusted Publishing
