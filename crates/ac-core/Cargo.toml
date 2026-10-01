@@ -2,7 +2,10 @@
 name = "ac-core"
 version.workspace = true
 edition.workspace = true
-description = "Agent Control core daemon — event store, state machine, session manager, adapters"
+description = "AgentControll core daemon — event store, state machine, session manager, adapters"
+
+[lints]
+workspace = true
 
 [[bin]]
 name = "agentcontrold"

@@ -56,10 +56,10 @@ jobs:
         run: |
           VERSION="${{ steps.vars.outputs.version }}"
           TARGET="${{ matrix.target }}"
-          ARCHIVE_NAME="agent-control-v${VERSION}-${TARGET}.tar.gz"
+          ARCHIVE_NAME="agentcontroll-v${VERSION}-${TARGET}.tar.gz"
           
           mkdir -p dist
-          tar -czf "dist/${ARCHIVE_NAME}" -C "target/${TARGET}/release" agent-control agentcontrold agy ac
+          tar -czf "dist/${ARCHIVE_NAME}" -C "target/${TARGET}/release" agentcontroll agent-control agentcontrold agy ac
           
           cd dist
           if command -v sha256sum >/dev/null 2>&1; then
@@ -98,9 +98,31 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.event.inputs.tag_name || github.ref_name }}
-          name: Agent Control ${{ github.event.inputs.tag_name || github.ref_name }}
+          name: AgentControll ${{ github.event.inputs.tag_name || github.ref_name }}
           draft: true
           prerelease: false
           files: |
             dist/*.tar.gz
             dist/SHA256SUMS
+
+  publish-npm:
+    name: Publish NPM Package (Trusted Publishing)
+    needs: [build-release, create-draft-release]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Publish to NPM via OIDC Trusted Publishing
+        run: |
+          cd packages/agent-control
+          npm publish --provenance --access public

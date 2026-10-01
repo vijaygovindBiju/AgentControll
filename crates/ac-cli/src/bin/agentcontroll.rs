@@ -1,26 +1,6 @@
-//! `agent-control` — Backward-compatible interactive interface for AgentControll.
+//! `agentcontroll` — Main user-facing interactive interface for AgentControll.
 //!
-//! Provides the primary interactive dashboard:
-//! AGENTCONTROLL
-//!
-//! AGENTS
-//!   Antigravity       3 accounts     1 running
-//!   Claude Code       2 accounts     0 running
-//!
-//! ACCOUNTS
-//!   Personal Google   Antigravity    Ready
-//!   College Google    Antigravity    Ready
-//!   Work Google       Antigravity    Cooldown
-//!   Claude Main       Claude Code    Ready
-//!
-//! SESSIONS
-//!   Antigravity       Personal Google    AgentMesh     Working
-//!
-//! [Enter] Open
-//! [A] Add Account
-//! [N] New Agent
-//! [S] Sessions
-//! [Q] Quit
+//! Provides the primary interactive supervisor dashboard and session manager.
 
 use anyhow::Result;
 use clap::Parser;
@@ -30,7 +10,7 @@ use ac_cli::client::DaemonClient;
 
 #[derive(Parser)]
 #[command(
-    name = "agent-control",
+    name = "agentcontroll",
     version,
     about = "AgentControll Interactive Supervisor Dashboard",
     long_about = "Manage multiple agent accounts, monitor running sessions, and control approvals in real time."

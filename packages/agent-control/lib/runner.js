@@ -4,9 +4,9 @@ const { spawn } = require('child_process');
 const { ensureBinary } = require('./downloader');
 
 /**
- * Executes a target Agent Control binary, forwarding arguments, stdio, and signals.
+ * Executes a target AgentControll binary, forwarding arguments, stdio, and signals.
  *
- * @param {string} binaryName Name of the binary to run ('agent-control', 'agy', etc.)
+ * @param {string} binaryName Name of the binary to run ('agentcontroll', 'agy', etc.)
  */
 async function runBinary(binaryName) {
   try {
@@ -47,11 +47,11 @@ async function runBinary(binaryName) {
     });
 
     child.on('error', (err) => {
-      console.error(`[agent-control] Failed to execute ${binaryName}: ${err.message}`);
+      console.error(`[agentcontroll] Failed to execute ${binaryName}: ${err.message}`);
       process.exit(1);
     });
   } catch (err) {
-    console.error(`[agent-control] Error: ${err.message}`);
+    console.error(`[agentcontroll] Error: ${err.message}`);
     process.exit(1);
   }
 }

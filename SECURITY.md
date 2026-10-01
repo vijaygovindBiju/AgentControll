@@ -1,6 +1,6 @@
 # Security Policy
 
-Agent Control takes the security and privacy of user credentials, codebases, and local execution environments seriously. This document describes our security policy, vulnerability reporting procedures, credential isolation model, and bug reporting guidance.
+AgentControll takes the security and privacy of user credentials, codebases, and local execution environments seriously. This document describes our security policy, vulnerability reporting procedures, credential isolation model, and bug reporting guidance.
 
 ---
 
@@ -17,13 +17,13 @@ Security updates are actively maintained for the following versions:
 
 ## Reporting a Security Vulnerability
 
-If you discover a security vulnerability or potential exploit in Agent Control:
+If you discover a security vulnerability or potential exploit in AgentControll:
 
 1. **Do NOT open a public GitHub issue.** Public issues disclose vulnerabilities before patches can be developed and distributed.
 2. **Report Privately via GitHub Security Advisories:**
    - Navigate to the **Security** tab of the repository on GitHub.
    - Click **Report a vulnerability** to open a private disclosure thread.
-3. **Alternative Contact:** If GitHub Security Advisories are unavailable, email `security@agentcontrol.dev` (or the repository maintainers) with:
+3. **Alternative Contact:** If GitHub Security Advisories are unavailable, open a private advisory or contact the repository maintainers with:
    - Description of the vulnerability.
    - Minimal reproduction steps or proof-of-concept.
    - Affected components, binaries, or operating system environments.
@@ -33,7 +33,8 @@ If you discover a security vulnerability or potential exploit in Agent Control:
 
 ## Security & Permission Model
 
-Agent Control operates as a local supervisor daemon managing third-party coding agents. It enforces multiple defense-in-depth boundaries:
+AgentControll operates as a local supervisor daemon managing third-party coding agents. It enforces multiple defense-in-depth boundaries:
+
 
 ### 1. Local-First Isolation
 - **IPC Domain Socket:** Bound to `$XDG_RUNTIME_DIR/agentcontrol/agentcontrol.sock` or `/tmp/agentcontrol-<uid>.sock` with strict filesystem permissions (`0600`), owned by the current user. Other local users cannot connect to or read from the socket.
@@ -71,4 +72,5 @@ When opening bug reports or submitting diagnostic logs, ensure you protect your 
 > - Proprietary source code or confidential repository paths
 > - Unredacted process environment variables (`env` or `export`)
 
-Agent Control error messages and diagnostic outputs are designed to sanitize tokens and output byte counts or account labels instead of secrets. If you notice any secret leakage in an error message or log line, report it immediately as a vulnerability.
+AgentControll error messages and diagnostic outputs are designed to sanitize tokens and output byte counts or account labels instead of secrets. If you notice any secret leakage in an error message or log line, report it immediately as a vulnerability.
+

@@ -215,8 +215,9 @@ agent-specific code.
 
 The human interface is split into two complementary layers:
 
-1. **Normal-User Layer (`agy`, `agent-control`):**
-   - **`agent-control`**: Launches the main Ratatui interactive dashboard providing high-level overviews of `AGENTS`, `ACCOUNTS`, and `SESSIONS` with direct keyboard actions (`[Enter] Open`, `[A] Add Account`, `[N] New Agent`, `[S] Sessions`, `[Q] Quit`).
+1. **Normal-User Layer (`agy`, `agentcontroll`):**
+   - **`agentcontroll`**: Launches the main Ratatui interactive dashboard providing high-level overviews of `AGENTS`, `ACCOUNTS`, and `SESSIONS` with direct keyboard actions (`[Enter] Open`, `[A] Add Account`, `[N] New Agent`, `[S] Sessions`, `[Q] Quit`). Aliased as `agent-control`.
+
    - **`agy "Personal Google"`**: Launches Antigravity using human-readable account labels. Resolves account via `AccountManager::find_by_label`, checks provider compatibility, verifies availability/cooldown, binds to project workspace, starts the session, and attaches the interactive session monitor.
    - **`agy`**: Intelligent automatic resolution: auto-launches if only 1 account exists, opens interactive terminal account selector if multiple exist, or initiates browser OAuth login if no accounts exist.
    - **`agy account add`**: Automated browser-based OAuth 2.0 loopback authentication on `127.0.0.1:0` with manual code fallback and secure `0600` token storage.

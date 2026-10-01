@@ -20,8 +20,8 @@ use ac_core::types::{ApiRequest, ApiResponse};
 #[command(
     name = "ac",
     version,
-    about = "Agent Control CLI",
-    long_about = "Control Agent Control daemon sessions and events from the command line."
+    about = "AgentControll CLI",
+    long_about = "Control AgentControll daemon sessions and events from the command line."
 )]
 struct Cli {
     /// Path to the daemon Unix socket.

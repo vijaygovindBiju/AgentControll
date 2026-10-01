@@ -1,8 +1,9 @@
 {
-  "name": "agent-control",
+  "name": "agentcontroll",
   "version": "1.0.0",
   "description": "Local-first control plane for coding agents (Antigravity, Claude Code, Codex, Devin CLI)",
   "bin": {
+    "agentcontroll": "./bin/agentcontroll.js",
     "agent-control": "./bin/agent-control.js",
     "agy": "./bin/agy.js",
     "ac": "./bin/ac.js",
@@ -28,17 +29,18 @@
     "ai-agents",
     "developer-tools"
   ],
-  "author": "Agent Control contributors",
+  "author": "AgentControll contributors",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/agentcontrol/agentcontrol.git"
+    "url": "https://github.com/vijaygovindBiju/AgentControll.git"
   },
   "bugs": {
-    "url": "https://github.com/agentcontrol/agentcontrol/issues"
+    "url": "https://github.com/vijaygovindBiju/AgentControll/issues"
   },
-  "homepage": "https://github.com/agentcontrol/agentcontrol#readme",
+  "homepage": "https://github.com/vijaygovindBiju/AgentControll#readme",
   "engines": {
     "node": ">=18.0.0"
   }
 }
+

@@ -1,12 +1,13 @@
 # Changelog
 
-All notable changes to Agent Control are documented in this file.
+All notable changes to AgentControll are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [1.0.0] - 2026-09-22
 
-Initial production-ready release of Agent Control — the multi-account supervision and orchestration daemon for coding agents.
+Initial production-ready release of AgentControll — the multi-account supervision and orchestration daemon for coding agents.
+
 
 ### Highlights
 
@@ -73,14 +74,14 @@ Initial production-ready release of Agent Control — the multi-account supervis
 - Diagnostic integrity and replay CLI subcommands (`ac event verify` and `ac event replay`).
 
 #### User Experience Layer & Multi-Account UX
-- Two-layer CLI architecture: `agent-control` and `agy` for normal developers, `ac` for power-user scripting and automation.
+- Two-layer CLI architecture: `agentcontroll` and `agy` for normal developers, `ac` for power-user scripting and automation.
 - `agy "Account Label"` direct launcher with automatic daemon spawning, friendly account label resolution, and interactive session attachment.
 - Automatic interactive account selector for `agy` with cooldown tracking and concurrency limit displays.
 - Automated OAuth 2.0 PKCE loopback authentication on `127.0.0.1:0` (`agy account add`) with manual code and pasted-redirect callback fallbacks.
 - Secure `0600` credential file persistence (`~/.config/agentcontrol/credentials/agy_<id>.json`) referenced solely by `ref:antigravity:<id>`.
 
 #### Post-v1 Hardening & Interactive Terminal Ergonomics
-- Dedicated Agent Terminal view with full ANSI virtual screen buffer ([`terminal_buffer.rs`](file:///media/pirate/Shared/currently%20working/AgentControll/crates/ac-tui/src/terminal_buffer.rs)) supporting alternate screen buffers (`1049h`/`1049l`), cursor positioning, scroll regions, and truecolor ANSI rendering.
+- Dedicated Agent Terminal view with full ANSI virtual screen buffer ([`terminal_buffer.rs`](crates/ac-tui/src/terminal_buffer.rs)) supporting alternate screen buffers (`1049h`/`1049l`), cursor positioning, scroll regions, and truecolor ANSI rendering.
 - Multi-byte UTF-8 stream decoder (`decode_utf8_stream`) ensuring UTF-8 glyphs split across chunk boundaries are never corrupted into `U+FFFD`.
 - Anti-deadlock PTY architecture: non-blocking `try_send` dispatch, 8KB burst read buffers, and 512-item per-session event queues eliminating reader thread deadlocks during large generation bursts.
 - Transparent key forwarding: `Esc` is forwarded directly to the agent PTY (for vi/nano modes, dialog dismissals, and agy prompt interactions), while `Ctrl+Q` cleanly detaches back to the supervisor dashboard.

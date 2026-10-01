@@ -7,7 +7,6 @@ const os = require('os');
  */
 const SUPPORTED_TARGETS = {
   'linux-x64': 'x86_64-unknown-linux-gnu',
-  'linux-arm64': 'aarch64-unknown-linux-gnu',
   'darwin-x64': 'x86_64-apple-darwin',
   'darwin-arm64': 'aarch64-apple-darwin',
 };
@@ -21,10 +20,10 @@ function getTargetTriple() {
 
   if (platform === 'win32') {
     throw new Error(
-      'Agent Control requires POSIX Unix domain sockets (mode 0600) and native terminal signals.\n' +
-      'Windows users should run Agent Control inside WSL2 (Windows Subsystem for Linux):\n' +
+      'AgentControll requires POSIX Unix domain sockets (mode 0600) and native terminal signals.\n' +
+      'Windows users should run AgentControll inside WSL2 (Windows Subsystem for Linux):\n' +
       '  wsl --install\n' +
-      'Inside WSL2, run: npx agent-control'
+      'Inside WSL2, run: npx agentcontroll'
     );
   }
 
@@ -34,7 +33,7 @@ function getTargetTriple() {
   if (!target) {
     throw new Error(
       `Unsupported platform/architecture: ${platform}-${arch}.\n` +
-      `Agent Control currently provides prebuilt binaries for:\n` +
+      `AgentControll currently provides prebuilt binaries for:\n` +
       Object.keys(SUPPORTED_TARGETS).map(k => `  - ${k}`).join('\n') +
       `\nTo build from source on your platform, run: cargo build --release`
     );
@@ -47,8 +46,9 @@ function getTargetTriple() {
  * Returns the release archive name for a given version and target triple.
  */
 function getArchiveName(version, target) {
-  return `agent-control-v${version}-${target}.tar.gz`;
+  return `agentcontroll-v${version}-${target}.tar.gz`;
 }
+
 
 module.exports = {
   SUPPORTED_TARGETS,

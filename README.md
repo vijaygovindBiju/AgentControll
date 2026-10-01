@@ -1,4 +1,4 @@
-# Agent Control
+# AgentControll
 
 A local-first control plane for coding agents.
 
@@ -8,7 +8,7 @@ A local-first control plane for coding agents.
 
 ## Table of Contents
 
-1. [What is Agent Control?](#what-is-agent-control)
+1. [What is AgentControll?](#what-is-agentcontroll)
 2. [What Problem It Solves](#what-problem-it-solves)
 3. [Main Features](#main-features)
 4. [Supported Agents](#supported-agents)
@@ -31,9 +31,9 @@ A local-first control plane for coding agents.
 
 ---
 
-## What is Agent Control?
+## What is AgentControll?
 
-**Agent Control** is a local supervisor daemon, interactive terminal interface, and automation CLI that manages the complete lifecycle of coding agents—such as **Google Antigravity (`agy`)**, **Claude Code**, **Codex**, and **Devin CLI**.
+**AgentControll** is a local supervisor daemon, interactive terminal interface, and automation CLI that manages the complete lifecycle of coding agents—such as **Google Antigravity (`agy`)**, **Claude Code**, **Codex**, and **Devin CLI**.
 
 It coordinates multiple agent processes across different repositories and accounts, supervises interactive PTY streams, isolates credentials per profile, automates permissions, and maintains an append-only event log persisted in SQLite.
 
@@ -47,13 +47,14 @@ Developers running coding agents across various projects, teams, and accounts en
 - **Quota Exhaustion:** When an agent encounters provider rate limits or token exhaustion, work halts without a mechanism to capture a context snapshot and rotate to an alternate account.
 - **Audit & Safety Blind Spots:** Autonomous agents executing shell commands require consistent guardrails and a tamper-evident audit trail of tool decisions and approvals.
 
-Agent Control solves this by operating as a unified local supervisor: it pools accounts, isolates execution workspaces, provides interactive human-in-the-loop steering, and enforces declarative security policies.
+AgentControll solves this by operating as a unified local supervisor: it pools accounts, isolates execution workspaces, provides interactive human-in-the-loop steering, and enforces declarative security policies.
 
 ---
 
 ## Main Features
 
-- **One-Command Launching:** Run directly via `npx agent-control` or the standalone shell installer without manually installing Rust or Cargo.
+- **One-Command Launching:** Run directly via `npx agentcontroll` or the standalone shell installer without manually installing Rust or Cargo.
+
 - **Full-Screen Virtual ANSI Terminal:**
   - Dedicated virtual terminal buffer (`crates/ac-tui/src/terminal_buffer.rs`) with 256-color, truecolor, scrollback history, and alternate screen (`1049h`/`1049l`) emulation.
   - Transparent key forwarding: `Esc` passes directly to agent processes (for nano, vi, fzf, and CLI prompts), while `Ctrl+]` or `Ctrl+Q` safely detaches back to the supervisor dashboard.
@@ -94,7 +95,7 @@ For detailed adapter architecture, see [docs/AGENTS.md](docs/AGENTS.md) and [doc
 
 ```text
 ┌──────────────────────────────── Human Interfaces ────────────────────────────────┐
-│      Ratatui TUI (`agent-control` / `ac-tui`)     │      CLI (`ac`, `agy`)       │
+│      Ratatui TUI (`agentcontroll` / `ac-tui`)    │      CLI (`ac`, `agy`)       │
 └────────────────────────────────────────┬─────────────────────────────────────────┘
                                          │ Control API (Unix Socket 0600 / Loopback WS)
 ┌────────────────────────────────────────▼─────────────────────────────────────────┐
@@ -137,14 +138,14 @@ For in-depth specifications, see:
 Run immediately using `npx`:
 
 ```bash
-npx agent-control
+npx agentcontroll
 ```
 
 Or install globally:
 
 ```bash
-npm install -g agent-control
-agent-control
+npm install -g agentcontroll
+agentcontroll
 ```
 
 ### Method 2: One-Line Shell Installer
@@ -152,25 +153,25 @@ agent-control
 Install precompiled binaries directly to `~/.local/bin`:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/agentcontrol/agentcontrol/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/vijaygovindBiju/AgentControll/main/install.sh | sh
 ```
 
 ### Method 3: Prebuilt Tarballs
 
-Download precompiled tarballs and checksums from [GitHub Releases](https://github.com/agentcontrol/agentcontrol/releases):
+Download precompiled tarballs and checksums from [GitHub Releases](https://github.com/vijaygovindBiju/AgentControll/releases):
 
 ```bash
-curl -LO https://github.com/agentcontrol/agentcontrol/releases/download/v1.0.0/agent-control-v1.0.0-x86_64-unknown-linux-gnu.tar.gz
-tar -xzf agent-control-v1.0.0-x86_64-unknown-linux-gnu.tar.gz -C ~/.local/bin/
+curl -LO https://github.com/vijaygovindBiju/AgentControll/releases/download/v1.0.0/agentcontroll-v1.0.0-x86_64-unknown-linux-gnu.tar.gz
+tar -xzf agentcontroll-v1.0.0-x86_64-unknown-linux-gnu.tar.gz -C ~/.local/bin/
 ```
 
 ### Method 4: Building from Source
 
 ```bash
-git clone https://github.com/agentcontrol/agentcontrol.git
-cd agentcontrol
+git clone https://github.com/vijaygovindBiju/AgentControll.git
+cd AgentControll
 cargo build --release --workspace
-cp target/release/{agent-control,agentcontrold,agy,ac} ~/.local/bin/
+cp target/release/{agentcontroll,agent-control,agentcontrold,agy,ac} ~/.local/bin/
 ```
 
 For complete platform details and options, see [docs/INSTALL.md](docs/INSTALL.md).
@@ -182,8 +183,9 @@ For complete platform details and options, see [docs/INSTALL.md](docs/INSTALL.md
 ### 1. Launch the Supervisor Dashboard
 
 ```bash
-agent-control
+agentcontroll
 ```
+
 
 The daemon starts automatically in the background if not already active.
 
@@ -329,10 +331,10 @@ For security policies and vulnerability reporting, see [SECURITY.md](SECURITY.md
 
 | Issue | Cause | Resolution |
 |:---|:---|:---|
-| `Daemon: Disconnected` | Background daemon is not running. | Run `agent-control` (starts it automatically) or `agentcontrold &`. |
+| `Daemon: Disconnected` | Background daemon is not running. | Run `agentcontroll` (starts it automatically) or `agentcontrold &`. |
 | `Permission denied` on socket | Stale socket owned by different user. | Remove stale socket: `rm -f ~/.config/agentcontrol/agentcontrold.sock`. |
 | `No Antigravity credential saved` | Credential file deleted or expired. | Run `agy account add --name "<name>"`. |
-| `Windows unsupported` | Windows requires POSIX sockets and PTY. | Run inside WSL2 (`wsl --install`), then run `npx agent-control`. |
+| `Windows unsupported` | Windows requires POSIX sockets and PTY. | Run inside WSL2 (`wsl --install`), then run `npx agentcontroll`. |
 | `Session hanging` | Legacy PTY back-pressure deadlock. | Fixed in v1.0.0 via 8KB burst buffers, non-blocking `try_send`, and 512-item queues. |
 
 See [docs/INSTALL.md#troubleshooting](docs/INSTALL.md#troubleshooting) and [docs/ANTIGRAVITY_ACCOUNTS.md](docs/ANTIGRAVITY_ACCOUNTS.md) for more details.
@@ -343,7 +345,7 @@ See [docs/INSTALL.md#troubleshooting](docs/INSTALL.md#troubleshooting) and [docs
 
 The workspace is organized into three Rust crates:
 - [crates/ac-core](crates/ac-core): Core supervisor daemon and `agentcontrold` binary (event store, session manager, state machine, accounts, projects, policy engine, adapters, WebSocket/IPC servers).
-- [crates/ac-cli](crates/ac-cli): Command-line interfaces and launchers (`agent-control`, `agy`, `ac`).
+- [crates/ac-cli](crates/ac-cli): Command-line interfaces and launchers (`agentcontroll`, `ac`, `agy`, `agentcontrold`).
 - [crates/ac-tui](crates/ac-tui): Terminal UI library and `ac-tui` binary (Ratatui views, ANSI virtual screen buffer, event loop).
 
 ### Building
@@ -362,7 +364,7 @@ For contribution guidelines, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Testing
 
-Agent Control maintains an extensive test suite covering unit logic, integration flows, and end-to-end launcher scenarios:
+AgentControll maintains an extensive test suite covering unit logic, integration flows, and end-to-end launcher scenarios:
 
 ```bash
 # Run all workspace unit and integration tests
@@ -398,4 +400,5 @@ Contributions are welcome! Please read [CONTRIBUTING.md](CONTRIBUTING.md) for in
 
 ## License
 
-Agent Control is open source software licensed under the [MIT License](LICENSE).
+AgentControll is open source software licensed under the [MIT License](LICENSE).
+

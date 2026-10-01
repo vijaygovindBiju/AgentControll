@@ -8,15 +8,15 @@ console.log('Running npm package unit tests...');
 
 // Test 1: Supported targets mapping
 assert.strictEqual(SUPPORTED_TARGETS['linux-x64'], 'x86_64-unknown-linux-gnu');
-assert.strictEqual(SUPPORTED_TARGETS['linux-arm64'], 'aarch64-unknown-linux-gnu');
 assert.strictEqual(SUPPORTED_TARGETS['darwin-x64'], 'x86_64-apple-darwin');
 assert.strictEqual(SUPPORTED_TARGETS['darwin-arm64'], 'aarch64-apple-darwin');
 console.log('✓ Target triple mappings are valid');
 
 // Test 2: Archive name construction
 const archiveName = getArchiveName('1.0.0', 'x86_64-unknown-linux-gnu');
-assert.strictEqual(archiveName, 'agent-control-v1.0.0-x86_64-unknown-linux-gnu.tar.gz');
+assert.strictEqual(archiveName, 'agentcontroll-v1.0.0-x86_64-unknown-linux-gnu.tar.gz');
 console.log('✓ Archive name formatting matches release contract');
+
 
 // Test 3: Windows platform error handling
 const oldPlatform = process.env.AGENTCONTROL_PLATFORM;

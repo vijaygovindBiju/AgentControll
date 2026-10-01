@@ -1,6 +1,6 @@
-# Contributing to Agent Control
+# Contributing to AgentControll
 
-Thank you for your interest in contributing to Agent Control! We welcome bug reports, documentation improvements, and pull requests.
+Thank you for your interest in contributing to AgentControll! We welcome bug reports, documentation improvements, and pull requests.
 
 This guide provides everything you need to set up your local development environment, build the project, run tests, and submit contributions.
 
@@ -26,15 +26,16 @@ Before contributing, ensure you have the following installed:
 Clone the repository:
 
 ```bash
-git clone https://github.com/agentcontrol/agentcontrol.git
-cd agentcontrol
+git clone https://github.com/vijaygovindBiju/AgentControll.git
+cd AgentControll
 ```
 
 The workspace is organized into three Rust crates:
 - **`crates/ac-core`**: Core supervisor daemon library and `agentcontrold` binary (event store, state machine, account/project registries, interaction hub, policy engine, adapters, WebSocket/IPC servers).
-- **`crates/ac-cli`**: Command-line interfaces and launchers (`agent-control`, `agy`, `ac`).
+- **`crates/ac-cli`**: Command-line interfaces and launchers (`agentcontroll`, `ac`, `agy`, `agentcontrold`).
 - **`crates/ac-tui`**: Terminal user interface library and `ac-tui` binary (Ratatui views, ANSI virtual screen buffer, event loop).
-- **`packages/agent-control`**: Cross-platform npm package wrapper for `npx agent-control`.
+- **`packages/agent-control`**: Cross-platform npm package wrapper for `npx agentcontroll`.
+
 
 ---
 
@@ -83,7 +84,7 @@ Verify that all crates compile without warnings:
 cargo check --workspace --all-targets
 ```
 > [!IMPORTANT]
-> Agent Control enforces a **zero warnings policy**. `cargo check --workspace --all-targets` must produce `0` compiler warnings.
+> AgentControll enforces a **zero warnings policy**. `cargo check --workspace --all-targets` must produce `0` compiler warnings.
 
 ### 3. Running Tests
 
@@ -154,7 +155,7 @@ Every PR is reviewed against the following criteria:
 ## Issue Reporting Guidance
 
 When reporting an issue:
-1. Check that you are running the latest version of Agent Control (`agent-control --version`).
+1. Check that you are running the latest version of AgentControll (`agentcontroll --version`).
 2. Provide your operating system distribution (`uname -a`, `cat /etc/os-release`).
 3. Describe the expected versus actual behavior.
 4. Provide minimal reproduction steps.

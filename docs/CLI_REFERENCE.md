@@ -1,6 +1,6 @@
-# Agent Control CLI Reference Manual
+# AgentControll CLI Reference Manual
 
-This document provides a comprehensive reference for all command-line functions, binaries, subcommands, arguments, and workflow recipes in **Agent Control**.
+This document provides a comprehensive reference for all command-line functions, binaries, subcommands, arguments, and workflow recipes in **AgentControll**.
 
 ---
 
@@ -17,7 +17,7 @@ This document provides a comprehensive reference for all command-line functions,
 9. [Event Log, Streaming & Integrity (`ac events`)](#9-event-log-streaming--integrity-ac-events)
 10. [Daemon Status & Health (`ac status`)](#10-daemon-status--health-ac-status)
 11. [Antigravity Launcher CLI (`agy`)](#11-antigravity-launcher-cli-agy)
-12. [Interactive Terminal Dashboards (`agent-control` & `ac-tui`)](#12-interactive-terminal-dashboards-agent-control--ac-tui)
+12. [Interactive Terminal Dashboards (`agentcontroll` & `ac-tui`)](#12-interactive-terminal-dashboards-agentcontroll--ac-tui)
 13. [JSON Scripting & Automation Examples](#13-json-scripting--automation-examples)
 14. [End-to-End Practical Recipes](#14-end-to-end-practical-recipes)
 
@@ -25,15 +25,16 @@ This document provides a comprehensive reference for all command-line functions,
 
 ## 1. Binary Architecture Overview
 
-Agent Control provides a suite of complementary binaries:
+AgentControll provides a suite of complementary binaries:
 
 | Binary | Role | Typical Use Case |
 |---|---|---|
 | `ac` | **Core Control Plane CLI** | Automation, scripting, fine-grained lifecycle, account configuration, policy and audit management. |
 | `agy` | **Antigravity Launcher Shim** | Frictionless launching of Google Antigravity agents by account label (`agy "test1"`), browser OAuth, and account switching. |
-| `agent-control` | **Unified Interactive Launcher** | One-command interactive interface launching the full supervisor dashboard. |
+| `agentcontroll` | **Unified Interactive Launcher** | One-command interactive interface launching the full supervisor dashboard (aliased as `agent-control`). |
 | `ac-tui` | **Ratatui Terminal Dashboard** | Full-screen interactive dashboard with live transcripts, approval inbox, account switching, and session control. |
 | `agentcontrold` | **Supervisor Daemon** | Long-running background daemon managing sessions, accounts, policies, SQLite event store, and IPC/WebSocket servers. |
+
 
 ---
 
@@ -556,17 +557,20 @@ agy [ACCOUNT_LABEL] [COMMAND]
 
 ---
 
-## 12. Interactive Terminal Dashboards (`agent-control` & `ac-tui`)
+## 12. Interactive Terminal Dashboards (`agentcontroll` & `ac-tui`)
 
 Launch the unified Ratatui TUI dashboard:
 
 ```bash
+agentcontroll
+# or
 agent-control
 # or
 ac tui
 # or
 ac-tui
 ```
+
 
 ### TUI Navigation & Tabs:
 * **`1`**: **Dashboard** (System health, AGENTS overview, ACCOUNTS status summary, active SESSIONS list, inbox alerts, quick-launch shortcuts `[g]` Antigravity, `[c]` Claude Code, `[x]` Codex/PTY)

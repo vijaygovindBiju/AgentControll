@@ -425,11 +425,14 @@ agy account list
 - **Error Transparency**: Displays human-friendly explanations for cooldowns, quota limits, and concurrency caps. Never silently substitutes another account if the requested account is unavailable.
 - **Interactive Session Controller**: Hotkeys `[s]` Steer, `[p]` Pause, `[r]` Resume, `[x]` Stop, `[a]` Switch Account, `[q]` Quit.
 
-### 2. `agent-control` — Main Interactive Control Plane
+### 2. `agentcontroll` — Main Interactive Control Plane
 ```bash
+agentcontroll
+# or
 agent-control
 ```
 - Launches the unified Ratatui interactive dashboard showing AGENTS summary, ACCOUNTS statuses, and SESSIONS inventory.
+
 - Global navigation shortcuts: `[Enter]` Open, `[A]` Add Account, `[N]` New Agent, `[S]` Sessions, `[Q]` Quit.
 
 ### 3. `ac` — Power-User / Automation CLI

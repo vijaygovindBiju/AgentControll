@@ -2,7 +2,10 @@
 name = "ac-tui"
 version.workspace = true
 edition.workspace = true
-description = "Agent Control TUI — Interactive dashboard and inbox"
+description = "AgentControll TUI — Interactive dashboard and inbox"
+
+[lints]
+workspace = true
 
 [[bin]]
 name = "ac-tui"

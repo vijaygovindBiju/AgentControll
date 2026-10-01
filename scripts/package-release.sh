@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Package Agent Control release binaries into tarballs with SHA256 checksums
+# Package AgentControll release binaries into tarballs with SHA256 checksums
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -11,7 +11,7 @@ DIST_DIR="${DIST_DIR:-${REPO_ROOT}/dist}"
 
 
 echo "=========================================================="
-echo "Packaging Agent Control v${VERSION} for target ${TARGET}"
+echo "Packaging AgentControll v${VERSION} for target ${TARGET}"
 echo "=========================================================="
 
 mkdir -p "${DIST_DIR}"
@@ -32,7 +32,7 @@ echo "Building release binaries..."
 # Build without incremental compilation to save disk space
 CARGO_INCREMENTAL=0 cargo build --release --workspace ${CARGO_TARGET_FLAG}
 
-BINARIES=("agent-control" "agentcontrold" "agy" "ac")
+BINARIES=("agentcontroll" "agent-control" "agentcontrold" "agy" "ac")
 for bin in "${BINARIES[@]}"; do
   if [ ! -f "${BIN_DIR}/${bin}" ]; then
     echo "Error: Binary '${BIN_DIR}/${bin}' not found." >&2
@@ -40,7 +40,7 @@ for bin in "${BINARIES[@]}"; do
   fi
 done
 
-ARCHIVE_NAME="agent-control-v${VERSION}-${TARGET}.tar.gz"
+ARCHIVE_NAME="agentcontroll-v${VERSION}-${TARGET}.tar.gz"
 ARCHIVE_PATH="${DIST_DIR}/${ARCHIVE_NAME}"
 
 echo "Creating tarball: ${ARCHIVE_PATH}"

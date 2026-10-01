@@ -19,6 +19,8 @@ yarn-error.log*
 
 # Node / npm artifacts
 node_modules/
+dist/
+*.tgz
 
 # Local configurations & credentials (never commit secrets)
 credentials/

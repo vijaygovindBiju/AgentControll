@@ -2,7 +2,10 @@
 name = "ac-cli"
 version.workspace = true
 edition.workspace = true
-description = "Agent Control CLI — user launchers, interactive sessions, and power-user commands"
+description = "AgentControll CLI — user launchers, interactive sessions, and power-user commands"
+
+[lints]
+workspace = true
 
 [lib]
 name = "ac_cli"
@@ -15,6 +18,10 @@ path = "src/bin/ac.rs"
 [[bin]]
 name = "agy"
 path = "src/bin/agy.rs"
+
+[[bin]]
+name = "agentcontroll"
+path = "src/bin/agentcontroll.rs"
 
 [[bin]]
 name = "agent-control"

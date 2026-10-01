@@ -10,10 +10,10 @@ const { execFileSync } = require('child_process');
 const { getTargetTriple, getArchiveName } = require('./platform');
 
 const VERSION = require('../package.json').version;
-const GITHUB_REPO = 'agentcontrol/agentcontrol';
+const GITHUB_REPO = 'vijaygovindBiju/AgentControll';
 
 /**
- * Returns the directory where Agent Control binaries are cached.
+ * Returns the directory where AgentControll binaries are cached.
  */
 function getCacheDir(version = VERSION) {
   const baseCache = process.env.XDG_CACHE_HOME || path.join(os.homedir(), '.cache');
@@ -79,10 +79,10 @@ function getFileSha256(filePath) {
  * Ensures the binary exists and is executable.
  * Downloads from GitHub releases if not already cached.
  *
- * @param {string} binaryName Name of the binary (e.g. 'agent-control', 'agentcontrold', 'agy', 'ac')
+ * @param {string} binaryName Name of the binary (e.g. 'agentcontroll', 'agent-control', 'agentcontrold', 'agy', 'ac')
  * @returns {Promise<string>} Absolute path to the executable binary
  */
-async function ensureBinary(binaryName = 'agent-control') {
+async function ensureBinary(binaryName = 'agentcontroll') {
   // 1. Check AGENTCONTROL_BIN_DIR override (useful for dev or custom installations)
   if (process.env.AGENTCONTROL_BIN_DIR) {
     const overridePath = path.join(process.env.AGENTCONTROL_BIN_DIR, binaryName);
@@ -116,17 +116,17 @@ async function ensureBinary(binaryName = 'agent-control') {
   fs.mkdirSync(cacheDir, { recursive: true });
   const tempArchive = path.join(cacheDir, `${archiveName}.tmp`);
 
-  process.stderr.write(`[agent-control] Downloading Agent Control v${VERSION} for ${targetTriple}...\n`);
+  process.stderr.write(`[agentcontroll] Downloading AgentControll v${VERSION} for ${targetTriple}...\n`);
 
   try {
     await downloadFile(archiveUrl, tempArchive);
 
     // Extract using system tar
-    process.stderr.write(`[agent-control] Extracting binary archive...\n`);
+    process.stderr.write(`[agentcontroll] Extracting binary archive...\n`);
     execFileSync('tar', ['-xzf', tempArchive, '-C', cacheDir]);
 
     // Ensure permissions
-    const binaries = ['agent-control', 'agentcontrold', 'agy', 'ac'];
+    const binaries = ['agentcontroll', 'agent-control', 'agentcontrold', 'agy', 'ac'];
     for (const bin of binaries) {
       const p = path.join(cacheDir, bin);
       if (fs.existsSync(p)) {
@@ -143,14 +143,14 @@ async function ensureBinary(binaryName = 'agent-control') {
       throw new Error(`Expected binary '${binaryName}' was not found in downloaded release archive.`);
     }
 
-    process.stderr.write(`[agent-control] Ready.\n`);
+    process.stderr.write(`[agentcontroll] Ready.\n`);
     return binaryPath;
   } catch (err) {
     try {
       if (fs.existsSync(tempArchive)) fs.unlinkSync(tempArchive);
     } catch {}
     throw new Error(
-      `Failed to download prebuilt Agent Control binary from ${archiveUrl}:\n${err.message}\n` +
+      `Failed to download prebuilt AgentControll binary from ${archiveUrl}:\n${err.message}\n` +
       `You can build from source using 'cargo build --release' or set AGENTCONTROL_BIN_DIR.`
     );
   }

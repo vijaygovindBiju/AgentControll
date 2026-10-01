@@ -1,7 +1,7 @@
 #!/usr/bin/env sh
-# Agent Control installer script
+# AgentControll installer script
 # Usage:
-#   curl -fsSL https://raw.githubusercontent.com/agentcontrol/agentcontrol/main/install.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/vijaygovindBiju/AgentControll/main/install.sh | sh
 #
 # Environment variables:
 #   AGENTCONTROL_VERSION   Target version to install (defaults to "1.0.0")
@@ -10,7 +10,7 @@
 
 set -e
 
-REPO="agentcontrol/agentcontrol"
+REPO="vijaygovindBiju/AgentControll"
 VERSION="${AGENTCONTROL_VERSION:-1.0.0}"
 
 # Color output helpers if terminal supports colors
@@ -31,19 +31,19 @@ else
 fi
 
 log_info() {
-  printf "${BLUE}[agent-control]${RESET} %s\n" "$1"
+  printf "${BLUE}[agentcontroll]${RESET} %s\n" "$1"
 }
 
 log_success() {
-  printf "${GREEN}[agent-control]${RESET} %s\n" "$1"
+  printf "${GREEN}[agentcontroll]${RESET} %s\n" "$1"
 }
 
 log_warn() {
-  printf "${YELLOW}[agent-control] WARNING:${RESET} %s\n" "$1"
+  printf "${YELLOW}[agentcontroll] WARNING:${RESET} %s\n" "$1"
 }
 
 log_error() {
-  printf "${RED}[agent-control] ERROR:${RESET} %s\n" "$1" >&2
+  printf "${RED}[agentcontroll] ERROR:${RESET} %s\n" "$1" >&2
 }
 
 # 1. Detect Operating System
@@ -57,15 +57,15 @@ case "$OS" in
     ;;
   CYGWIN*|MINGW*|MSYS*)
     log_error "Windows is not supported directly due to POSIX socket and PTY requirements."
-    printf "Please install Agent Control inside WSL2 (Windows Subsystem for Linux):\n"
+    printf "Please install AgentControll inside WSL2 (Windows Subsystem for Linux):\n"
     printf "  1. Open PowerShell and run: wsl --install\n"
     printf "  2. Inside WSL2 terminal, run: curl -fsSL https://raw.githubusercontent.com/${REPO}/main/install.sh | sh\n"
     exit 1
     ;;
   *)
     log_error "Unsupported operating system: $OS"
-    printf "You can compile Agent Control from source using:\n"
-    printf "  git clone https://github.com/${REPO}.git && cd agentcontrol && cargo build --release\n"
+    printf "You can compile AgentControll from source using:\n"
+    printf "  git clone https://github.com/${REPO}.git && cd AgentControll && cargo build --release\n"
     exit 1
     ;;
 esac
@@ -77,7 +77,14 @@ case "$ARCH" in
     ARCH_TARGET="x86_64"
     ;;
   aarch64|arm64)
-    ARCH_TARGET="aarch64"
+    if [ "$PLATFORM" = "apple-darwin" ]; then
+      ARCH_TARGET="aarch64"
+    else
+      log_error "Linux ARM64 (aarch64) prebuilt release binaries are not currently provided."
+      printf "You can compile AgentControll from source using:\n"
+      printf "  git clone https://github.com/${REPO}.git && cd AgentControll && cargo build --release\n"
+      exit 1
+    fi
     ;;
   *)
     log_error "Unsupported CPU architecture: $ARCH"
@@ -86,8 +93,9 @@ case "$ARCH" in
 esac
 
 TARGET="${ARCH_TARGET}-${PLATFORM}"
-ARCHIVE_NAME="agent-control-v${VERSION}-${TARGET}.tar.gz"
+ARCHIVE_NAME="agentcontroll-v${VERSION}-${TARGET}.tar.gz"
 DOWNLOAD_URL="https://github.com/${REPO}/releases/download/v${VERSION}/${ARCHIVE_NAME}"
+CHECKSUMS_URL="https://github.com/${REPO}/releases/download/v${VERSION}/SHA256SUMS"
 
 # 3. Determine Installation Directory
 if [ -n "$BIN_DIR" ]; then
@@ -101,13 +109,13 @@ fi
 mkdir -p "$INSTALL_DIR"
 
 # 4. Prepare temporary directory
-TMP_DIR="$(mktemp -d 2>/dev/null || mktemp -d -t 'agentcontrol')"
+TMP_DIR="$(mktemp -d 2>/dev/null || mktemp -d -t 'agentcontroll')"
 cleanup() {
   rm -rf "$TMP_DIR"
 }
 trap cleanup EXIT INT TERM
 
-log_info "Downloading Agent Control v${VERSION} for ${TARGET}..."
+log_info "Downloading AgentControll v${VERSION} for ${TARGET}..."
 
 if command -v curl >/dev/null 2>&1; then
   curl -fL --progress-bar "$DOWNLOAD_URL" -o "${TMP_DIR}/${ARCHIVE_NAME}"
@@ -118,18 +126,48 @@ else
   exit 1
 fi
 
+# 5. Checksum Verification
+log_info "Verifying SHA256 checksum..."
+if command -v curl >/dev/null 2>&1; then
+  curl -fsSL "$CHECKSUMS_URL" -o "${TMP_DIR}/SHA256SUMS" 2>/dev/null || true
+elif command -v wget >/dev/null 2>&1; then
+  wget -q "$CHECKSUMS_URL" -O "${TMP_DIR}/SHA256SUMS" 2>/dev/null || true
+fi
+
+if [ -f "${TMP_DIR}/SHA256SUMS" ]; then
+  (
+    cd "$TMP_DIR"
+    if command -v sha256sum >/dev/null 2>&1; then
+      if grep -F " ${ARCHIVE_NAME}" SHA256SUMS >/dev/null 2>&1; then
+        grep -F " ${ARCHIVE_NAME}" SHA256SUMS | sha256sum -c --status || {
+          log_error "SHA256 checksum verification failed for ${ARCHIVE_NAME}!"
+          exit 1
+        }
+      fi
+    elif command -v shasum >/dev/null 2>&1; then
+      if grep -F " ${ARCHIVE_NAME}" SHA256SUMS >/dev/null 2>&1; then
+        grep -F " ${ARCHIVE_NAME}" SHA256SUMS | shasum -a 256 -c --status || {
+          log_error "SHA256 checksum verification failed for ${ARCHIVE_NAME}!"
+          exit 1
+        }
+      fi
+    fi
+  )
+fi
+
 log_info "Extracting archive to ${INSTALL_DIR}..."
 tar -xzf "${TMP_DIR}/${ARCHIVE_NAME}" -C "$INSTALL_DIR"
 
 # Ensure executables have appropriate permissions
+chmod 0755 "${INSTALL_DIR}/agentcontroll" 2>/dev/null || true
 chmod 0755 "${INSTALL_DIR}/agent-control" 2>/dev/null || true
 chmod 0755 "${INSTALL_DIR}/agentcontrold" 2>/dev/null || true
 chmod 0755 "${INSTALL_DIR}/agy" 2>/dev/null || true
 chmod 0755 "${INSTALL_DIR}/ac" 2>/dev/null || true
 
-log_success "Agent Control v${VERSION} installed successfully to ${INSTALL_DIR}!"
+log_success "AgentControll v${VERSION} installed successfully to ${INSTALL_DIR}!"
 
-# 5. Verify PATH
+# 6. Verify PATH
 case ":$PATH:" in
   *":$INSTALL_DIR:"*) ;;
   *)
@@ -141,4 +179,4 @@ case ":$PATH:" in
     ;;
 esac
 
-printf "\nRun '${BOLD}agent-control${RESET}' or '${BOLD}agy${RESET}' to get started!\n"
+printf "\nRun '${BOLD}agentcontroll${RESET}' or '${BOLD}agy${RESET}' to get started!\n"
