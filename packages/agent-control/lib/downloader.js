@@ -79,7 +79,7 @@ function getFileSha256(filePath) {
  * Ensures the binary exists and is executable.
  * Downloads from GitHub releases if not already cached.
  *
- * @param {string} binaryName Name of the binary (e.g. 'agentcontroll', 'agent-control', 'agentcontrold', 'agy', 'ac')
+ * @param {string} binaryName Name of the binary (e.g. 'agentcontroll', 'agent-control', 'agentcontrold', 'ac')
  * @returns {Promise<string>} Absolute path to the executable binary
  */
 async function ensureBinary(binaryName = 'agentcontroll') {
@@ -126,7 +126,7 @@ async function ensureBinary(binaryName = 'agentcontroll') {
     execFileSync('tar', ['-xzf', tempArchive, '-C', cacheDir]);
 
     // Ensure permissions
-    const binaries = ['agentcontroll', 'agent-control', 'agentcontrold', 'agy', 'ac'];
+    const binaries = ['agentcontroll', 'agent-control', 'agentcontrold', 'ac'];
     for (const bin of binaries) {
       const p = path.join(cacheDir, bin);
       if (fs.existsSync(p)) {

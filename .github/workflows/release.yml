@@ -61,9 +61,9 @@ jobs:
           
           mkdir -p dist
           # Ensure all required binaries are executable before packaging:
-          # agentcontroll (primary), agent-control, ac, agy, agentcontrold
-          chmod +x "${BIN_DIR}/agentcontroll" "${BIN_DIR}/agent-control" "${BIN_DIR}/ac" "${BIN_DIR}/agy" "${BIN_DIR}/agentcontrold"
-          tar -czf "dist/${ARCHIVE_NAME}" -C "${BIN_DIR}" agentcontroll agent-control ac agy agentcontrold
+          # agentcontroll (primary), agent-control, ac, agentcontrold
+          chmod +x "${BIN_DIR}/agentcontroll" "${BIN_DIR}/agent-control" "${BIN_DIR}/ac" "${BIN_DIR}/agentcontrold"
+          tar -czf "dist/${ARCHIVE_NAME}" -C "${BIN_DIR}" agentcontroll agent-control ac agentcontrold
           
           cd dist
           if command -v sha256sum >/dev/null 2>&1; then

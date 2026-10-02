@@ -12,7 +12,7 @@ Start the interactive terminal environment:
 agentcontroll
 ```
 
-*(Or use shorthand `agy` for Antigravity-focused launcher, or `npx agentcontroll` if running via npm).*
+*(Use the AgentControll TUI to manage Antigravity accounts and sessions, or `npx agentcontroll` if running via npm.)*
 
 On initial launch, if the background daemon (`agentcontrold`) is not running, AgentControll starts it automatically and opens the dashboard.
 

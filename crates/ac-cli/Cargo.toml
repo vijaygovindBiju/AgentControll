@@ -16,10 +16,6 @@ name = "ac"
 path = "src/bin/ac.rs"
 
 [[bin]]
-name = "agy"
-path = "src/bin/agy.rs"
-
-[[bin]]
 name = "agentcontroll"
 path = "src/bin/agentcontroll.rs"
 

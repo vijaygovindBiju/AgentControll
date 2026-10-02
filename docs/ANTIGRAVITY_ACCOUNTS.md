@@ -31,9 +31,7 @@ selected account ─► account ID ─► Account Manager ─► credential_ref
 ## Add an account
 
 ```bash
-agy account add                 # or: ac login / ac account add
-agy account add --name "College Google"
-agy account add --cli           # headless: paste the redirect address back
+agentcontroll                  # use the TUI account controls
 ```
 
 Methods:
@@ -80,10 +78,7 @@ use "Import the existing local agy login".
 ## Select an account
 
 ```bash
-agy                        # 1 usable account: used; several: arrow-key selector
-agy "College Google"       # exact name (case-insensitive)
-agy 01K...                 # exact account ID
-agy account list           # names, IDs, status, credential validity / e-mail
+agentcontroll              # select an account from the TUI
 ```
 
 * An unknown name prints `Account "<name>" does not exist.` and lists the
@@ -134,7 +129,7 @@ hand-off:
 ## Remove an account
 
 ```bash
-agy account remove "College Google"      # or: ac account remove <ID|NAME> [--yes]
+agentcontroll              # remove the selected account from the TUI
 ```
 
 TUI: *Accounts* tab → select → `d` → confirm with `Enter` (`Esc` cancels).

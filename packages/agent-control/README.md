@@ -32,9 +32,6 @@ agentcontroll
 # Shorthand alias
 ac
 
-# Launch or switch Antigravity (agy) agent sessions directly
-agy
-
 # Inspect daemon state or start the background control daemon
 agentcontrold --help
 ```
@@ -49,4 +46,3 @@ agentcontrold --help
 ## License
 
 MIT © AgentControll contributors. See [LICENSE](https://github.com/vijaygovindBiju/AgentControll/blob/main/LICENSE) for details.
-

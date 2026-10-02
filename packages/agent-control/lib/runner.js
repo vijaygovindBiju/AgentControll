@@ -6,7 +6,7 @@ const { ensureBinary } = require('./downloader');
 /**
  * Executes a target AgentControll binary, forwarding arguments, stdio, and signals.
  *
- * @param {string} binaryName Name of the binary to run ('agentcontroll', 'agy', etc.)
+ * @param {string} binaryName Name of the AgentControll binary to run.
  */
 async function runBinary(binaryName) {
   try {

@@ -162,7 +162,6 @@ tar -xzf "${TMP_DIR}/${ARCHIVE_NAME}" -C "$INSTALL_DIR"
 chmod 0755 "${INSTALL_DIR}/agentcontroll" 2>/dev/null || true
 chmod 0755 "${INSTALL_DIR}/agent-control" 2>/dev/null || true
 chmod 0755 "${INSTALL_DIR}/agentcontrold" 2>/dev/null || true
-chmod 0755 "${INSTALL_DIR}/agy" 2>/dev/null || true
 chmod 0755 "${INSTALL_DIR}/ac" 2>/dev/null || true
 
 log_success "AgentControll v${VERSION} installed successfully to ${INSTALL_DIR}!"
@@ -179,4 +178,4 @@ case ":$PATH:" in
     ;;
 esac
 
-printf "\nRun '${BOLD}agentcontroll${RESET}' or '${BOLD}agy${RESET}' to get started!\n"
+printf "\nRun '${BOLD}agentcontroll${RESET}' to get started!\n"

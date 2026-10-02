@@ -215,12 +215,10 @@ agent-specific code.
 
 The human interface is split into two complementary layers:
 
-1. **Normal-User Layer (`agy`, `agentcontroll`):**
+1. **Normal-User Layer (`agentcontroll`):**
    - **`agentcontroll`**: Launches the main Ratatui interactive dashboard providing high-level overviews of `AGENTS`, `ACCOUNTS`, and `SESSIONS` with direct keyboard actions (`[Enter] Open`, `[A] Add Account`, `[N] New Agent`, `[S] Sessions`, `[Q] Quit`). Aliased as `agent-control`.
 
-   - **`agy "Personal Google"`**: Launches Antigravity using human-readable account labels. Resolves account via `AccountManager::find_by_label`, checks provider compatibility, verifies availability/cooldown, binds to project workspace, starts the session, and attaches the interactive session monitor.
-   - **`agy`**: Intelligent automatic resolution: auto-launches if only 1 account exists, opens interactive terminal account selector if multiple exist, or initiates browser OAuth login if no accounts exist.
-   - **`agy account add`**: Automated browser-based OAuth 2.0 loopback authentication on `127.0.0.1:0` with manual code fallback and secure `0600` token storage.
+   - **TUI account and session controls**: Add, select, and remove Antigravity accounts; resolve account availability and launch sessions with the selected account.
    - **Interactive Session Controller**: Ratatui-based live session screen with streaming transcripts, state badges, and hotkeys (`[s]` Steer, `[p]` Pause, `[r]` Resume, `[x]` Stop, `[a]` Switch Account, `[Ctrl+Q]` Detach).
 
 2. **Power-User / Automation Layer (`ac`):**
@@ -260,4 +258,3 @@ The Ratatui TUI is the primary operational dashboard for human supervision of ag
   Control API and TUI. Credential references (`ref:<id>`) are separated from secret payload tokens.
 - **Versioning**: event and command schemas carry a version; the store keeps
   the version with each event to allow migration on replay.
-

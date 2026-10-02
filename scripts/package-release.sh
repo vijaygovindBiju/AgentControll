@@ -32,7 +32,7 @@ echo "Building release binaries..."
 # Build without incremental compilation to save disk space
 CARGO_INCREMENTAL=0 cargo build --release --workspace ${CARGO_TARGET_FLAG}
 
-BINARIES=("agentcontroll" "agent-control" "ac" "agy" "agentcontrold")
+BINARIES=("agentcontroll" "agent-control" "ac" "agentcontrold")
 for bin in "${BINARIES[@]}"; do
   if [ ! -f "${BIN_DIR}/${bin}" ]; then
     echo "Error: Binary '${BIN_DIR}/${bin}' not found." >&2

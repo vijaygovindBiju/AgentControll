@@ -5,7 +5,6 @@
   "bin": {
     "agentcontroll": "bin/agentcontroll.js",
     "agent-control": "bin/agent-control.js",
-    "agy": "bin/agy.js",
     "ac": "bin/ac.js",
     "agentcontrold": "bin/agentcontrold.js"
   },

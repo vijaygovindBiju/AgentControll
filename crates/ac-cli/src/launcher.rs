@@ -152,7 +152,9 @@ fn not_found_message(needle: &str, agy_accounts: &[Account]) -> String {
             msg.push_str(&format!("\n- {}", a.label));
         }
     }
-    msg.push_str("\n\nTo add a new account, run:\n  agy account add");
+    msg.push_str(
+        "\n\nTo add a new account, open the AgentControll TUI and use account management.",
+    );
     msg
 }
 

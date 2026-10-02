@@ -431,32 +431,32 @@ TUI Client (ApiClient)
 
 ---
 
-## 10. Normal-user Antigravity launch & account setup (`agy`)
+## 10. TUI Antigravity launch & account setup
 
-**Trigger:** User runs `agy "Personal Google"` or `agy`.
+**Trigger:** User opens `agentcontroll` and uses the account/session controls.
 
 ```
 User Terminal
-  │ agy "Personal Google"
+  │ agentcontroll
   ▼
-Launcher Client (crates/ac-cli)
+Ratatui TUI (crates/ac-tui)
   ├─ checks / starts daemon process (setsid detached)
   ├─ connects to Control API IPC socket
   ├─ queries accounts for agent_type "agy" | "antigravity"
   │
-  ├─ [Explicit Label Path]:
-  │     finds account matching label "Personal Google"
+  ├─ [Account Selection]:
+  │     finds the selected account
   │     checks status:
   │       - if Incompatible: display clear message and exit
   │       - if Cooldown/Exhausted/Over-limit: explain reason, prompt to pick alternative
   │       - if Ready: proceed to session start
   │
-  ├─ [Interactive / Auto Path (agy without argument)]:
+  ├─ [Account Management]:
   │     - 0 accounts: prompt to login with browser
   │     - 1 account: auto-select "Using account: <label>"
   │     - >1 accounts: render interactive selector menu
   │
-  ├─ [Account Addition Flow (agy account add)]:
+  ├─ [Account Addition Flow]:
   │     prompt friendly label
   │     bind ephemeral loopback listener 127.0.0.1:0
   │     open system browser to OAuth authorization URL
@@ -489,4 +489,3 @@ Launcher Client (crates/ac-cli)
 | 8 | External event consumers | Event subscription, no state changes in core |
 | 9 | TUI live updates | Real-time terminal re-rendering driven by `events.subscribe` |
 | 10 | Antigravity Launcher UX | `find_by_label → availability_check → session.start → interactive attach` |
-

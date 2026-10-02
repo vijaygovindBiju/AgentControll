@@ -117,12 +117,11 @@ Download precompiled release archives and checksums from the [GitHub Releases](h
    - `agentcontroll`: Primary interactive launcher and CLI
    - `agent-control`: Backward-compatible launcher alias
    - `agentcontrold`: Background daemon and state engine
-   - `agy`: Direct Antigravity session launcher
    - `ac`: Shorthand CLI
 
 4. Install binaries to your PATH:
    ```bash
-   cp target/release/{agentcontroll,agent-control,agentcontrold,agy,ac} ~/.local/bin/
+   cp target/release/{agentcontroll,agent-control,agentcontrold,ac} ~/.local/bin/
    ```
 
 ---
@@ -160,7 +159,7 @@ source ~/.bashrc  # or source ~/.zshrc
    ```bash
    git pull origin main
    cargo build --release --workspace
-   cp target/release/{agentcontroll,agent-control,agentcontrold,agy,ac} ~/.local/bin/
+   cp target/release/{agentcontroll,agent-control,agentcontrold,ac} ~/.local/bin/
    ```
 
 ---
@@ -169,7 +168,7 @@ source ~/.bashrc  # or source ~/.zshrc
 
 1. Remove installed binaries:
    ```bash
-   rm -f ~/.local/bin/{agentcontroll,agent-control,agentcontrold,agy,ac}
+   rm -f ~/.local/bin/{agentcontroll,agent-control,agentcontrold,ac}
    # If installed via npm:
    npm uninstall -g agentcontroll
    ```

@@ -32,7 +32,7 @@ cd AgentControll
 
 The workspace is organized into three Rust crates:
 - **`crates/ac-core`**: Core supervisor daemon library and `agentcontrold` binary (event store, state machine, account/project registries, interaction hub, policy engine, adapters, WebSocket/IPC servers).
-- **`crates/ac-cli`**: Command-line interfaces and launchers (`agentcontroll`, `ac`, `agy`, `agentcontrold`).
+- **`crates/ac-cli`**: Command-line interfaces and launchers (`agentcontroll`, `ac`, `agentcontrold`).
 - **`crates/ac-tui`**: Terminal user interface library and `ac-tui` binary (Ratatui views, ANSI virtual screen buffer, event loop).
 - **`packages/agent-control`**: Cross-platform npm package wrapper for `npx agentcontroll`.
 

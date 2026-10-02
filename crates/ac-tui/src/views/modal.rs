@@ -1082,7 +1082,7 @@ pub fn render(f: &mut Frame, app: &App) {
                         ),
                     ]));
                     lines.push(Line::from(vec![Span::styled(
-                        "                   Headless machine? Use: agy account add --cli",
+                        "                   Headless machine? Use: ac login --cli",
                         Style::default().fg(Color::DarkGray),
                     )]));
                 }

@@ -16,10 +16,9 @@ This document provides a comprehensive reference for all command-line functions,
 8. [Audit Log Inspection (`ac audit`)](#8-audit-log-inspection-ac-audit)
 9. [Event Log, Streaming & Integrity (`ac events`)](#9-event-log-streaming--integrity-ac-events)
 10. [Daemon Status & Health (`ac status`)](#10-daemon-status--health-ac-status)
-11. [Antigravity Launcher CLI (`agy`)](#11-antigravity-launcher-cli-agy)
-12. [Interactive Terminal Dashboards (`agentcontroll` & `ac-tui`)](#12-interactive-terminal-dashboards-agentcontroll--ac-tui)
-13. [JSON Scripting & Automation Examples](#13-json-scripting--automation-examples)
-14. [End-to-End Practical Recipes](#14-end-to-end-practical-recipes)
+11. [Interactive Terminal Dashboards (`agentcontroll` & `ac-tui`)](#11-interactive-terminal-dashboards-agentcontroll--ac-tui)
+12. [JSON Scripting & Automation Examples](#12-json-scripting--automation-examples)
+13. [End-to-End Practical Recipes](#13-end-to-end-practical-recipes)
 
 ---
 
@@ -30,7 +29,6 @@ AgentControll provides a suite of complementary binaries:
 | Binary | Role | Typical Use Case |
 |---|---|---|
 | `ac` | **Core Control Plane CLI** | Automation, scripting, fine-grained lifecycle, account configuration, policy and audit management. |
-| `agy` | **Antigravity Launcher Shim** | Frictionless launching of Google Antigravity agents by account label (`agy "test1"`), browser OAuth, and account switching. |
 | `agentcontroll` | **Unified Interactive Launcher** | One-command interactive interface launching the full supervisor dashboard (aliased as `agent-control`). |
 | `ac-tui` | **Ratatui Terminal Dashboard** | Full-screen interactive dashboard with live transcripts, approval inbox, account switching, and session control. |
 | `agentcontrold` | **Supervisor Daemon** | Long-running background daemon managing sessions, accounts, policies, SQLite event store, and IPC/WebSocket servers. |
@@ -235,7 +233,7 @@ List all configured accounts, active sessions, concurrency capacities, states (`
 ac account list
 ```
 
-### 4.2. `ac login` (and `ac account login` / `ac account add` / `agy account add`)
+### 4.2. `ac login` (and `ac account login` / `ac account add`)
 Add an Antigravity account. See [ANTIGRAVITY_ACCOUNTS.md](ANTIGRAVITY_ACCOUNTS.md) for the full guide.
 
 ```bash
@@ -284,7 +282,7 @@ ac account disable <ACCOUNT_ID_OR_LABEL>
 ac account enable <ACCOUNT_ID_OR_LABEL>
 ```
 
-### 4.6. `ac account remove` (and `agy account remove`)
+### 4.6. `ac account remove`
 Remove an account. Refused while any session uses it. For Antigravity accounts the saved credential and the account profile (`~/.config/agentcontrol/profiles/<account-id>/`) are deleted too; nothing outside Agent Control's own directories is touched.
 
 ```bash
@@ -521,43 +519,7 @@ ac status
 
 ---
 
-## 11. Antigravity Launcher CLI (`agy`)
-
-The `agy` command is the daily driver for Google Antigravity developers. It provides seamless account switching, automatic local token import, and browser OAuth.
-
-```bash
-agy [ACCOUNT_LABEL] [COMMAND]
-```
-
-### Usage Patterns:
-
-1. **Launch with Specific Account:**
-   ```bash
-   agy "test1"
-   # or
-   agy "Personal Google"
-   ```
-2. **Interactive Selector:**
-   ```bash
-   agy
-   ```
-   If multiple accounts exist, `agy` renders an interactive selector displaying cooldown times and session counts.
-3. **Add Account:**
-   ```bash
-   # Browser OAuth login:
-   agy account add --name "College Google"
-
-   # Pure terminal login:
-   agy account add --name "Work Google" --cli
-   ```
-4. **List Antigravity Accounts:**
-   ```bash
-   agy account list
-   ```
-
----
-
-## 12. Interactive Terminal Dashboards (`agentcontroll` & `ac-tui`)
+## 11. Interactive Terminal Dashboards (`agentcontroll` & `ac-tui`)
 
 Launch the unified Ratatui TUI dashboard:
 

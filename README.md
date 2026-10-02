@@ -122,14 +122,13 @@ agentcontroll
 
 #### Available CLI Commands & Aliases
 
-Installing `agentcontroll` globally provides five CLI entry points in your environment:
+Installing `agentcontroll` globally provides four CLI entry points in your environment:
 
 | Command | Purpose |
 |:---|:---|
 | `agentcontroll` | Primary interactive terminal UI dashboard and supervisor launcher. |
 | `agent-control` | Backward-compatible alias for `agentcontroll`. |
 | `agentcontrold` | Background supervisor daemon service (runs headless or as a system service). |
-| `agy` | Dedicated Google Antigravity account and session management CLI. |
 | `ac` | Universal agent control plane CLI (sessions, projects, and daemon IPC). |
 
 ---
@@ -189,7 +188,7 @@ Build directly from source using Cargo (Rust 1.75+ required):
 git clone https://github.com/vijaygovindBiju/AgentControll.git
 cd AgentControll
 cargo build --release --workspace
-cp target/release/{agentcontroll,agent-control,agentcontrold,agy,ac} ~/.local/bin/
+cp target/release/{agentcontroll,agent-control,agentcontrold,ac} ~/.local/bin/
 ```
 
 For complete platform details and options, see [docs/INSTALL.md](docs/INSTALL.md).
@@ -239,7 +238,7 @@ For detailed adapter architecture, see [docs/AGENTS.md](docs/AGENTS.md) and [doc
 
 ```text
 ┌──────────────────────────────── Human Interfaces ────────────────────────────────┐
-│      Ratatui TUI (`agentcontroll` / `ac-tui`)    │      CLI (`ac`, `agy`)       │
+│      Ratatui TUI (`agentcontroll` / `ac-tui`)    │      CLI (`ac`)              │
 └────────────────────────────────────────┬─────────────────────────────────────────┘
                                          │ Control API (Unix Socket 0600 / Loopback WS)
 ┌────────────────────────────────────────▼─────────────────────────────────────────┐
@@ -291,7 +290,7 @@ The daemon starts automatically in the background if not already active.
 Press **`a`** in the TUI, or run:
 
 ```bash
-agy account add --name "Personal Google"
+agentcontroll
 ```
 
 - **Browser Login:** Opens your browser to complete Google OAuth sign-in.
@@ -340,12 +339,10 @@ See [docs/CONFIGURATION.md](docs/CONFIGURATION.md) for full configuration refere
 
 Agent Control treats provider accounts as first-class, rotatable resources. All authentication logic is centralized in `crates/ac-core/src/agy_auth.rs`.
 
-### Account Management Commands
+### Account Management
 
-```bash
-agy account list                      # View accounts, cooldowns, and quotas
-agy account remove "Work Google"      # Delete account and purge isolated profile
-```
+Open `agentcontroll` and use the TUI account controls to add, switch, inspect,
+and remove Antigravity accounts.
 
 ### Isolation Model
 
@@ -430,7 +427,7 @@ For security policies and vulnerability reporting, see [SECURITY.md](SECURITY.md
 |:---|:---|:---|
 | `Daemon: Disconnected` | Background daemon is not running. | Run `agentcontroll` (starts it automatically) or `agentcontrold &`. |
 | `Permission denied` on socket | Stale socket owned by different user. | Remove stale socket: `rm -f ~/.config/agentcontrol/agentcontrold.sock`. |
-| `No Antigravity credential saved` | Credential file deleted or expired. | Run `agy account add --name "<name>"`. |
+| `No Antigravity credential saved` | Credential file deleted or expired. | Add an account from the AgentControll TUI. |
 | `Windows unsupported` | Windows requires POSIX sockets and PTY. | Run inside WSL2 (`wsl --install`), then run `npx agentcontroll`. |
 | `Session hanging` | Legacy PTY back-pressure deadlock. | Fixed in v1.0.0 via 8KB burst buffers, non-blocking `try_send`, and 512-item queues. |
 
@@ -442,7 +439,7 @@ See [docs/INSTALL.md#troubleshooting](docs/INSTALL.md#troubleshooting) and [docs
 
 The workspace is organized into three Rust crates:
 - [crates/ac-core](crates/ac-core): Core supervisor daemon and `agentcontrold` binary (event store, session manager, state machine, accounts, projects, policy engine, adapters, WebSocket/IPC servers).
-- [crates/ac-cli](crates/ac-cli): Command-line interfaces and launchers (`agentcontroll`, `ac`, `agy`, `agentcontrold`).
+- [crates/ac-cli](crates/ac-cli): Command-line interfaces and launchers (`agentcontroll`, `ac`, `agentcontrold`).
 - [crates/ac-tui](crates/ac-tui): Terminal UI library and `ac-tui` binary (Ratatui views, ANSI virtual screen buffer, event loop).
 
 ### Building
@@ -499,4 +496,3 @@ Contributions are welcome! Please read [CONTRIBUTING.md](CONTRIBUTING.md) for in
 ## License
 
 AgentControll is open source software licensed under the [MIT License](LICENSE).
-

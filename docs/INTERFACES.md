@@ -408,34 +408,17 @@ The TUI provides a complete keyboard-driven navigation model with contextual hin
 
 Agent Control provides three CLI binaries:
 
-### 1. `agy` — Antigravity Agent Launcher
-```bash
-# Launch by friendly account label
-agy "Personal Google"
-
-# Auto-detect or interactive account selector
-agy
-
-# Add account via browser OAuth
-agy account add
-
-# List registered Antigravity accounts
-agy account list
-```
-- **Error Transparency**: Displays human-friendly explanations for cooldowns, quota limits, and concurrency caps. Never silently substitutes another account if the requested account is unavailable.
-- **Interactive Session Controller**: Hotkeys `[s]` Steer, `[p]` Pause, `[r]` Resume, `[x]` Stop, `[a]` Switch Account, `[q]` Quit.
-
-### 2. `agentcontroll` — Main Interactive Control Plane
+### 1. `agentcontroll` — Main Interactive Control Plane
 ```bash
 agentcontroll
 # or
 agent-control
 ```
-- Launches the unified Ratatui interactive dashboard showing AGENTS summary, ACCOUNTS statuses, and SESSIONS inventory.
+- Launches the unified Ratatui interactive dashboard showing AGENTS summary, ACCOUNTS statuses, and SESSIONS inventory. Antigravity accounts are added, switched, inspected, and removed from the TUI.
 
 - Global navigation shortcuts: `[Enter]` Open, `[A]` Add Account, `[N]` New Agent, `[S]` Sessions, `[Q]` Quit.
 
-### 3. `ac` — Power-User / Automation CLI
+### 2. `ac` — Power-User / Automation CLI
 ```bash
 ac session <list|start|pause|resume|stop|steer|create>
 ac account <list|register|cooldown|reset>
@@ -446,4 +429,3 @@ ac audit <list>
 ac events <query|tail|verify|replay>
 ac tui
 ```
-
