@@ -63,6 +63,10 @@ Structured event stream logging every state transition, tool execution, and appr
 
 It coordinates multiple agent processes across different repositories and accounts, supervises interactive PTY streams, isolates credentials per profile, automates permissions, and maintains an append-only event log persisted in SQLite.
 
+Antigravity support is managed through the AgentControll TUI. AgentControll
+does not install or provide an `agy` command; any `agy` executable on your
+PATH remains the separate Antigravity CLI installed on your system.
+
 ---
 
 ## What Problem It Solves
@@ -130,6 +134,10 @@ Installing `agentcontroll` globally provides four CLI entry points in your envir
 | `agent-control` | Backward-compatible alias for `agentcontroll`. |
 | `agentcontrold` | Background supervisor daemon service (runs headless or as a system service). |
 | `ac` | Universal agent control plane CLI (sessions, projects, and daemon IPC). |
+
+Antigravity accounts are added, switched, and removed from the AgentControll
+TUI. The external `agy` CLI must already be installed separately for
+Antigravity sessions.
 
 ---
 

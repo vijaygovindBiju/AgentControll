@@ -201,7 +201,7 @@ agent-specific code.
   - Native POSIX signal handling (`libc::kill`) for pause (`SIGSTOP`), resume (`SIGCONT`), graceful shutdown (`SIGTERM`), and kill (`SIGKILL`).
   - Background process monitor detecting clean exit codes and abnormal crash termination.
 - **Antigravity adapter** (`CompositeAdapterFactory` support for `"agy"` / `"antigravity"`):
-  - Resolves binary via `ANTIGRAVITY_BIN`, `AGY_BIN`, `~/.local/bin/agy`, `~/.gemini/antigravity-cli/bin/agy`, avoiding recursive self-invocation.
+  - Resolves the external Antigravity binary via `ANTIGRAVITY_BIN`, `AGY_BIN`, `~/.local/bin/agy`, or `~/.gemini/antigravity-cli/bin/agy`, avoiding recursive self-invocation. AgentControll does not install or own the `agy` command.
   - **Account Profile Isolation**: Prepares an isolated profile directory at `~/.config/agentcontrol/profiles/<account-id>/` and sets `HOME` to it. The profile contains private tokens and config symlinks, completely isolated from ambient `~/.gemini` defaults.
   - **Ambient Credential Stripping**: Strips ambient Google environment variables (`GEMINI_API_KEY`, `GOOGLE_API_KEY`, `GOOGLE_APPLICATION_CREDENTIALS`, `GOOGLE_GENAI_USE_VERTEXAI`, `GOOGLE_CLOUD_ACCESS_TOKEN`) so sessions run strictly under the bound account.
   - **Per-Session Launch Options**: Consumes `AgyLaunchOptions` (`execution_mode`, `permission_mode`, `model`, `working_dir`, `sandbox`), validating values against advertised options of the installed binary.

@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "items": [
+    {
+      "title": "Trace AgentControll’s agy wrapper and Antigravity integration",
+      "status": "done"
+    },
+    {
+      "title": "Remove only the npm agy executable and documentation",
+      "status": "in-progress"
+    },
+    {
+      "title": "Verify packaging, TUI account support, and references",
+      "status": "pending"
+    },
+    {
+      "title": "Run the full test suite and final checks",
+      "status": "pending"
+    }
+  ],
+  "updated_at": "2026-10-02T07:28:52.722Z",
+  "session_id": "01a0fb81-941e-7171-8dd6-8d3966810e25"
+}

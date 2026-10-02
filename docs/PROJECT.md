@@ -52,6 +52,11 @@ Adapters (Claude Code | Codex | Devin CLI | agy | Generic PTY | Mock)
 Coding agent processes, each pinned to a workspace and an account
 ```
 
+The `agy` adapter refers to the external Antigravity executable; AgentControll
+does not install, package, or replace that command. Antigravity account
+authentication and account switching remain available through the AgentControll
+TUI.
+
 ## Principles
 
 - **Control, not observation.** Every piece of state exists so that a human or
@@ -155,4 +160,3 @@ The project is successful when, with at least two real adapters connected:
 8. A centralized Settings view unifies configuration, account management, and project management with keyboard navigation and persistence to `~/.config/agentcontrol/settings.json`.
 9. All of the above is covered by tests described in
    [`TESTING.md`](TESTING.md).
-
