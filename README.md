@@ -6,28 +6,54 @@ A local-first control plane for coding agents.
 
 ---
 
+## Screenshots
+
+### Supervisor Dashboard
+The main control plane dashboard displaying active agent sessions, multi-account pools, system telemetry (CPU, memory, event rate), and live event streams.
+
+![Supervisor Dashboard](Pictures/screenshot-2026-10-02_12-20-24.png)
+
+### Full-Screen Virtual ANSI Terminal
+Interactive agent execution inside a dedicated virtual terminal buffer (`crates/ac-tui/src/terminal_buffer.rs`) with truecolor rendering, alternate screen support, and instant detach hotkeys (`Ctrl+Q` or `Ctrl+]`).
+
+![Attached Agent Terminal](Pictures/screenshot-2026-10-02_12-20-17.png)
+
+### Interactive Session Launcher
+Launch coding agents with shell-style `Tab` directory completion, account binding, execution mode selection, and safety boundaries.
+
+![Session Launcher Modal](Pictures/screenshot-2026-10-02_12-20-10.png)
+
+### Real-Time Activity Stream & Audit Trail
+Structured event stream logging every state transition, tool execution, and approval payload for complete operational visibility.
+
+![Activity Stream](Pictures/screenshot-2026-10-02_12-20-40.png)
+
+---
+
 ## Table of Contents
 
-1. [What is AgentControll?](#what-is-agentcontroll)
-2. [What Problem It Solves](#what-problem-it-solves)
-3. [Main Features](#main-features)
-4. [Supported Agents](#supported-agents)
-5. [Architecture Overview](#architecture-overview)
-6. [Installation](#installation)
-7. [Quick Start](#quick-start)
-8. [Configuration](#configuration)
-9. [Accounts & Authentication](#accounts--authentication)
-10. [Working Directories & Projects](#working-directories--projects)
-11. [Execution Modes](#execution-modes)
-12. [Permission & Access Controls](#permission--access-controls)
-13. [TUI Controls](#tui-controls)
-14. [Security](#security)
-15. [Troubleshooting](#troubleshooting)
-16. [Development](#development)
-17. [Testing](#testing)
-18. [Roadmap](#roadmap)
-19. [Contributing](#contributing)
-20. [License](#license)
+1. [Screenshots](#screenshots)
+2. [What is AgentControll?](#what-is-agentcontroll)
+3. [What Problem It Solves](#what-problem-it-solves)
+4. [Features](#features)
+5. [Installation](#installation)
+6. [Platform Support](#platform-support)
+7. [Supported Agents](#supported-agents)
+8. [Architecture Overview](#architecture-overview)
+9. [Quick Start & Usage](#quick-start--usage)
+10. [Configuration](#configuration)
+11. [Accounts & Authentication](#accounts--authentication)
+12. [Working Directories & Projects](#working-directories--projects)
+13. [Execution Modes](#execution-modes)
+14. [Permission & Access Controls](#permission--access-controls)
+15. [TUI Controls](#tui-controls)
+16. [Security](#security)
+17. [Troubleshooting](#troubleshooting)
+18. [Development](#development)
+19. [Testing](#testing)
+20. [Roadmap](#roadmap)
+21. [Contributing](#contributing)
+22. [License](#license)
 
 ---
 
@@ -51,9 +77,9 @@ AgentControll solves this by operating as a unified local supervisor: it pools a
 
 ---
 
-## Main Features
+## Features
 
-- **One-Command Launching:** Run directly via `npx agentcontroll` or the standalone shell installer without manually installing Rust or Cargo.
+- **Instant Launch via npm / NPX (Recommended):** Run directly with zero compilation via `npx agentcontroll` or install globally with `npm install -g agentcontroll`. Verified prebuilt binaries are automatically fetched and cached for your platform.
 
 - **Full-Screen Virtual ANSI Terminal:**
   - Dedicated virtual terminal buffer (`crates/ac-tui/src/terminal_buffer.rs`) with 256-color, truecolor, scrollback history, and alternate screen (`1049h`/`1049l`) emulation.
@@ -74,6 +100,124 @@ AgentControll solves this by operating as a unified local supervisor: it pools a
 - **Policy Engine & Audit Trail:**
   - Declarative policy rules with a hardcoded never-auto-approve boundary (`sudo`, `rm`, `curl`, `git push --force`).
   - Append-only SQLite event store recording every state change, approval, and command.
+
+---
+
+## Installation
+
+### npm / NPX — Recommended
+
+The official npm package [`agentcontroll`](https://www.npmjs.com/package/agentcontroll) (v1.0.0) is the recommended distribution method for Linux and macOS. It requires Node.js (>= 18) and automatically fetches the prebuilt, SHA256-verified binary for your platform.
+
+**Run immediately without global installation:**
+```bash
+npx agentcontroll
+```
+
+**Or install globally:**
+```bash
+npm install -g agentcontroll
+agentcontroll
+```
+
+#### Available CLI Commands & Aliases
+
+Installing `agentcontroll` globally provides five CLI entry points in your environment:
+
+| Command | Purpose |
+|:---|:---|
+| `agentcontroll` | Primary interactive terminal UI dashboard and supervisor launcher. |
+| `agent-control` | Backward-compatible alias for `agentcontroll`. |
+| `agentcontrold` | Background supervisor daemon service (runs headless or as a system service). |
+| `agy` | Dedicated Google Antigravity account and session management CLI. |
+| `ac` | Universal agent control plane CLI (sessions, projects, and daemon IPC). |
+
+---
+
+### Standalone Shell Installer (Linux & macOS)
+
+For Unix environments without Node.js or npm, install precompiled release binaries directly to `~/.local/bin` (or `/usr/local/bin` if run with root privileges):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/vijaygovindBiju/AgentControll/main/install.sh | sh
+```
+
+You can customize the installation using environment variables:
+```bash
+# Specify target directory
+curl -fsSL https://raw.githubusercontent.com/vijaygovindBiju/AgentControll/main/install.sh | BIN_DIR=/usr/local/bin sh
+
+# Install a specific release version
+curl -fsSL https://raw.githubusercontent.com/vijaygovindBiju/AgentControll/main/install.sh | AGENTCONTROL_VERSION=1.0.0 sh
+```
+
+---
+
+### Prebuilt Binaries (GitHub Releases)
+
+Download precompiled tarballs and checksums directly from [GitHub Releases](https://github.com/vijaygovindBiju/AgentControll/releases):
+
+1. Download the archive and checksum for your platform:
+   ```bash
+   # Example: Linux x86_64
+   curl -LO https://github.com/vijaygovindBiju/AgentControll/releases/download/v1.0.0/agentcontroll-v1.0.0-x86_64-unknown-linux-gnu.tar.gz
+   curl -LO https://github.com/vijaygovindBiju/AgentControll/releases/download/v1.0.0/SHA256SUMS
+   ```
+
+2. Verify integrity:
+   ```bash
+   sha256sum --check --ignore-missing SHA256SUMS
+   ```
+
+3. Extract binaries:
+   ```bash
+   tar -xzf agentcontroll-v1.0.0-x86_64-unknown-linux-gnu.tar.gz -C ~/.local/bin/
+   ```
+
+Available release archives:
+- `agentcontroll-v1.0.0-x86_64-unknown-linux-gnu.tar.gz` (Linux x86_64)
+- `agentcontroll-v1.0.0-x86_64-apple-darwin.tar.gz` (macOS Intel)
+- `agentcontroll-v1.0.0-aarch64-apple-darwin.tar.gz` (macOS Apple Silicon)
+
+---
+
+### Build from Source
+
+Build directly from source using Cargo (Rust 1.75+ required):
+
+```bash
+git clone https://github.com/vijaygovindBiju/AgentControll.git
+cd AgentControll
+cargo build --release --workspace
+cp target/release/{agentcontroll,agent-control,agentcontrold,agy,ac} ~/.local/bin/
+```
+
+For complete platform details and options, see [docs/INSTALL.md](docs/INSTALL.md).
+
+---
+
+## Platform Support
+
+AgentControll provides precompiled native release binaries for the following targets:
+
+| Operating System | Architecture | Target Triple | Distribution Channels | Native Support Status |
+|:---|:---|:---|:---|:---|
+| **Linux** | `x86_64` (AMD64) | `x86_64-unknown-linux-gnu` | npm, Shell installer, GitHub Releases, Source | **Available** (Tier 1) |
+| **macOS** | `x86_64` (Intel) | `x86_64-apple-darwin` | npm, Shell installer, GitHub Releases, Source | **Available** |
+| **macOS** | `aarch64` (Apple Silicon M1–M4) | `aarch64-apple-darwin` | npm, Shell installer, GitHub Releases, Source | **Available** |
+| **Windows** | `x86_64` / `arm64` | — | Supported via **WSL2** (`npx agentcontroll`) | **Planned** (Native not yet available) |
+
+> [!NOTE]
+> **Windows Status & Requirements:** Native Windows support is **not implemented yet** and is planned for a future release once POSIX Unix domain sockets (`0600` permissions), IPC paths (`/run/user/...`), and POSIX process signals (`SIGSTOP`, `SIGCONT`, `SIGWINCH`) are abstracted.
+>
+> Windows developers can run AgentControll today inside **WSL2** (Windows Subsystem for Linux):
+> ```powershell
+> wsl --install
+> ```
+> Inside your WSL2 distribution (e.g., Ubuntu/Debian), run:
+> ```bash
+> npx agentcontroll
+> ```
 
 ---
 
@@ -131,54 +275,7 @@ For in-depth specifications, see:
 
 ---
 
-## Installation
-
-### Method 1: NPX (No Rust or compilation required)
-
-Run immediately using `npx`:
-
-```bash
-npx agentcontroll
-```
-
-Or install globally:
-
-```bash
-npm install -g agentcontroll
-agentcontroll
-```
-
-### Method 2: One-Line Shell Installer
-
-Install precompiled binaries directly to `~/.local/bin`:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/vijaygovindBiju/AgentControll/main/install.sh | sh
-```
-
-### Method 3: Prebuilt Tarballs
-
-Download precompiled tarballs and checksums from [GitHub Releases](https://github.com/vijaygovindBiju/AgentControll/releases):
-
-```bash
-curl -LO https://github.com/vijaygovindBiju/AgentControll/releases/download/v1.0.0/agentcontroll-v1.0.0-x86_64-unknown-linux-gnu.tar.gz
-tar -xzf agentcontroll-v1.0.0-x86_64-unknown-linux-gnu.tar.gz -C ~/.local/bin/
-```
-
-### Method 4: Building from Source
-
-```bash
-git clone https://github.com/vijaygovindBiju/AgentControll.git
-cd AgentControll
-cargo build --release --workspace
-cp target/release/{agentcontroll,agent-control,agentcontrold,agy,ac} ~/.local/bin/
-```
-
-For complete platform details and options, see [docs/INSTALL.md](docs/INSTALL.md).
-
----
-
-## Quick Start
+## Quick Start & Usage
 
 ### 1. Launch the Supervisor Dashboard
 
@@ -386,6 +483,7 @@ For test principles and categories, see [docs/TESTING.md](docs/TESTING.md).
 - [x] **v1.0.0 Core Platform:** Complete supervisor daemon, SQLite event store, PTY terminal emulation, and multi-account hand-off.
 - [ ] **v1.1.0 Presets & Claude Sandbox:** Reusable session presets, Claude Code multi-account profile isolation, and OpenTelemetry metrics export.
 - [ ] **v1.2.0 Linux Sandboxing:** Kernel-enforced filesystem sandboxing via Linux Landlock / bubblewrap, and webhook notification triggers.
+- [ ] **v1.3.0 Windows Native Support:** Abstract POSIX domain sockets and process signals for native Windows execution.
 - [ ] **v2.0.0 Distributed Clusters:** Remote agent execution over encrypted mTLS tunnels and localhost web companion.
 
 See [docs/ROADMAP.md](docs/ROADMAP.md) for the complete roadmap.
