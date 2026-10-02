@@ -1,16 +1,21 @@
-//! Account overview view rendering.
-
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Cell, Paragraph, Row, Table},
+    widgets::{Block, Borders, Cell, Paragraph, Row, Table, TableState},
     Frame,
 };
 
-use crate::{app::App, views::account_state_badge};
+use crate::{
+    app::App,
+    views::{account_state_badge, truncate_chars, truncate_display_width},
+};
 
 pub fn render(f: &mut Frame, app: &App, area: Rect) {
+    if area.width == 0 || area.height == 0 {
+        return;
+    }
+
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Min(8), Constraint::Length(6)])
@@ -48,18 +53,15 @@ fn render_accounts_table(f: &mut Frame, app: &App, area: Rect) {
             Style::default()
         };
 
-        let aid = if a.id.0.len() > 10 {
-            format!("{}...", &a.id.0[..8])
-        } else {
-            a.id.0.clone()
-        };
+        let aid = truncate_chars(&a.id.0, 10);
+        let label = truncate_display_width(&a.label, 16);
 
         let load_str = format!("{}/{}", a.active_session_count, a.concurrency_cap);
-        let agents_str = a.agent_types.join(", ");
+        let agents_str = truncate_display_width(&a.agent_types.join(", "), 20);
         let tags_str = if a.tags.is_empty() {
             "-".to_string()
         } else {
-            a.tags.join(", ")
+            truncate_display_width(&a.tags.join(", "), 16)
         };
 
         let row_cells = vec![
@@ -70,7 +72,7 @@ fn render_accounts_table(f: &mut Frame, app: &App, area: Rect) {
             } else {
                 Style::default().fg(Color::White)
             }),
-            Cell::from(a.label.clone()),
+            Cell::from(label),
             Cell::from(a.provider.clone()),
             Cell::from(Line::from(vec![account_state_badge(&a.state)])),
             Cell::from(load_str),
@@ -105,7 +107,11 @@ fn render_accounts_table(f: &mut Frame, app: &App, area: Rect) {
             )),
     );
 
-    f.render_widget(table, area);
+    let mut state = TableState::default();
+    if !app.accounts.is_empty() {
+        state.select(Some(app.selected_account.min(app.accounts.len() - 1)));
+    }
+    f.render_stateful_widget(table, area, &mut state);
 }
 
 fn render_account_detail(f: &mut Frame, app: &App, area: Rect) {

@@ -5,13 +5,15 @@ pub mod client;
 pub mod clipboard;
 pub mod event;
 pub mod launch;
+pub mod prompt_history;
 pub mod terminal_buffer;
 pub mod ui;
 pub mod views;
 
 use anyhow::Result;
 use crossterm::{
-    event::{Event, EventStream},
+    cursor::Show,
+    event::{DisableBracketedPaste, EnableBracketedPaste, Event, EventStream},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
@@ -22,13 +24,43 @@ use tokio_stream::StreamExt;
 pub use app::App;
 pub use client::ApiClient;
 
+/// RAII guard ensuring the terminal is always returned to canonical state on exit or panic.
+pub struct TerminalGuard;
+
+impl Drop for TerminalGuard {
+    fn drop(&mut self) {
+        let _ = disable_raw_mode();
+        let _ = execute!(
+            stdout(),
+            DisableBracketedPaste,
+            LeaveAlternateScreen,
+            Show,
+        );
+    }
+}
+
 /// Run the interactive Ratatui TUI dashboard until user exits.
 pub async fn run_tui(socket_path: PathBuf) -> Result<()> {
     // ── 1. Setup terminal ───────────────────────────────────────────────────
     enable_raw_mode()?;
-    let mut stdout = stdout();
-    execute!(stdout, EnterAlternateScreen)?;
-    let backend = CrosstermBackend::new(stdout);
+    let mut out = stdout();
+    execute!(out, EnterAlternateScreen, EnableBracketedPaste)?;
+    let _guard = TerminalGuard;
+
+    // Install panic hook to restore terminal before printing panics
+    let prev_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let _ = disable_raw_mode();
+        let _ = execute!(
+            stdout(),
+            DisableBracketedPaste,
+            LeaveAlternateScreen,
+            Show,
+        );
+        prev_hook(info);
+    }));
+
+    let backend = CrosstermBackend::new(out);
     let mut terminal = Terminal::new(backend)?;
 
     // ── 2. Setup App & API Client ───────────────────────────────────────────
@@ -58,17 +90,27 @@ pub async fn run_tui(socket_path: PathBuf) -> Result<()> {
         }
 
         tokio::select! {
+            // OS interrupt signal (Ctrl+C from outside / SIGINT)
+            _ = tokio::signal::ctrl_c() => {
+                app.should_quit = true;
+            }
+
             // Terminal input
             Some(Ok(evt)) = reader.next() => {
                 match evt {
                     Event::Key(key) => {
                         let _ = event::handle_key(&mut app, &client, key).await;
                     }
+                    Event::Paste(ref text) => {
+                        let _ = event::handle_paste(&mut app, &client, text).await;
+                    }
                     Event::Resize(cols, rows) => {
                         let _ = terminal.clear();
-                        app.resize_session_terminals(rows.saturating_sub(2), cols);
+                        let p_rows = rows.saturating_sub(2).max(1);
+                        let p_cols = cols.max(1);
+                        app.resize_session_terminals(p_rows, p_cols);
                         if let Some(ref sid) = app.session_detail_id {
-                            let _ = client.resize_session(sid, rows.saturating_sub(2), cols).await;
+                            let _ = client.resize_session(sid, p_rows, p_cols).await;
                         }
                     }
                     _ => {}
@@ -120,9 +162,7 @@ pub async fn run_tui(socket_path: PathBuf) -> Result<()> {
     // ── 4. Restore terminal ─────────────────────────────────────────────────
     // Never leave a login callback listener running after the TUI exits.
     event::cancel_agy_login(&mut app);
-    disable_raw_mode()?;
-    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
-    terminal.show_cursor()?;
+    drop(_guard);
 
     Ok(())
 }

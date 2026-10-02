@@ -1,18 +1,23 @@
-//! Interaction Inbox view rendering.
-
 use chrono::Utc;
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Cell, Paragraph, Row, Table, Wrap},
+    widgets::{Block, Borders, Cell, Paragraph, Row, Table, TableState, Wrap},
     Frame,
 };
 
-use crate::app::App;
+use crate::{
+    app::App,
+    views::{truncate_chars, truncate_display_width},
+};
 use ac_core::types::InteractionKind;
 
 pub fn render(f: &mut Frame, app: &App, area: Rect) {
+    if area.width == 0 || area.height == 0 {
+        return;
+    }
+
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -45,26 +50,22 @@ fn render_inbox_table(f: &mut Frame, app: &App, area: Rect) {
     let header = Row::new(header_cells).height(1).bottom_margin(1);
 
     let pending = app.pending_interactions();
+    let selected_idx = if pending.is_empty() {
+        0
+    } else {
+        app.selected_interaction.min(pending.len() - 1)
+    };
 
     let rows = pending.iter().enumerate().map(|(idx, item)| {
-        let is_selected = idx == app.selected_interaction;
+        let is_selected = idx == selected_idx;
         let style = if is_selected {
             Style::default().bg(Color::Rgb(40, 45, 60))
         } else {
             Style::default()
         };
 
-        let iid = if item.id.0.len() > 10 {
-            format!("{}...", &item.id.0[..8])
-        } else {
-            item.id.0.clone()
-        };
-
-        let sid = if item.session_id.0.len() > 10 {
-            format!("{}...", &item.session_id.0[..8])
-        } else {
-            item.session_id.0.clone()
-        };
+        let iid = truncate_chars(&item.id.0, 10);
+        let sid = truncate_chars(&item.session_id.0, 10);
 
         let (kind_badge, kind_color) = match item.kind {
             InteractionKind::ApprovalRequest => ("APPROVAL", Color::Yellow),
@@ -72,12 +73,7 @@ fn render_inbox_table(f: &mut Frame, app: &App, area: Rect) {
         };
 
         let tool_str = item.tool_name.as_deref().unwrap_or("-");
-
-        let prompt_trunc = if item.prompt.len() > 36 {
-            format!("{}...", &item.prompt[..33])
-        } else {
-            item.prompt.clone()
-        };
+        let prompt_trunc = truncate_display_width(&item.prompt, 36);
 
         let elapsed = Utc::now()
             .signed_duration_since(item.created_at)
@@ -104,7 +100,7 @@ fn render_inbox_table(f: &mut Frame, app: &App, area: Rect) {
                     .bg(kind_color)
                     .add_modifier(Modifier::BOLD),
             )),
-            Cell::from(tool_str).style(Style::default().fg(Color::Yellow)),
+            Cell::from(truncate_display_width(tool_str, 16)).style(Style::default().fg(Color::Yellow)),
             Cell::from(prompt_trunc),
             Cell::from(waiting_str).style(Style::default().fg(Color::Gray)),
         ];
@@ -139,7 +135,11 @@ fn render_inbox_table(f: &mut Frame, app: &App, area: Rect) {
             )),
     );
 
-    f.render_widget(table, area);
+    let mut state = TableState::default();
+    if !pending.is_empty() {
+        state.select(Some(selected_idx));
+    }
+    f.render_stateful_widget(table, area, &mut state);
 }
 
 fn render_inbox_detail(f: &mut Frame, app: &App, area: Rect) {

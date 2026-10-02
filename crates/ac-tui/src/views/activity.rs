@@ -1,16 +1,21 @@
-//! Event activity log view rendering.
-
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Cell, Paragraph, Row, Table, Wrap},
+    widgets::{Block, Borders, Cell, Paragraph, Row, Table, TableState, Wrap},
     Frame,
 };
 
-use crate::app::App;
+use crate::{
+    app::App,
+    views::{truncate_chars, truncate_display_width},
+};
 
 pub fn render(f: &mut Frame, app: &App, area: Rect) {
+    if area.width == 0 || area.height == 0 {
+        return;
+    }
+
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -68,9 +73,14 @@ fn render_activity_table(f: &mut Frame, app: &App, area: Rect) {
     let header = Row::new(header_cells).height(1).bottom_margin(1);
 
     let events = app.filtered_events();
+    let selected_idx = if events.is_empty() {
+        0
+    } else {
+        app.selected_event.min(events.len() - 1)
+    };
 
     let rows = events.iter().enumerate().map(|(idx, e)| {
-        let is_selected = idx == app.selected_event;
+        let is_selected = idx == selected_idx;
         let style = if is_selected {
             Style::default().bg(Color::Rgb(40, 45, 60))
         } else {
@@ -80,21 +90,11 @@ fn render_activity_table(f: &mut Frame, app: &App, area: Rect) {
         let sid = e
             .session_id
             .as_ref()
-            .map(|s| {
-                if s.0.len() > 10 {
-                    format!("{}...", &s.0[..8])
-                } else {
-                    s.0.clone()
-                }
-            })
+            .map(|s| truncate_chars(&s.0, 10))
             .unwrap_or_else(|| "-".into());
 
         let payload_str = serde_json::to_string(&e.payload).unwrap_or_default();
-        let payload_trunc = if payload_str.len() > 40 {
-            format!("{}...", &payload_str[..37])
-        } else {
-            payload_str
-        };
+        let payload_trunc = truncate_display_width(&payload_str, 40);
 
         let time_str = e.timestamp.format("%H:%M:%S").to_string();
 
@@ -124,7 +124,7 @@ fn render_activity_table(f: &mut Frame, app: &App, area: Rect) {
             } else {
                 Style::default()
             }),
-            Cell::from(e.triggered_by.clone()).style(Style::default().fg(Color::DarkGray)),
+            Cell::from(truncate_display_width(&e.triggered_by, 16)).style(Style::default().fg(Color::DarkGray)),
             Cell::from(payload_trunc),
         ];
         Row::new(row_cells).style(style).height(1)
@@ -154,7 +154,11 @@ fn render_activity_table(f: &mut Frame, app: &App, area: Rect) {
             )),
     );
 
-    f.render_widget(table, area);
+    let mut state = TableState::default();
+    if !events.is_empty() {
+        state.select(Some(selected_idx));
+    }
+    f.render_stateful_widget(table, area, &mut state);
 }
 
 fn render_event_detail(f: &mut Frame, app: &App, area: Rect) {
@@ -167,7 +171,13 @@ fn render_event_detail(f: &mut Frame, app: &App, area: Rect) {
         ));
 
     let events = app.filtered_events();
-    if let Some(e) = events.get(app.selected_event) {
+    let selected_idx = if events.is_empty() {
+        0
+    } else {
+        app.selected_event.min(events.len() - 1)
+    };
+
+    if let Some(e) = events.get(selected_idx) {
         let formatted_payload = serde_json::to_string_pretty(&e.payload).unwrap_or_default();
         let lines = vec![
             Line::from(vec![

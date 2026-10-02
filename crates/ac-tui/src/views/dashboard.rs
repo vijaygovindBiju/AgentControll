@@ -12,11 +12,14 @@ use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Cell, Paragraph, Row, Table, Wrap},
+    widgets::{Block, Borders, Cell, Paragraph, Row, Table, TableState, Wrap},
     Frame,
 };
 
-use crate::{app::App, views::session_state_badge};
+use crate::{
+    app::App,
+    views::{session_state_badge, truncate_chars, truncate_display_width},
+};
 use ac_core::types::{AccountState, SessionState};
 
 /// Helper to render btop-style filled block equalizer meters.
@@ -63,6 +66,10 @@ pub fn render_meter_line(
 }
 
 pub fn render(f: &mut Frame, app: &App, area: Rect) {
+    if area.width == 0 || area.height == 0 {
+        return;
+    }
+
     let rows = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -462,8 +469,14 @@ fn render_sessions_panel(f: &mut Frame, app: &App, area: Rect) {
         });
     let header = Row::new(header_cells).height(1).bottom_margin(1);
 
+    let selected_idx = if app.sessions.is_empty() {
+        0
+    } else {
+        app.selected_session.min(app.sessions.len() - 1)
+    };
+
     let rows = app.sessions.iter().enumerate().map(|(idx, s)| {
-        let is_selected = idx == app.selected_session;
+        let is_selected = idx == selected_idx;
         let style = if is_selected {
             Style::default()
                 .bg(Color::Rgb(0, 119, 182))
@@ -473,11 +486,7 @@ fn render_sessions_panel(f: &mut Frame, app: &App, area: Rect) {
             Style::default()
         };
 
-        let short_id = if s.id.0.len() > 6 {
-            format!("{}...", &s.id.0[..5])
-        } else {
-            s.id.0.clone()
-        };
+        let short_id = truncate_chars(&s.id.0, 7);
 
         let (agent_icon, agent_name) = match s.agent_type.as_str() {
             "agy" | "antigravity" => ("A", "agy"),
@@ -496,17 +505,12 @@ fn render_sessions_panel(f: &mut Frame, app: &App, area: Rect) {
                     .map(|a| a.label.as_str())
             })
             .unwrap_or("-");
+        let acct_trunc = truncate_display_width(acct_label, 14);
 
         let proj = s
             .project_id
             .as_ref()
-            .map(|p| {
-                if p.0.len() > 12 {
-                    format!("{}...", &p.0[..10])
-                } else {
-                    p.0.clone()
-                }
-            })
+            .map(|p| truncate_chars(&p.0, 10))
             .unwrap_or_else(|| "-".into());
 
         let uptime = if s.state == SessionState::Working {
@@ -528,7 +532,7 @@ fn render_sessions_panel(f: &mut Frame, app: &App, area: Rect) {
                         .add_modifier(Modifier::BOLD),
                 ),
             ])),
-            Cell::from(acct_label).style(Style::default().fg(Color::White)),
+            Cell::from(acct_trunc).style(Style::default().fg(Color::White)),
             Cell::from(proj).style(Style::default().fg(Color::DarkGray)),
             Cell::from(Line::from(vec![session_state_badge(&s.state)])),
             Cell::from(uptime).style(Style::default().fg(Color::DarkGray)),
@@ -561,7 +565,11 @@ fn render_sessions_panel(f: &mut Frame, app: &App, area: Rect) {
             )),
     );
 
-    f.render_widget(table, area);
+    let mut state = TableState::default();
+    if !app.sessions.is_empty() {
+        state.select(Some(selected_idx));
+    }
+    f.render_stateful_widget(table, area, &mut state);
 }
 
 // ── 5. Bottom Left: Recent Events Panel ─────────────────────────────────────
@@ -577,8 +585,14 @@ fn render_recent_events_panel(f: &mut Frame, app: &App, area: Rect) {
     });
     let header = Row::new(header_cells).height(1).bottom_margin(1);
 
-    let rows = app.events.iter().take(8).enumerate().map(|(idx, ev)| {
-        let is_selected = idx == app.selected_event;
+    let selected_idx = if app.events.is_empty() {
+        0
+    } else {
+        app.selected_event.min(app.events.len() - 1)
+    };
+
+    let rows = app.events.iter().enumerate().map(|(idx, ev)| {
+        let is_selected = idx == selected_idx;
         let style = if is_selected {
             Style::default()
                 .bg(Color::Rgb(0, 119, 182))
@@ -600,7 +614,7 @@ fn render_recent_events_panel(f: &mut Frame, app: &App, area: Rect) {
             _ => ("INFO ", Color::Cyan),
         };
 
-        let msg = match ev.payload.get("message").and_then(|m| m.as_str()) {
+        let raw_msg = match ev.payload.get("message").and_then(|m| m.as_str()) {
             Some(m) => m.to_string(),
             None => {
                 if let Some(reason) = ev.payload.get("reason").and_then(|r| r.as_str()) {
@@ -614,6 +628,7 @@ fn render_recent_events_panel(f: &mut Frame, app: &App, area: Rect) {
                 }
             }
         };
+        let msg = truncate_display_width(&raw_msg, 45);
 
         let cells = vec![
             Cell::from(time_str).style(Style::default().fg(Color::DarkGray)),
@@ -623,7 +638,7 @@ fn render_recent_events_panel(f: &mut Frame, app: &App, area: Rect) {
                     .fg(level_color)
                     .add_modifier(Modifier::BOLD),
             )),
-            Cell::from(kind_str).style(Style::default().fg(Color::Cyan)),
+            Cell::from(truncate_display_width(&kind_str, 20)).style(Style::default().fg(Color::Cyan)),
             Cell::from(msg).style(Style::default().fg(Color::White)),
         ];
 
@@ -652,7 +667,11 @@ fn render_recent_events_panel(f: &mut Frame, app: &App, area: Rect) {
             )),
     );
 
-    f.render_widget(table, area);
+    let mut state = TableState::default();
+    if !app.events.is_empty() {
+        state.select(Some(selected_idx));
+    }
+    f.render_stateful_widget(table, area, &mut state);
 }
 
 // ── 6. Bottom Right: Details Panel (Tabbed) ──────────────────────────────────

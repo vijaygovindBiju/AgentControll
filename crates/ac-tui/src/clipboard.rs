@@ -60,6 +60,34 @@ pub fn copy(text: &str) -> bool {
     })
 }
 
+const PASTE_TOOLS: [(&str, &[&str]); 4] = [
+    ("wl-paste", &["--no-newline"]),
+    ("xclip", &["-selection", "clipboard", "-out"]),
+    ("xsel", &["--clipboard", "--output"]),
+    ("pbpaste", &[]),
+];
+
+/// Paste text from the clipboard using available system tools.
+pub fn paste() -> Option<String> {
+    for (cmd, args) in &PASTE_TOOLS {
+        if let Ok(output) = std::process::Command::new(cmd)
+            .args(*args)
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::null())
+            .output()
+        {
+            if output.status.success() {
+                if let Ok(text) = String::from_utf8(output.stdout) {
+                    if !text.is_empty() {
+                        return Some(text);
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
 #[cfg(test)]
 mod tests {
     #[test]

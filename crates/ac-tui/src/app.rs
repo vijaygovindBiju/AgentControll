@@ -10,6 +10,7 @@ use ac_core::types::{
     SessionState,
 };
 
+use crate::prompt_history::PromptHistory;
 use crate::terminal_buffer::TerminalBuffer;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -323,6 +324,12 @@ pub struct App {
     pub session_transcripts: HashMap<String, Vec<String>>,
     // Live bounded virtual terminal buffers for session screens
     pub session_terminal_buffers: HashMap<String, TerminalBuffer>,
+    // Command and prompt history per session
+    pub session_prompt_histories: HashMap<String, PromptHistory>,
+    // Transient active prompt drafts per session
+    pub session_prompt_buffers: HashMap<String, String>,
+    // Global / shared prompt history for general input
+    pub global_prompt_history: PromptHistory,
 
     // Activity filter
     pub activity_filter: Option<String>,
@@ -393,6 +400,9 @@ impl App {
             selected_event: 0,
             session_transcripts: HashMap::new(),
             session_terminal_buffers: HashMap::new(),
+            session_prompt_histories: HashMap::new(),
+            session_prompt_buffers: HashMap::new(),
+            global_prompt_history: PromptHistory::new(),
             activity_filter: None,
             active_modal: None,
             status_message: None,
@@ -654,6 +664,222 @@ impl App {
         }
     }
 
+    pub fn page_down(&mut self, page_size: usize) {
+        let delta = page_size.max(1);
+        match self.current_tab {
+            Tab::Dashboard | Tab::Sessions => {
+                if !self.sessions.is_empty() {
+                    self.selected_session =
+                        (self.selected_session + delta).min(self.sessions.len() - 1);
+                }
+            }
+            Tab::Accounts => {
+                if !self.accounts.is_empty() {
+                    self.selected_account =
+                        (self.selected_account + delta).min(self.accounts.len() - 1);
+                }
+            }
+            Tab::Activity => {
+                let count = self.filtered_events().len();
+                if count > 0 {
+                    self.selected_event = (self.selected_event + delta).min(count - 1);
+                }
+            }
+            Tab::Settings => {
+                if self.settings_focus_panel {
+                    match self.current_settings_section() {
+                        SettingsSection::Accounts => {
+                            if !self.accounts.is_empty() {
+                                self.settings_account_selected = (self.settings_account_selected
+                                    + delta)
+                                    .min(self.accounts.len() - 1);
+                                self.selected_account = self.settings_account_selected;
+                            }
+                        }
+                        SettingsSection::Projects => {
+                            if !self.projects.is_empty() {
+                                self.settings_project_selected = (self.settings_project_selected
+                                    + delta)
+                                    .min(self.projects.len() - 1);
+                                self.selected_project = self.settings_project_selected;
+                            }
+                        }
+                        _ => self.next_row(),
+                    }
+                } else {
+                    self.next_row();
+                }
+            }
+            _ => self.next_row(),
+        }
+    }
+
+    pub fn page_up(&mut self, page_size: usize) {
+        let delta = page_size.max(1);
+        match self.current_tab {
+            Tab::Dashboard | Tab::Sessions => {
+                if !self.sessions.is_empty() {
+                    self.selected_session = self.selected_session.saturating_sub(delta);
+                }
+            }
+            Tab::Accounts => {
+                if !self.accounts.is_empty() {
+                    self.selected_account = self.selected_account.saturating_sub(delta);
+                }
+            }
+            Tab::Activity => {
+                let count = self.filtered_events().len();
+                if count > 0 {
+                    self.selected_event = self.selected_event.saturating_sub(delta);
+                }
+            }
+            Tab::Settings => {
+                if self.settings_focus_panel {
+                    match self.current_settings_section() {
+                        SettingsSection::Accounts => {
+                            if !self.accounts.is_empty() {
+                                self.settings_account_selected =
+                                    self.settings_account_selected.saturating_sub(delta);
+                                self.selected_account = self.settings_account_selected;
+                            }
+                        }
+                        SettingsSection::Projects => {
+                            if !self.projects.is_empty() {
+                                self.settings_project_selected =
+                                    self.settings_project_selected.saturating_sub(delta);
+                                self.selected_project = self.settings_project_selected;
+                            }
+                        }
+                        _ => self.prev_row(),
+                    }
+                } else {
+                    self.prev_row();
+                }
+            }
+            _ => self.prev_row(),
+        }
+    }
+
+    pub fn first_row(&mut self) {
+        match self.current_tab {
+            Tab::Dashboard | Tab::Sessions => self.selected_session = 0,
+            Tab::Agents => self.selected_agent = 0,
+            Tab::Accounts => self.selected_account = 0,
+            Tab::Activity => self.selected_event = 0,
+            Tab::Settings => {
+                if self.settings_focus_panel {
+                    match self.current_settings_section() {
+                        SettingsSection::General => self.settings_general_item = 0,
+                        SettingsSection::Accounts => {
+                            self.settings_account_selected = 0;
+                            self.selected_account = 0;
+                        }
+                        SettingsSection::Projects => {
+                            self.settings_project_selected = 0;
+                            self.selected_project = 0;
+                        }
+                        SettingsSection::Agents => self.selected_agent = 0,
+                        SettingsSection::Models => self.settings_model_selected = 0,
+                        _ => {}
+                    }
+                } else {
+                    self.settings_section_index = 0;
+                }
+            }
+        }
+    }
+
+    pub fn last_row(&mut self) {
+        match self.current_tab {
+            Tab::Dashboard | Tab::Sessions => {
+                if !self.sessions.is_empty() {
+                    self.selected_session = self.sessions.len() - 1;
+                }
+            }
+            Tab::Agents => self.selected_agent = 2,
+            Tab::Accounts => {
+                if !self.accounts.is_empty() {
+                    self.selected_account = self.accounts.len() - 1;
+                }
+            }
+            Tab::Activity => {
+                let count = self.filtered_events().len();
+                if count > 0 {
+                    self.selected_event = count - 1;
+                }
+            }
+            Tab::Settings => {
+                if self.settings_focus_panel {
+                    match self.current_settings_section() {
+                        SettingsSection::General => self.settings_general_item = 5,
+                        SettingsSection::Accounts => {
+                            if !self.accounts.is_empty() {
+                                self.settings_account_selected = self.accounts.len() - 1;
+                                self.selected_account = self.settings_account_selected;
+                            }
+                        }
+                        SettingsSection::Projects => {
+                            if !self.projects.is_empty() {
+                                self.settings_project_selected = self.projects.len() - 1;
+                                self.selected_project = self.settings_project_selected;
+                            }
+                        }
+                        SettingsSection::Agents => self.selected_agent = 2,
+                        _ => {}
+                    }
+                } else {
+                    self.settings_section_index = SettingsSection::ALL.len().saturating_sub(1);
+                }
+            }
+        }
+    }
+
+    pub fn clamp_selections(&mut self) {
+        if self.sessions.is_empty() {
+            self.selected_session = 0;
+        } else if self.selected_session >= self.sessions.len() {
+            self.selected_session = self.sessions.len() - 1;
+        }
+
+        if self.accounts.is_empty() {
+            self.selected_account = 0;
+            self.settings_account_selected = 0;
+        } else {
+            if self.selected_account >= self.accounts.len() {
+                self.selected_account = self.accounts.len() - 1;
+            }
+            if self.settings_account_selected >= self.accounts.len() {
+                self.settings_account_selected = self.accounts.len() - 1;
+            }
+        }
+
+        if self.projects.is_empty() {
+            self.selected_project = 0;
+            self.settings_project_selected = 0;
+        } else {
+            if self.selected_project >= self.projects.len() {
+                self.selected_project = self.projects.len() - 1;
+            }
+            if self.settings_project_selected >= self.projects.len() {
+                self.settings_project_selected = self.projects.len() - 1;
+            }
+        }
+
+        let filtered_events_len = self.filtered_events().len();
+        if filtered_events_len == 0 {
+            self.selected_event = 0;
+        } else if self.selected_event >= filtered_events_len {
+            self.selected_event = filtered_events_len - 1;
+        }
+
+        let pending_interactions_len = self.pending_interactions().len();
+        if pending_interactions_len == 0 {
+            self.selected_interaction = 0;
+        } else if self.selected_interaction >= pending_interactions_len {
+            self.selected_interaction = pending_interactions_len - 1;
+        }
+    }
+
     pub fn open_selected_session_detail(&mut self) {
         if let Some(session) = self.sessions.get(self.selected_session) {
             self.session_detail_id = Some(session.id.clone());
@@ -668,14 +894,44 @@ impl App {
         self.sessions.retain(|s| s.id.0 != session_id);
         self.session_terminal_buffers.remove(session_id);
         self.session_transcripts.remove(session_id);
+        self.session_prompt_histories.remove(session_id);
+        self.session_prompt_buffers.remove(session_id);
         if let Some(detail_id) = &self.session_detail_id {
             if detail_id.0 == session_id {
                 self.session_detail_id = None;
             }
         }
-        if self.selected_session >= self.sessions.len() && !self.sessions.is_empty() {
-            self.selected_session = self.sessions.len() - 1;
-        }
+        self.clamp_selections();
+    }
+
+    /// Access or lazily create mutable prompt history for a session.
+    pub fn prompt_history_for_session_mut(&mut self, session_id: &str) -> &mut PromptHistory {
+        self.session_prompt_histories
+            .entry(session_id.to_string())
+            .or_default()
+    }
+
+    /// Access prompt history for a session (read-only).
+    pub fn prompt_history_for_session(&self, session_id: &str) -> Option<&PromptHistory> {
+        self.session_prompt_histories.get(session_id)
+    }
+
+    /// Current unsubmitted draft prompt buffer for a session.
+    pub fn session_prompt_buffer(&self, session_id: &str) -> &str {
+        self.session_prompt_buffers
+            .get(session_id)
+            .map(|s| s.as_str())
+            .unwrap_or("")
+    }
+
+    /// Update the draft prompt buffer for a session.
+    pub fn set_session_prompt_buffer(&mut self, session_id: &str, buf: String) {
+        self.session_prompt_buffers.insert(session_id.to_string(), buf);
+    }
+
+    /// Clear the draft prompt buffer for a session.
+    pub fn clear_session_prompt_buffer(&mut self, session_id: &str) {
+        self.session_prompt_buffers.remove(session_id);
     }
 
     // ── Queries / Filtered Views ────────────────────────────────────────────

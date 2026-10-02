@@ -11,27 +11,43 @@ use crate::{
 };
 
 pub fn draw(f: &mut Frame, app: &App) {
+    let area = f.area();
+    if area.width == 0 || area.height == 0 {
+        return;
+    }
+
     // ── Full-Screen Terminal Mode ───────────────────────────────────────────
     // When a session is selected and open, the terminal takes over the entire screen.
     // Navigation menu, sidebar, and dashboard panels are completely removed.
     if app.session_detail_id.is_some() {
-        views::session_detail::render(f, app, f.area());
+        views::session_detail::render(f, app, area);
         views::modal::render(f, app);
         return;
     }
 
     // ── Normal Dashboard / Navigation Mode ──────────────────────────────────
+    // Scale header/footer constraints if terminal is very small
+    let (header_len, footer_len) = if area.height < 4 {
+        (1, 0)
+    } else if area.height < 6 {
+        (1, 1)
+    } else {
+        (2, 2)
+    };
+
     let main_layout = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(2), // Header (title + info)
-            Constraint::Min(10),   // Active View (full width, no sidebar menu)
-            Constraint::Length(2), // Footer (shortcuts + status)
+            Constraint::Length(header_len),
+            Constraint::Min(1),
+            Constraint::Length(footer_len),
         ])
-        .split(f.area());
+        .split(area);
 
     // 1. Header
-    render_header(f, app, main_layout[0]);
+    if header_len > 0 {
+        render_header(f, app, main_layout[0]);
+    }
 
     // 2. Active View
     let content_area = main_layout[1];
@@ -45,7 +61,9 @@ pub fn draw(f: &mut Frame, app: &App) {
     };
 
     // 3. Footer
-    render_footer(f, app, main_layout[2]);
+    if footer_len > 0 {
+        render_footer(f, app, main_layout[2]);
+    }
 
     // 4. Modal Dialog (if active, rendered on top)
     views::modal::render(f, app);

@@ -23,6 +23,9 @@ fn centered(w: u16, h: u16, r: Rect) -> Rect {
 }
 
 pub fn render(f: &mut Frame, app: &App, form: &StartSessionForm) {
+    if f.area().width == 0 || f.area().height == 0 {
+        return;
+    }
     let area = centered(74, 28, f.area());
     f.render_widget(Clear, area);
     let dim = Style::default().fg(Color::DarkGray);

@@ -1,16 +1,21 @@
-//! Project registry view rendering.
-
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Cell, Paragraph, Row, Table},
+    widgets::{Block, Borders, Cell, Paragraph, Row, Table, TableState},
     Frame,
 };
 
-use crate::app::App;
+use crate::{
+    app::App,
+    views::{truncate_chars, truncate_display_width},
+};
 
 pub fn render(f: &mut Frame, app: &App, area: Rect) {
+    if area.width == 0 || area.height == 0 {
+        return;
+    }
+
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Min(8), Constraint::Length(6)])
@@ -47,16 +52,14 @@ fn render_projects_table(f: &mut Frame, app: &App, area: Rect) {
             Style::default()
         };
 
-        let pid = if p.id.0.len() > 10 {
-            format!("{}...", &p.id.0[..8])
-        } else {
-            p.id.0.clone()
-        };
+        let pid = truncate_chars(&p.id.0, 10);
+        let name = truncate_display_width(&p.name, 16);
+        let repo_path = truncate_display_width(&p.repo_path, 28);
 
         let tags_str = if p.default_account_tags.is_empty() {
             "-".to_string()
         } else {
-            p.default_account_tags.join(", ")
+            truncate_display_width(&p.default_account_tags.join(", "), 18)
         };
 
         let active_count = app
@@ -73,8 +76,8 @@ fn render_projects_table(f: &mut Frame, app: &App, area: Rect) {
             } else {
                 Style::default().fg(Color::White)
             }),
-            Cell::from(p.name.clone()),
-            Cell::from(p.repo_path.clone()),
+            Cell::from(name),
+            Cell::from(repo_path),
             Cell::from(format!("{}", p.workspace_policy)),
             Cell::from(tags_str),
             Cell::from(format!("{active_count}")),
@@ -106,7 +109,11 @@ fn render_projects_table(f: &mut Frame, app: &App, area: Rect) {
             )),
     );
 
-    f.render_widget(table, area);
+    let mut state = TableState::default();
+    if !app.projects.is_empty() {
+        state.select(Some(app.selected_project.min(app.projects.len() - 1)));
+    }
+    f.render_stateful_widget(table, area, &mut state);
 }
 
 fn render_project_detail(f: &mut Frame, app: &App, area: Rect) {

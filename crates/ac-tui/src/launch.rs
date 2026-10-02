@@ -558,6 +558,18 @@ pub async fn handle_key(
 
     let n_accounts = agy_accounts(app).len();
     let (models, _) = model_options(app, &form);
+    if key.modifiers.contains(crossterm::event::KeyModifiers::CONTROL) {
+        if matches!(key.code, KeyCode::Char('c') | KeyCode::Char('C')) {
+            app.active_modal = None;
+            return;
+        }
+        if matches!(key.code, KeyCode::Char('v') | KeyCode::Char('V')) {
+            if let Some(text) = crate::clipboard::paste() {
+                handle_paste(app, form, &text);
+                return;
+            }
+        }
+    }
     match key.code {
         KeyCode::Esc => {
             app.active_modal = None;
@@ -596,6 +608,10 @@ pub async fn handle_key(
             }
         }
         KeyCode::Backspace if form.field == FIELD_DIR => {
+            form.dir_input.pop();
+            after_dir_edit(app, &mut form);
+        }
+        KeyCode::Delete if form.field == FIELD_DIR => {
             form.dir_input.pop();
             after_dir_edit(app, &mut form);
         }
@@ -676,4 +692,14 @@ async fn launch(app: &mut App, client: &ApiClient, mut form: Box<StartSessionFor
         Some(&opts),
     )
     .await;
+}
+
+/// Handle paste into the start-session form.
+pub fn handle_paste(app: &mut App, mut form: Box<StartSessionForm>, text: &str) {
+    if form.field == FIELD_DIR {
+        let cleaned: String = text.chars().filter(|c| *c != '\r' && *c != '\n').collect();
+        form.dir_input.push_str(&cleaned);
+        after_dir_edit(app, &mut form);
+    }
+    app.active_modal = Some(Modal::StartSession(form));
 }

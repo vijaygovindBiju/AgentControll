@@ -206,6 +206,8 @@ pub struct TerminalBuffer {
     /// Autowrap is pending after writing the last column (alternate screen).
     wrap_pending: bool,
     last_printed: Option<char>,
+    /// Whether bracketed paste mode is enabled by the running child process (?2004h/?2004l).
+    pub bracketed_paste: bool,
 }
 
 impl Default for TerminalBuffer {
@@ -240,6 +242,7 @@ impl TerminalBuffer {
             scroll_region: None,
             wrap_pending: false,
             last_printed: None,
+            bracketed_paste: false,
         }
     }
 
@@ -256,6 +259,12 @@ impl TerminalBuffer {
         self.follow = true;
         self.scroll_region = None;
         self.wrap_pending = false;
+        self.bracketed_paste = false;
+    }
+
+    /// Whether bracketed paste mode is enabled by the running child process.
+    pub fn bracketed_paste_enabled(&self) -> bool {
+        self.bracketed_paste
     }
 
     /// Whether a full-screen program currently owns the (alternate) screen.
@@ -648,6 +657,7 @@ impl TerminalBuffer {
                 for mode in params_str[1..].split(';') {
                     match mode {
                         "25" => self.cursor_visible = set,
+                        "2004" => self.bracketed_paste = set,
                         "1049" | "1047" | "47" => {
                             if set {
                                 if mode == "1049" {

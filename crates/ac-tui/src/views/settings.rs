@@ -5,16 +5,20 @@ use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Cell, Paragraph, Row, Table, Wrap},
+    widgets::{Block, Borders, Cell, Paragraph, Row, Table, TableState, Wrap},
     Frame,
 };
 
 use crate::{
     app::{App, SettingsSection},
-    views::account_state_badge,
+    views::{account_state_badge, truncate_chars, truncate_display_width},
 };
 
 pub fn render(f: &mut Frame, app: &App, area: Rect) {
+    if area.width == 0 || area.height == 0 {
+        return;
+    }
+
     let chunks = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([Constraint::Length(26), Constraint::Min(40)])
@@ -275,31 +279,33 @@ fn render_accounts_section(f: &mut Frame, app: &App, area: Rect) {
     });
     let header = Row::new(header_cells).height(1).bottom_margin(1);
 
+    let selected_idx = if app.accounts.is_empty() {
+        0
+    } else {
+        app.settings_account_selected.min(app.accounts.len() - 1)
+    };
+
     let rows = app.accounts.iter().enumerate().map(|(idx, a)| {
-        let is_selected = idx == app.settings_account_selected;
+        let is_selected = idx == selected_idx;
         let style = if is_selected {
             Style::default().bg(Color::Rgb(40, 45, 60))
         } else {
             Style::default()
         };
 
-        let aid = if a.id.0.len() > 10 {
-            format!("{}...", &a.id.0[..8])
-        } else {
-            a.id.0.clone()
-        };
+        let aid = truncate_chars(&a.id.0, 10);
         let load_str = format!("{}/{}", a.active_session_count, a.concurrency_cap);
         let tags_str = if a.tags.is_empty() {
             "-".to_string()
         } else {
-            a.tags.join(", ")
+            truncate_display_width(&a.tags.join(", "), 16)
         };
         let is_default = app.user_settings.default_account.as_deref() == Some(&a.label)
             || app.user_settings.default_account.as_deref() == Some(&a.id.0);
         let label_display = if is_default {
-            format!("★ {}", a.label)
+            truncate_display_width(&format!("★ {}", a.label), 24)
         } else {
-            a.label.clone()
+            truncate_display_width(&a.label, 24)
         };
 
         let row_cells = vec![
@@ -338,7 +344,12 @@ fn render_accounts_section(f: &mut Frame, app: &App, area: Rect) {
     )
     .header(header)
     .block(block);
-    f.render_widget(table, chunks[0]);
+
+    let mut state = TableState::default();
+    if !app.accounts.is_empty() {
+        state.select(Some(selected_idx));
+    }
+    f.render_stateful_widget(table, chunks[0], &mut state);
 
     // Detail Panel
     render_account_detail_panel(f, app, chunks[1]);
@@ -477,26 +488,29 @@ fn render_projects_section(f: &mut Frame, app: &App, area: Rect) {
     });
     let header = Row::new(header_cells).height(1).bottom_margin(1);
 
+    let selected_idx = if app.projects.is_empty() {
+        0
+    } else {
+        app.settings_project_selected.min(app.projects.len() - 1)
+    };
+
     let rows = app.projects.iter().enumerate().map(|(idx, p)| {
-        let is_selected = idx == app.settings_project_selected;
+        let is_selected = idx == selected_idx;
         let style = if is_selected {
             Style::default().bg(Color::Rgb(40, 45, 60))
         } else {
             Style::default()
         };
 
-        let pid = if p.id.0.len() > 10 {
-            format!("{}...", &p.id.0[..8])
-        } else {
-            p.id.0.clone()
-        };
+        let pid = truncate_chars(&p.id.0, 10);
         let is_default = app.user_settings.default_project.as_deref() == Some(&p.name)
             || app.user_settings.default_project.as_deref() == Some(&p.id.0);
         let name_display = if is_default {
-            format!("★ {}", p.name)
+            truncate_display_width(&format!("★ {}", p.name), 22)
         } else {
-            p.name.clone()
+            truncate_display_width(&p.name, 22)
         };
+        let repo_path = truncate_display_width(&p.repo_path, 32);
         let active_count = app
             .sessions
             .iter()
@@ -518,7 +532,7 @@ fn render_projects_section(f: &mut Frame, app: &App, area: Rect) {
             } else {
                 Style::default().fg(Color::White)
             }),
-            Cell::from(p.repo_path.clone()),
+            Cell::from(repo_path),
             Cell::from(format!("{}", p.workspace_policy)),
             Cell::from(format!("{active_count}")),
         ];
@@ -537,7 +551,12 @@ fn render_projects_section(f: &mut Frame, app: &App, area: Rect) {
     )
     .header(header)
     .block(block);
-    f.render_widget(table, chunks[0]);
+
+    let mut state = TableState::default();
+    if !app.projects.is_empty() {
+        state.select(Some(selected_idx));
+    }
+    f.render_stateful_widget(table, chunks[0], &mut state);
 
     render_project_detail_panel(f, app, chunks[1]);
 }

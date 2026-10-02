@@ -15,6 +15,10 @@ use ratatui::{
 use crate::{app::App, terminal_buffer::TerminalBuffer, views::session_state_badge};
 
 pub fn render(f: &mut Frame, app: &App, area: Rect) {
+    if area.width == 0 || area.height == 0 {
+        return;
+    }
+
     let session = match app.selected_session_or_detail() {
         Some(s) => s,
         None => {
@@ -28,12 +32,20 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
     };
 
     // ── 3-Row Vertical Layout: Sleek 1-line Header, Full Terminal, Minimal 1-line Footer ──
+    let (header_h, footer_h) = if area.height < 3 {
+        (0, 0)
+    } else if area.height < 5 {
+        (1, 0)
+    } else {
+        (1, 1)
+    };
+
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(1), // 1. Compact Header
-            Constraint::Min(0),    // 2. Full-Screen Dedicated Agent Terminal (edge-to-edge)
-            Constraint::Length(1), // 3. Minimal Footer
+            Constraint::Length(header_h),
+            Constraint::Min(1),
+            Constraint::Length(footer_h),
         ])
         .split(area);
 

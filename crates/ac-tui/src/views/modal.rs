@@ -1,7 +1,7 @@
 //! Modal dialog popup rendering.
 
 use ratatui::{
-    layout::{Alignment, Constraint, Direction, Layout, Rect},
+    layout::{Alignment, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Clear, Paragraph, Wrap},
@@ -10,28 +10,31 @@ use ratatui::{
 
 use crate::app::{AgyAddStep, App, Modal};
 
-/// Helper to center a rectangular area on the screen.
+/// Helper to center a rectangular area on the screen with minimum width and height bounds.
 fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
-    let popup_layout = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Percentage((100 - percent_y) / 2),
-            Constraint::Percentage(percent_y),
-            Constraint::Percentage((100 - percent_y) / 2),
-        ])
-        .split(r);
+    centered_rect_min(percent_x, percent_y, 54, 9, r)
+}
 
-    Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([
-            Constraint::Percentage((100 - percent_x) / 2),
-            Constraint::Percentage(percent_x),
-            Constraint::Percentage((100 - percent_x) / 2),
-        ])
-        .split(popup_layout[1])[1]
+fn centered_rect_min(percent_x: u16, percent_y: u16, min_w: u16, min_h: u16, r: Rect) -> Rect {
+    if r.width == 0 || r.height == 0 {
+        return Rect::default();
+    }
+    let w = ((r.width as u32 * percent_x as u32 / 100) as u16)
+        .max(min_w)
+        .min(r.width);
+    let h = ((r.height as u32 * percent_y as u32 / 100) as u16)
+        .max(min_h)
+        .min(r.height);
+    let x = r.x + (r.width.saturating_sub(w)) / 2;
+    let y = r.y + (r.height.saturating_sub(h)) / 2;
+    Rect::new(x, y, w, h)
 }
 
 pub fn render(f: &mut Frame, app: &App) {
+    if f.area().width == 0 || f.area().height == 0 {
+        return;
+    }
+
     let modal = match &app.active_modal {
         Some(m) => m,
         None => return,
@@ -685,6 +688,9 @@ pub fn render(f: &mut Frame, app: &App) {
                 Line::from("  ↑ / ↓, j / k   Navigate rows in tables"),
                 Line::from("  Enter / t      Open selected session detail view"),
                 Line::from("  Ctrl+Q         Detach / Return from session terminal view"),
+                Line::from("  Ctrl+P / F1    Open Command Palette in session terminal"),
+                Line::from("  PgUp / PgDn    Scroll session output transcript"),
+                Line::from("  ↑ / ↓          Prompt history navigation (in session / steer input)"),
                 Line::from("  Esc            Go back / Close modal dialog (forwarded to session terminal)"),
                 Line::from("  q              Quit TUI"),
                 Line::from("  r              Refresh data from daemon"),

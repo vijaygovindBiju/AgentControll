@@ -1,16 +1,21 @@
-//! Sessions list view rendering.
-
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Cell, Paragraph, Row, Table},
+    widgets::{Block, Borders, Cell, Paragraph, Row, Table, TableState},
     Frame,
 };
 
-use crate::{app::App, views::session_state_badge};
+use crate::{
+    app::App,
+    views::{session_state_badge, truncate_chars, truncate_display_width},
+};
 
 pub fn render(f: &mut Frame, app: &App, area: Rect) {
+    if area.width == 0 || area.height == 0 {
+        return;
+    }
+
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Min(8), Constraint::Length(7)])
@@ -48,36 +53,16 @@ fn render_sessions_table(f: &mut Frame, app: &App, area: Rect) {
             Style::default()
         };
 
-        let sid = if s.id.0.len() > 10 {
-            format!("{}...", &s.id.0[..8])
-        } else {
-            s.id.0.clone()
-        };
-
+        let sid = truncate_chars(&s.id.0, 10);
         let proj = s
             .project_id
             .as_ref()
-            .map(|p| {
-                if p.0.len() > 8 {
-                    format!("{}...", &p.0[..6])
-                } else {
-                    p.0.clone()
-                }
-            })
+            .map(|p| truncate_chars(&p.0, 8))
             .unwrap_or_else(|| "-".into());
 
         let acct_label = app.account_label(s.account_id.as_ref());
-        let acct = if acct_label.len() > 14 {
-            format!("{}...", &acct_label[..12])
-        } else {
-            acct_label
-        };
-
-        let task = if s.task_description.len() > 36 {
-            format!("{}...", &s.task_description[..33])
-        } else {
-            s.task_description.clone()
-        };
+        let acct = truncate_display_width(&acct_label, 14);
+        let task = truncate_display_width(&s.task_description, 36);
 
         let row_cells = vec![
             Cell::from(sid).style(if is_selected {
@@ -122,7 +107,11 @@ fn render_sessions_table(f: &mut Frame, app: &App, area: Rect) {
             )),
     );
 
-    f.render_widget(table, area);
+    let mut state = TableState::default();
+    if !app.sessions.is_empty() {
+        state.select(Some(app.selected_session.min(app.sessions.len() - 1)));
+    }
+    f.render_stateful_widget(table, area, &mut state);
 }
 
 fn render_session_quick_info(f: &mut Frame, app: &App, area: Rect) {

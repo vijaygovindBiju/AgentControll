@@ -319,21 +319,237 @@ pub fn active_sessions_for_account(app: &App, account_id: &Id) -> usize {
         .count()
 }
 
+/// Handle pasted text received either via bracketed paste or explicit clipboard paste.
+pub async fn handle_paste(app: &mut App, client: &ApiClient, text: &str) -> Result<()> {
+    if text.is_empty() {
+        return Ok(());
+    }
+
+    // 1. If a modal is open, route paste to the active text field of the modal.
+    if let Some(modal) = app.active_modal.take() {
+        match modal {
+            Modal::Steer {
+                session_id,
+                mut input,
+            } => {
+                input.push_str(text);
+                app.active_modal = Some(Modal::Steer { session_id, input });
+            }
+            Modal::Reply {
+                interaction_id,
+                mut input,
+            } => {
+                input.push_str(text);
+                app.active_modal = Some(Modal::Reply {
+                    interaction_id,
+                    input,
+                });
+            }
+            Modal::StartSession(form) => {
+                crate::launch::handle_paste(app, form, text);
+            }
+            Modal::AgyAddAccount { mut label, step } => match step {
+                AgyAddStep::Name { .. } => {
+                    let cleaned: String =
+                        text.chars().filter(|c| *c != '\r' && *c != '\n').collect();
+                    label.push_str(&cleaned);
+                    app.active_modal = Some(Modal::AgyAddAccount {
+                        label,
+                        step: AgyAddStep::Name { error: None },
+                    });
+                }
+                AgyAddStep::Link {
+                    url,
+                    deadline,
+                    paste: _,
+                    notice: _,
+                } => {
+                    let paste = text.trim().to_string();
+                    let sent = app
+                        .agy_login_paste
+                        .as_ref()
+                        .is_some_and(|tx| tx.try_send(paste.clone()).is_ok());
+                    let notice = Some(if sent {
+                        "Verifying…".into()
+                    } else {
+                        "The login is no longer active.".into()
+                    });
+                    app.active_modal = Some(Modal::AgyAddAccount {
+                        label,
+                        step: AgyAddStep::Link {
+                            url,
+                            deadline,
+                            paste,
+                            notice,
+                        },
+                    });
+                }
+                other => {
+                    app.active_modal = Some(Modal::AgyAddAccount { label, step: other });
+                }
+            },
+            Modal::AddAccount {
+                mut label,
+                provider,
+                auth_method,
+                mut token,
+                active_field,
+            } => {
+                let cleaned: String =
+                    text.chars().filter(|c| *c != '\r' && *c != '\n').collect();
+                match active_field {
+                    0 => label.push_str(&cleaned),
+                    3 => token.push_str(&cleaned),
+                    _ => {}
+                }
+                app.active_modal = Some(Modal::AddAccount {
+                    label,
+                    provider,
+                    auth_method,
+                    token,
+                    active_field,
+                });
+            }
+            Modal::NewSession {
+                account_index,
+                mut session_name,
+                active_field,
+            } => {
+                if active_field == 1 {
+                    let cleaned: String =
+                        text.chars().filter(|c| *c != '\r' && *c != '\n').collect();
+                    session_name.push_str(&cleaned);
+                }
+                app.active_modal = Some(Modal::NewSession {
+                    account_index,
+                    session_name,
+                    active_field,
+                });
+            }
+            Modal::FilterActivity { mut input } => {
+                let cleaned: String =
+                    text.chars().filter(|c| *c != '\r' && *c != '\n').collect();
+                input.push_str(&cleaned);
+                app.active_modal = Some(Modal::FilterActivity { input });
+            }
+            Modal::RegisterProject {
+                mut name,
+                mut repo_path,
+                policy_index,
+                active_field,
+                error: _,
+            } => {
+                let cleaned: String =
+                    text.chars().filter(|c| *c != '\r' && *c != '\n').collect();
+                match active_field {
+                    0 => name.push_str(&cleaned),
+                    1 => repo_path.push_str(&cleaned),
+                    _ => {}
+                }
+                app.active_modal = Some(Modal::RegisterProject {
+                    name,
+                    repo_path,
+                    policy_index,
+                    active_field,
+                    error: None,
+                });
+            }
+            Modal::SetDefaultWorkingDir { mut input, error: _ } => {
+                let cleaned: String =
+                    text.chars().filter(|c| *c != '\r' && *c != '\n').collect();
+                input.push_str(&cleaned);
+                app.active_modal = Some(Modal::SetDefaultWorkingDir { input, error: None });
+            }
+            other => {
+                // Non-text input modals ignore paste safely
+                app.active_modal = Some(other);
+            }
+        }
+        return Ok(());
+    }
+
+    // 2. If in session detail view, route paste to the agent PTY stdin.
+    if let Some(detail_id) = app.session_detail_id.clone() {
+        let bracketed = app
+            .session_terminal_buffers
+            .get(&detail_id.0)
+            .map(|b| b.bracketed_paste_enabled())
+            .unwrap_or(false);
+
+        if !app.session_in_alt_screen(&detail_id.0) {
+            let session_key = detail_id.0.clone();
+            let buf = app.session_prompt_buffers.entry(session_key.clone()).or_default();
+            buf.push_str(text);
+            if text.contains('\n') || text.contains('\r') {
+                let lines: Vec<&str> = text.split(|c| c == '\n' || c == '\r').collect();
+                for &line in &lines[..lines.len().saturating_sub(1)] {
+                    if !line.trim().is_empty() {
+                        app.prompt_history_for_session_mut(&session_key).record_submission(line);
+                    }
+                }
+                let trailing = lines.last().copied().unwrap_or("");
+                app.session_prompt_buffers.insert(session_key, trailing.to_string());
+            }
+        }
+
+        if bracketed {
+            let wrapped = format!("\x1b[200~{}\x1b[201~", text);
+            let _ = client.send_input(&detail_id, &wrapped).await;
+        } else {
+            let normalized = text.replace("\r\n", "\r").replace('\n', "\r");
+            let _ = client.send_input(&detail_id, &normalized).await;
+        }
+
+        app.scroll_session_terminal_bottom(&detail_id.0);
+        return Ok(());
+    }
+
+    // 3. On main views (tabs), ignore pasted text so hotkeys (q, d, r, n, etc.) are NOT triggered.
+    Ok(())
+}
+
 /// Handle a key event received from the terminal.
 pub async fn handle_key(app: &mut App, client: &ApiClient, key: KeyEvent) -> Result<()> {
     // ── 1. If a Modal dialog is open, route keystrokes to it ────────────────
     if let Some(modal) = app.active_modal.take() {
+        if key.modifiers.contains(KeyModifiers::CONTROL) {
+            if matches!(key.code, KeyCode::Char('c') | KeyCode::Char('C')) {
+                if matches!(
+                    modal,
+                    Modal::AgyAddAccount {
+                        step: AgyAddStep::Waiting { .. } | AgyAddStep::Link { .. },
+                        ..
+                    }
+                ) {
+                    cancel_agy_login(app);
+                    close_add_account(app);
+                } else {
+                    app.active_modal = None;
+                }
+                return Ok(());
+            }
+            if matches!(key.code, KeyCode::Char('v') | KeyCode::Char('V')) {
+                if let Some(pasted) = crate::clipboard::paste() {
+                    app.active_modal = Some(modal);
+                    handle_paste(app, client, &pasted).await?;
+                    return Ok(());
+                }
+            }
+        }
         match modal {
             Modal::Steer {
                 session_id,
                 mut input,
             } => match key.code {
                 KeyCode::Esc => {
+                    app.prompt_history_for_session_mut(&session_id.0).reset_nav();
                     app.active_modal = None;
                 }
                 KeyCode::Enter => {
                     app.active_modal = None;
                     if !input.trim().is_empty() {
+                        app.prompt_history_for_session_mut(&session_id.0)
+                            .record_submission(&input);
                         match client.steer_session(&session_id, &input).await {
                             Ok(()) => app.set_status(
                                 format!("Steered session {}", session_id.0),
@@ -343,7 +559,27 @@ pub async fn handle_key(app: &mut App, client: &ApiClient, key: KeyEvent) -> Res
                                 app.set_status(format!("Failed to steer: {e}"), StatusType::Error)
                             }
                         }
+                    } else {
+                        app.prompt_history_for_session_mut(&session_id.0).reset_nav();
                     }
+                }
+                KeyCode::Up => {
+                    if let Some(entry) = app
+                        .prompt_history_for_session_mut(&session_id.0)
+                        .navigate_up(&input)
+                    {
+                        input = entry.to_string();
+                    }
+                    app.active_modal = Some(Modal::Steer { session_id, input });
+                }
+                KeyCode::Down => {
+                    if let Some(entry) = app
+                        .prompt_history_for_session_mut(&session_id.0)
+                        .navigate_down()
+                    {
+                        input = entry.to_string();
+                    }
+                    app.active_modal = Some(Modal::Steer { session_id, input });
                 }
                 KeyCode::Backspace => {
                     input.pop();
@@ -1668,14 +1904,6 @@ pub async fn handle_key(app: &mut App, client: &ApiClient, key: KeyEvent) -> Res
         // If in scrollback mode, handle scroll keys or snap back on typing
         if in_scroll_mode {
             match key.code {
-                KeyCode::Up => {
-                    app.scroll_session_terminal_up(&detail_id.0, 1);
-                    return Ok(());
-                }
-                KeyCode::Down => {
-                    app.scroll_session_terminal_down(&detail_id.0, 1);
-                    return Ok(());
-                }
                 KeyCode::Home => {
                     app.scroll_session_terminal_top(&detail_id.0);
                     return Ok(());
@@ -1683,6 +1911,11 @@ pub async fn handle_key(app: &mut App, client: &ApiClient, key: KeyEvent) -> Res
                 KeyCode::End | KeyCode::Esc => {
                     app.scroll_session_terminal_bottom(&detail_id.0);
                     return Ok(());
+                }
+                KeyCode::Up | KeyCode::Down => {
+                    // Up and Down are dedicated to prompt history navigation;
+                    // snap to bottom so user is at the live input line.
+                    app.scroll_session_terminal_bottom(&detail_id.0);
                 }
                 _ => {
                     // Typing any key immediately snaps back to live bottom to interact
@@ -1704,7 +1937,12 @@ pub async fn handle_key(app: &mut App, client: &ApiClient, key: KeyEvent) -> Res
                     '_' => 0x1f,
                     _ => return Ok(()),
                 };
-                if byte == 0x0c {
+                if byte == 0x03 {
+                    // Ctrl+C: cancel current draft line and reset history navigation
+                    let session_key = detail_id.0.clone();
+                    app.clear_session_prompt_buffer(&session_key);
+                    app.prompt_history_for_session_mut(&session_key).reset_nav();
+                } else if byte == 0x0c {
                     // Ctrl+L: clear terminal buffer
                     app.clear_session_terminal(&detail_id.0);
                 }
@@ -1735,12 +1973,38 @@ pub async fn handle_key(app: &mut App, client: &ApiClient, key: KeyEvent) -> Res
         // Direct keyboard input to agent PTY stdin
         match key.code {
             KeyCode::Char(c) => {
+                if !app.session_in_alt_screen(&detail_id.0) {
+                    let session_key = detail_id.0.clone();
+                    app.session_prompt_buffers
+                        .entry(session_key)
+                        .or_default()
+                        .push(c);
+                }
                 let _ = client.send_input(&detail_id, &c.to_string()).await;
             }
             KeyCode::Enter => {
+                if !app.session_in_alt_screen(&detail_id.0) {
+                    let session_key = detail_id.0.clone();
+                    let submitted = app
+                        .session_prompt_buffers
+                        .remove(&session_key)
+                        .unwrap_or_default();
+                    if !submitted.trim().is_empty() {
+                        app.prompt_history_for_session_mut(&session_key)
+                            .record_submission(&submitted);
+                    } else {
+                        app.prompt_history_for_session_mut(&session_key).reset_nav();
+                    }
+                }
                 let _ = client.send_input(&detail_id, "\r").await;
             }
             KeyCode::Backspace => {
+                if !app.session_in_alt_screen(&detail_id.0) {
+                    let session_key = detail_id.0.clone();
+                    if let Some(buf) = app.session_prompt_buffers.get_mut(&session_key) {
+                        buf.pop();
+                    }
+                }
                 let _ = client.send_input(&detail_id, "\x7f").await;
             }
             KeyCode::Tab => {
@@ -1756,7 +2020,59 @@ pub async fn handle_key(app: &mut App, client: &ApiClient, key: KeyEvent) -> Res
                 let _ = client.send_input(&detail_id, "\x1b[2~").await;
             }
             KeyCode::Esc => {
+                if !app.session_in_alt_screen(&detail_id.0) {
+                    let session_key = detail_id.0.clone();
+                    app.prompt_history_for_session_mut(&session_key).reset_nav();
+                }
                 let _ = client.send_input(&detail_id, "\x1b").await;
+            }
+            KeyCode::Up
+                if !app.session_in_alt_screen(&detail_id.0)
+                    && !key.modifiers.contains(KeyModifiers::SHIFT) =>
+            {
+                let session_key = detail_id.0.clone();
+                let current_buf = app.session_prompt_buffer(&session_key).to_string();
+                let next_prompt = app
+                    .prompt_history_for_session_mut(&session_key)
+                    .navigate_up(&current_buf)
+                    .map(|s| s.to_string());
+                if let Some(new_text) = next_prompt {
+                    if new_text != current_buf {
+                        let char_count = current_buf.chars().count();
+                        let mut seq = String::with_capacity(char_count + new_text.len() + 3);
+                        seq.push_str("\x1b[F"); // Move cursor to end of line
+                        for _ in 0..char_count {
+                            seq.push('\x7f');
+                        }
+                        seq.push_str(&new_text);
+                        let _ = client.send_input(&detail_id, &seq).await;
+                        app.set_session_prompt_buffer(&session_key, new_text);
+                    }
+                }
+            }
+            KeyCode::Down
+                if !app.session_in_alt_screen(&detail_id.0)
+                    && !key.modifiers.contains(KeyModifiers::SHIFT) =>
+            {
+                let session_key = detail_id.0.clone();
+                let current_buf = app.session_prompt_buffer(&session_key).to_string();
+                let next_prompt = app
+                    .prompt_history_for_session_mut(&session_key)
+                    .navigate_down()
+                    .map(|s| s.to_string());
+                if let Some(new_text) = next_prompt {
+                    if new_text != current_buf {
+                        let char_count = current_buf.chars().count();
+                        let mut seq = String::with_capacity(char_count + new_text.len() + 3);
+                        seq.push_str("\x1b[F"); // Move cursor to end of line
+                        for _ in 0..char_count {
+                            seq.push('\x7f');
+                        }
+                        seq.push_str(&new_text);
+                        let _ = client.send_input(&detail_id, &seq).await;
+                        app.set_session_prompt_buffer(&session_key, new_text);
+                    }
+                }
             }
             KeyCode::Up => {
                 if key.modifiers.contains(KeyModifiers::SHIFT) {
@@ -1799,9 +2115,32 @@ pub async fn handle_key(app: &mut App, client: &ApiClient, key: KeyEvent) -> Res
     }
 
     // ── 3. Global Keybindings ───────────────────────────────────────────────
+    if key.modifiers.contains(KeyModifiers::CONTROL)
+        && matches!(key.code, KeyCode::Char('c') | KeyCode::Char('C'))
+    {
+        app.should_quit = true;
+        return Ok(());
+    }
+
     match key.code {
         KeyCode::Char('q') => {
             app.should_quit = true;
+            return Ok(());
+        }
+        KeyCode::PageUp => {
+            app.page_up(10);
+            return Ok(());
+        }
+        KeyCode::PageDown => {
+            app.page_down(10);
+            return Ok(());
+        }
+        KeyCode::Home => {
+            app.first_row();
+            return Ok(());
+        }
+        KeyCode::End => {
+            app.last_row();
             return Ok(());
         }
         KeyCode::Char('?') => {
@@ -2372,35 +2711,20 @@ pub async fn handle_key(app: &mut App, client: &ApiClient, key: KeyEvent) -> Res
 pub async fn refresh_data(app: &mut App, client: &ApiClient) {
     if let Ok(sessions) = client.list_sessions().await {
         app.sessions = sessions;
-        if app.selected_session >= app.sessions.len() && !app.sessions.is_empty() {
-            app.selected_session = app.sessions.len() - 1;
-        }
     }
     if let Ok(interactions) = client.list_interactions(None, false).await {
         app.interactions = interactions;
-        let pending_len = app.pending_interactions().len();
-        if app.selected_interaction >= pending_len && pending_len > 0 {
-            app.selected_interaction = pending_len - 1;
-        }
     }
     if let Ok(accounts) = client.list_accounts().await {
         app.accounts = accounts;
-        if app.selected_account >= app.accounts.len() && !app.accounts.is_empty() {
-            app.selected_account = app.accounts.len() - 1;
-        }
     }
     if let Ok(projects) = client.list_projects().await {
         app.projects = projects;
-        if app.selected_project >= app.projects.len() && !app.projects.is_empty() {
-            app.selected_project = app.projects.len() - 1;
-        }
     }
     if let Ok(events) = client.query_events(None, Some(100)).await {
         app.events = events;
-        if app.selected_event >= app.events.len() && !app.events.is_empty() {
-            app.selected_event = app.events.len() - 1;
-        }
     }
+    app.clamp_selections();
     app.daemon_connected = client.check_daemon().await;
 
     // Preload history for the active session detail or currently selected session
