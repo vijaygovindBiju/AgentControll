@@ -94,11 +94,25 @@ impl TerminalLine {
         let plain = blank.style == Style::default();
         if plain && to >= self.chars.len() {
             self.chars.truncate(from);
+            self.trim_trailing_spaces();
             return;
         }
         let end = if plain { to.min(self.chars.len()) } else { to };
         for i in from..end {
             self.set_char(i, ' ', blank.style);
+        }
+        if plain {
+            self.trim_trailing_spaces();
+        }
+    }
+
+    pub fn trim_trailing_spaces(&mut self) {
+        while let Some(last) = self.chars.last() {
+            if last.c == ' ' && last.style == Style::default() {
+                self.chars.pop();
+            } else {
+                break;
+            }
         }
     }
 
@@ -107,6 +121,7 @@ impl TerminalLine {
             self.split_wide_at_edges(col, col);
             self.chars.truncate(col);
         }
+        self.trim_trailing_spaces();
     }
 
     pub fn clear(&mut self) {
@@ -131,6 +146,11 @@ impl TerminalLine {
 }
 
 pub fn chars_to_ratatui_line(chars: &[StyledChar]) -> Line<'static> {
+    let mut end = chars.len();
+    while end > 0 && chars[end - 1].c == ' ' && chars[end - 1].style == Style::default() {
+        end -= 1;
+    }
+    let chars = &chars[..end];
     if chars.is_empty() {
         return Line::from("");
     }
@@ -541,11 +561,20 @@ impl TerminalBuffer {
                         self.cursor_col = self.cursor_col.min(self.cols - 1);
                     }
                 }
-                '\x08' => {
-                    // Backspace
+                '\x08' | '\x7f' => {
+                    // Backspace / Delete
                     self.prev_line_col = 0;
                     self.wrap_pending = false;
+                    let old_col = self.cursor_col;
                     self.cursor_col = self.cursor_col.saturating_sub(1);
+                    if !self.in_alt_screen() && self.cursor_row < self.lines.len() {
+                        let line = &mut self.lines[self.cursor_row];
+                        line.trim_trailing_spaces();
+                        if old_col >= line.chars.len() && self.cursor_col < line.chars.len() {
+                            line.chars.truncate(self.cursor_col);
+                            line.trim_trailing_spaces();
+                        }
+                    }
                 }
                 c if c.is_control() => {
                     // Ignore other control characters (e.g. \x00, \x07, \x0c)
@@ -1418,26 +1447,33 @@ impl TerminalBuffer {
         let mut visual_lines: Vec<VisualLineEntry> = Vec::new();
 
         for (r_idx, line) in self.lines.iter().enumerate() {
-            if line.chars.is_empty() {
+            let effective_len = {
+                let mut e = line.chars.len();
+                while e > 0 && line.chars[e - 1].c == ' ' && line.chars[e - 1].style == Style::default() {
+                    e -= 1;
+                }
+                e
+            };
+            if effective_len == 0 {
                 visual_lines.push(VisualLineEntry {
                     line: Line::from(""),
                     buf_row: r_idx,
                     start_col: 0,
                     end_col: 0,
                 });
-            } else if line.chars.len() <= viewport_width {
+            } else if effective_len <= viewport_width {
                 visual_lines.push(VisualLineEntry {
-                    line: line.to_ratatui_line(),
+                    line: chars_to_ratatui_line(&line.chars[..effective_len]),
                     buf_row: r_idx,
                     start_col: 0,
-                    end_col: line.chars.len(),
+                    end_col: effective_len,
                 });
             } else {
                 let mut start = 0;
-                while start < line.chars.len() {
-                    let mut end = (start + viewport_width).min(line.chars.len());
+                while start < effective_len {
+                    let mut end = (start + viewport_width).min(effective_len);
                     // Never split a double-width character across two rows.
-                    if end < line.chars.len() && line.chars[end].c == WIDE_SPACER && end > start + 1
+                    if end < effective_len && line.chars[end].c == WIDE_SPACER && end > start + 1
                     {
                         end -= 1;
                     }

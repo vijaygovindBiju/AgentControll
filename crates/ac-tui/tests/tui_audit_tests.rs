@@ -754,3 +754,223 @@ async fn test_prompt_history_exact_requirement_verification() {
     assert_eq!(app.session_prompt_buffer(&sid.0), "explain the architecture pasted snippet");
 }
 
+#[test]
+fn test_backspace_removes_stale_characters_completely() {
+    let mut buf = TerminalBuffer::new(500);
+
+    // 1. Initial state: user types "hello world"
+    buf.push_str("hello world");
+    assert_eq!(buf.lines[0].to_plain_string(), "hello world");
+    assert_eq!(buf.cursor_col, 11);
+
+    // 2. Backspace 6 times down to "hello" (testing both \x08 and \x08 \x08 echoes)
+    // Characters: 'd', 'l', 'r', 'o', 'w', ' '
+    buf.push_str("\x08 \x08"); // 'd'
+    buf.push_str("\x08 \x08"); // 'l'
+    buf.push_str("\x08 \x08"); // 'r'
+    buf.push_str("\x08 \x08"); // 'o'
+    buf.push_str("\x08 \x08"); // 'w'
+    buf.push_str("\x08");       // ' ' (bare backspace without space)
+    assert_eq!(buf.lines[0].to_plain_string(), "hello");
+    assert_eq!(buf.cursor_col, 5);
+
+    // Visible lines wrapped must show exactly "hello" with no trailing spaces or " world"
+    let (vis, _, _) = buf.get_visible_lines_wrapped(5, 80);
+    assert_eq!(vis[0].spans[0].content, "hello");
+    assert_eq!(vis[0].spans.len(), 1);
+
+    // 3. Backspace 3 more times down to "he" ('o', 'l', 'l')
+    buf.push_str("\x08 \x08"); // 'o'
+    buf.push_str("\x08");       // 'l' (bare backspace)
+    buf.push_str("\x08 \x08"); // 'l'
+    assert_eq!(buf.lines[0].to_plain_string(), "he");
+    assert_eq!(buf.cursor_col, 2);
+
+    let (vis, _, _) = buf.get_visible_lines_wrapped(5, 80);
+    assert_eq!(vis[0].spans[0].content, "he");
+    assert_eq!(vis[0].spans.len(), 1);
+
+    // 4. Backspace 2 more times down to <empty> ('e', 'h')
+    buf.push_str("\x08 \x08"); // 'e'
+    buf.push_str("\x08");       // 'h' (bare backspace)
+    assert_eq!(buf.lines[0].to_plain_string(), "");
+    assert_eq!(buf.cursor_col, 0);
+
+    let (vis, _, _) = buf.get_visible_lines_wrapped(5, 80);
+    assert_eq!(vis[0], ratatui::text::Line::from(""));
+}
+
+#[test]
+fn test_backspace_h_colon_prompt_disappears_completely() {
+    let mut buf = TerminalBuffer::new(500);
+
+    // User types "h : query"
+    buf.push_str("h : query");
+    assert_eq!(buf.lines[0].to_plain_string(), "h : query");
+
+    // Backspace all 9 characters (mix of \x08, \x7f, and \x08 \x08)
+    for _ in 0..5 {
+        buf.push_str("\x08 \x08"); // "query"
+    }
+    buf.push_str("\x08"); // ' '
+    buf.push_str("\x08 \x08"); // ':'
+    buf.push_str("\x08"); // ' '
+    buf.push_str("\x7f"); // 'h' (DEL byte)
+
+    assert_eq!(buf.lines[0].to_plain_string(), "");
+    assert_eq!(buf.cursor_col, 0);
+
+    let (vis, _, _) = buf.get_visible_lines_wrapped(5, 80);
+    assert_eq!(vis[0], ratatui::text::Line::from(""));
+}
+
+#[test]
+fn test_backspace_from_middle_preserves_tail() {
+    let mut buf = TerminalBuffer::new(500);
+
+    buf.push_str("hello world");
+    // Move cursor left by 6 (to between "hello" and " world")
+    buf.push_str("\x1b[6D");
+    assert_eq!(buf.cursor_col, 5);
+
+    // Delete 'o' from middle using DCH (\x1b[P)
+    buf.push_str("\x1b[1D\x1b[1P");
+    assert_eq!(buf.lines[0].to_plain_string(), "hell world");
+}
+
+#[tokio::test]
+async fn test_prompt_history_replace_longer_with_shorter_in_session_detail() {
+    let mut app = App::new();
+    let sid = Id::from("01SESSION_HIST_TEST");
+    app.session_detail_id = Some(sid.clone());
+
+    let client = create_test_client();
+
+    // 1. Submit prompt A: "explain the architecture"
+    for c in "explain the architecture".chars() {
+        event::handle_key(&mut app, &client, KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE))
+            .await
+            .unwrap();
+    }
+    assert_eq!(app.session_prompt_buffer(&sid.0), "explain the architecture");
+    event::handle_key(&mut app, &client, KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE))
+        .await
+        .unwrap();
+    assert_eq!(app.session_prompt_buffer(&sid.0), "");
+
+    // 2. Submit prompt B: "cargo test"
+    for c in "cargo test".chars() {
+        event::handle_key(&mut app, &client, KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE))
+            .await
+            .unwrap();
+    }
+    assert_eq!(app.session_prompt_buffer(&sid.0), "cargo test");
+    event::handle_key(&mut app, &client, KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE))
+        .await
+        .unwrap();
+    assert_eq!(app.session_prompt_buffer(&sid.0), "");
+
+    // 3. User types long draft: "tell me about the project"
+    for c in "tell me about the project".chars() {
+        event::handle_key(&mut app, &client, KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE))
+            .await
+            .unwrap();
+    }
+    // Verify actual input state
+    assert_eq!(app.session_prompt_buffer(&sid.0), "tell me about the project");
+
+    // 4. Press Up -> restores prompt B: "cargo test"
+    event::handle_key(&mut app, &client, KeyEvent::new(KeyCode::Up, KeyModifiers::NONE))
+        .await
+        .unwrap();
+    // Actual input state must be "cargo test"
+    assert_eq!(app.session_prompt_buffer(&sid.0), "cargo test");
+
+    // 5. Press Up -> restores prompt A: "explain the architecture"
+    event::handle_key(&mut app, &client, KeyEvent::new(KeyCode::Up, KeyModifiers::NONE))
+        .await
+        .unwrap();
+    assert_eq!(app.session_prompt_buffer(&sid.0), "explain the architecture");
+
+    // 6. Press Down -> forward to prompt B: "cargo test" (shorter than A)
+    event::handle_key(&mut app, &client, KeyEvent::new(KeyCode::Down, KeyModifiers::NONE))
+        .await
+        .unwrap();
+    assert_eq!(app.session_prompt_buffer(&sid.0), "cargo test");
+
+    // 7. Press Down -> restores original draft: "tell me about the project"
+    event::handle_key(&mut app, &client, KeyEvent::new(KeyCode::Down, KeyModifiers::NONE))
+        .await
+        .unwrap();
+    assert_eq!(app.session_prompt_buffer(&sid.0), "tell me about the project");
+
+    // 8. Backspace draft until empty
+    for _ in 0..25 {
+        event::handle_key(&mut app, &client, KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE))
+            .await
+            .unwrap();
+    }
+    // Verify actual input state is empty
+    assert_eq!(app.session_prompt_buffer(&sid.0), "");
+
+    // 9. Now verify terminal buffer handling when replacing a longer prompt with shorter:
+    let mut tb = TerminalBuffer::new(500);
+    tb.push_str("> tell me about the project");
+    assert_eq!(tb.lines[0].to_plain_string(), "> tell me about the project");
+
+    // Simulate PTY receiving 25 backspaces and "cargo test":
+    for _ in 0..25 {
+        tb.push_str("\x08");
+    }
+    tb.push_str("cargo test");
+    // Displayed buffer must contain "cargo test" with NO leftover "project" or "about"
+    assert_eq!(tb.lines[0].to_plain_string(), "> cargo test");
+
+    // Backspace "cargo test" down to "hello world", then "hello", then "he", then empty
+    tb.lines[0].clear();
+    tb.cursor_col = 0;
+    tb.push_str("hello world");
+    assert_eq!(tb.lines[0].to_plain_string(), "hello world");
+
+    // Backspace 6 times -> "hello"
+    for _ in 0..6 {
+        tb.push_str("\x08");
+    }
+    assert_eq!(tb.lines[0].to_plain_string(), "hello");
+
+    // Backspace 3 times -> "he"
+    for _ in 0..3 {
+        tb.push_str("\x08");
+    }
+    assert_eq!(tb.lines[0].to_plain_string(), "he");
+
+    // Backspace 2 times -> empty
+    for _ in 0..2 {
+        tb.push_str("\x08");
+    }
+    assert_eq!(tb.lines[0].to_plain_string(), "");
+}
+
+#[test]
+fn test_terminal_resize_with_trimmed_lines_leaves_no_phantom_lines() {
+    let mut buf = TerminalBuffer::new(500);
+
+    // Type a prompt and backspace 21 times
+    buf.push_str("cargo build --workspace --all-targets");
+    for _ in 0..21 {
+        buf.push_str("\x08 \x08");
+    }
+    assert_eq!(buf.lines[0].to_plain_string(), "cargo build --wo");
+
+    // Normal width (80)
+    let (vis80, _, _) = buf.get_visible_lines_wrapped(5, 80);
+    assert_eq!(vis80[0].spans[0].content, "cargo build --wo");
+    assert_eq!(vis80[1], ratatui::text::Line::from(""));
+
+    // Narrow width (10): wraps into exactly 2 lines
+    let (vis10, _, _) = buf.get_visible_lines_wrapped(5, 10);
+    assert_eq!(vis10[0].spans[0].content, "cargo buil");
+    assert_eq!(vis10[1].spans[0].content, "d --wo");
+    assert_eq!(vis10[2], ratatui::text::Line::from(""));
+}
+
