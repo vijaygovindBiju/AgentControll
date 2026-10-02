@@ -3,11 +3,11 @@
   "version": "1.0.0",
   "description": "Local-first control plane for coding agents (Antigravity, Claude Code, Codex, Devin CLI)",
   "bin": {
-    "agentcontroll": "./bin/agentcontroll.js",
-    "agent-control": "./bin/agent-control.js",
-    "agy": "./bin/agy.js",
-    "ac": "./bin/ac.js",
-    "agentcontrold": "./bin/agentcontrold.js"
+    "agentcontroll": "bin/agentcontroll.js",
+    "agent-control": "bin/agent-control.js",
+    "agy": "bin/agy.js",
+    "ac": "bin/ac.js",
+    "agentcontrold": "bin/agentcontrold.js"
   },
   "main": "./lib/index.js",
   "scripts": {
