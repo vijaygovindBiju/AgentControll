@@ -110,8 +110,9 @@ Download precompiled release archives and checksums from the [GitHub Releases](h
    ```
 
    > [!TIP]
-   > If building on a resource-constrained partition, point cargo target to temporary storage:
-   > `CARGO_TARGET_DIR=/tmp/ac-target CARGO_INCREMENTAL=0 cargo build --release --workspace`
+   > If building on a resource-constrained partition, point cargo target to a physical drive with ample free space:
+   > `CARGO_TARGET_DIR=$HOME/.cache/ac-target CARGO_INCREMENTAL=0 cargo build --release --workspace`
+   > Avoid redirecting to `/tmp` if it is mounted as a memory-backed `tmpfs`, as linking large binaries can exhaust memory and fail with `signal 7 [Bus error]`.
 
 3. The release binaries will be located in `target/release/`:
    - `agentcontroll`: Primary interactive launcher and CLI
@@ -202,3 +203,22 @@ Ensure you are running inside a WSL2 Linux terminal rather than native Windows C
 wsl -d Ubuntu
 ```
 Inside WSL2, execute `npx agentcontroll`.
+
+### `ld terminated with signal 7 [Bus error]` or `No space left on device` during build/test
+This issue occurs when:
+1. The filesystem partition holding the repository or build cache runs out of free disk space, OR
+2. `CARGO_TARGET_DIR` is pointed to `/tmp` on Linux systems where `/tmp` is mounted as a memory-backed `tmpfs` (RAM filesystem). Linking large binaries and test suites consumes several gigabytes of target directory space, which rapidly exhausts tmpfs memory and causes the dynamic linker (`rust-lld` or `ld`) to crash with SIGBUS (`signal 7 [Bus error]`) or `No space left on device`.
+
+**Resolution:**
+1. Check available disk space and filesystem mount types:
+   ```bash
+   df -h /tmp $HOME
+   ```
+2. Clean up any stale build directories consuming `/tmp` memory:
+   ```bash
+   rm -rf /tmp/ac-target
+   ```
+3. Set `CARGO_TARGET_DIR` to a directory on a physical partition with at least 5GB of free space (e.g. `~/.cache/ac-target`), and disable incremental compilation to reduce peak storage:
+   ```bash
+   CARGO_TARGET_DIR=$HOME/.cache/ac-target CARGO_INCREMENTAL=0 cargo build --release --workspace
+   ```

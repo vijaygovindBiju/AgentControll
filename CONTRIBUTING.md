@@ -54,10 +54,11 @@ cargo build --release
 ```
 
 > [!TIP]
-> If building on a machine with limited disk space, redirect the build target directory to avoid out-of-space errors:
+> If building on a machine with limited partition space, redirect the build target directory to a physical drive with ample free space:
 > ```bash
-> CARGO_TARGET_DIR=/tmp/ac-target CARGO_INCREMENTAL=0 cargo build --workspace
+> CARGO_TARGET_DIR=$HOME/.cache/ac-target CARGO_INCREMENTAL=0 cargo build --workspace
 > ```
+> *Note:* Avoid pointing to `/tmp` if it is mounted as a memory-backed `tmpfs`, as linking large binaries can exhaust tmpfs memory and trigger `signal 7 [Bus error]`.
 
 ---
 

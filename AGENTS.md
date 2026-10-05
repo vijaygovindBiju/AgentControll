@@ -7,8 +7,10 @@ cargo check --workspace --all-targets   # must produce 0 warnings
 cargo test --workspace
 ```
 
-- The project lives on a nearly full partition. If builds fail with "No space left on device", build elsewhere:
-  `CARGO_TARGET_DIR=/tmp/ac-target CARGO_INCREMENTAL=0 cargo test --workspace`
+- **Disk space & tmpfs warning**: The project lives on a partition that may have constrained space. However, on Linux `/tmp` is commonly mounted as a memory-backed `tmpfs`; building test suites inside `/tmp/ac-target` can exhaust tmpfs memory and crash the linker with `collect2: fatal error: ld terminated with signal 7 [Bus error]`. If builds fail with "No space left on device" or bus errors:
+  1. Clean any stale `/tmp` build artifacts: `rm -rf /tmp/ac-target`
+  2. Point `CARGO_TARGET_DIR` to a physical disk partition with >= 5GB free space (e.g. `~/.cache/ac-target` or the project root's `target/`):
+     `CARGO_TARGET_DIR=$HOME/.cache/ac-target CARGO_INCREMENTAL=0 cargo test --workspace`
 - Dependencies can be added offline from the local registry cache: `cargo add <crate>@<ver> -p <crate> --offline`.
 
 ## Antigravity (agy) accounts
