@@ -100,7 +100,8 @@ fn render_inbox_table(f: &mut Frame, app: &App, area: Rect) {
                     .bg(kind_color)
                     .add_modifier(Modifier::BOLD),
             )),
-            Cell::from(truncate_display_width(tool_str, 16)).style(Style::default().fg(Color::Yellow)),
+            Cell::from(truncate_display_width(tool_str, 16))
+                .style(Style::default().fg(Color::Yellow)),
             Cell::from(prompt_trunc),
             Cell::from(waiting_str).style(Style::default().fg(Color::Gray)),
         ];

@@ -78,6 +78,15 @@ enum Commands {
     Tui,
     /// Launch the interactive Ratatui TUI dashboard (alias for tui).
     Dashboard,
+    /// Diagnose AgentControll installation, configuration, Antigravity integration, accounts, profiles, and sessions.
+    Doctor {
+        /// Perform additional safe deep diagnostics.
+        #[arg(long)]
+        deep: bool,
+        /// Return machine-readable JSON.
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -452,6 +461,17 @@ async fn main() -> Result<()> {
         return ac_tui::run_tui(cli.socket).await;
     }
 
+    if let Commands::Doctor { deep, json } = cli.command {
+        let code = ac_cli::doctor::run_doctor(ac_core::doctor::DoctorOpts {
+            deep,
+            json: json || cli.json,
+            socket_path: Some(cli.socket),
+            ..Default::default()
+        })
+        .await?;
+        std::process::exit(code);
+    }
+
     if let Commands::Login {
         ref name,
         cli: cli_mode,
@@ -585,7 +605,9 @@ async fn main() -> Result<()> {
 fn build_request(commands: &Commands) -> Result<(String, serde_json::Value)> {
     let (cmd, params) = match commands {
         Commands::Status => ("daemon.status".to_owned(), json!({})),
-        Commands::Tui | Commands::Dashboard | Commands::Login { .. } => unreachable!(),
+        Commands::Tui | Commands::Dashboard | Commands::Login { .. } | Commands::Doctor { .. } => {
+            unreachable!()
+        }
 
         Commands::Session(s) => match s {
             SessionCmd::Create {

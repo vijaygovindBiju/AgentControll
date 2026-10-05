@@ -10,6 +10,7 @@ pub mod agy_auth;
 pub mod agy_launch;
 pub mod config;
 pub mod credentials;
+pub mod doctor;
 pub mod event_store;
 pub mod interaction_hub;
 pub mod ipc;

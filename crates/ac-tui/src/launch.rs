@@ -558,7 +558,10 @@ pub async fn handle_key(
 
     let n_accounts = agy_accounts(app).len();
     let (models, _) = model_options(app, &form);
-    if key.modifiers.contains(crossterm::event::KeyModifiers::CONTROL) {
+    if key
+        .modifiers
+        .contains(crossterm::event::KeyModifiers::CONTROL)
+    {
         if matches!(key.code, KeyCode::Char('c') | KeyCode::Char('C')) {
             app.active_modal = None;
             return;

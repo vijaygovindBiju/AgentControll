@@ -292,6 +292,24 @@ impl TerminalBuffer {
         self.alt.is_some()
     }
 
+    /// Whether the slash-command completion popup is currently open and visible on the screen.
+    pub fn is_completion_open(&self) -> bool {
+        if self.in_alt_screen() {
+            return false;
+        }
+        let start = self.cursor_row.saturating_sub(2);
+        let end = (self.cursor_row + 20).min(self.lines.len());
+        for r in start..end {
+            let s = self.lines[r].to_plain_string();
+            if s.contains("esc to cancel")
+                || (s.contains("Navigate") && (s.contains("Select") || s.contains("Complete")))
+            {
+                return true;
+            }
+        }
+        false
+    }
+
     /// Resize the screen grid (call with the same size sent to the PTY).
     pub fn resize(&mut self, rows: usize, cols: usize) {
         let (rows, cols) = (rows.max(1), cols.max(1));
@@ -387,10 +405,10 @@ impl TerminalBuffer {
             }
             return;
         }
-        // Linefeed: advance to next row, preserving column in prev_line_col
-        // for relative horizontal movements (e.g. \x1b[<n>D in raw terminal UI)
         self.cursor_row += 1;
-        self.prev_line_col = self.cursor_col;
+        if self.cursor_col > 0 {
+            self.prev_line_col = self.cursor_col;
+        }
         self.cursor_col = 0;
         self.enforce_capacity();
     }
@@ -563,10 +581,14 @@ impl TerminalBuffer {
                 }
                 '\x08' | '\x7f' => {
                     // Backspace / Delete
+                    let old_col = if self.cursor_col == 0 && self.prev_line_col > 0 {
+                        self.prev_line_col
+                    } else {
+                        self.cursor_col
+                    };
+                    self.cursor_col = old_col.saturating_sub(1);
                     self.prev_line_col = 0;
                     self.wrap_pending = false;
-                    let old_col = self.cursor_col;
-                    self.cursor_col = self.cursor_col.saturating_sub(1);
                     if !self.in_alt_screen() && self.cursor_row < self.lines.len() {
                         let line = &mut self.lines[self.cursor_row];
                         line.trim_trailing_spaces();
@@ -1449,7 +1471,10 @@ impl TerminalBuffer {
         for (r_idx, line) in self.lines.iter().enumerate() {
             let effective_len = {
                 let mut e = line.chars.len();
-                while e > 0 && line.chars[e - 1].c == ' ' && line.chars[e - 1].style == Style::default() {
+                while e > 0
+                    && line.chars[e - 1].c == ' '
+                    && line.chars[e - 1].style == Style::default()
+                {
                     e -= 1;
                 }
                 e
@@ -1473,8 +1498,7 @@ impl TerminalBuffer {
                 while start < effective_len {
                     let mut end = (start + viewport_width).min(effective_len);
                     // Never split a double-width character across two rows.
-                    if end < effective_len && line.chars[end].c == WIDE_SPACER && end > start + 1
-                    {
+                    if end < effective_len && line.chars[end].c == WIDE_SPACER && end > start + 1 {
                         end -= 1;
                     }
                     visual_lines.push(VisualLineEntry {

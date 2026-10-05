@@ -275,7 +275,7 @@ fn render_system_status_panel(f: &mut Frame, app: &App, area: Rect) {
         ]),
         Line::from(vec![
             Span::styled("Version         ", Style::default().fg(Color::DarkGray)),
-            Span::styled("1.0.0", Style::default().fg(Color::White)),
+            Span::styled(env!("CARGO_PKG_VERSION"), Style::default().fg(Color::White)),
         ]),
         Line::from(vec![
             Span::styled("Uptime          ", Style::default().fg(Color::DarkGray)),
@@ -638,7 +638,8 @@ fn render_recent_events_panel(f: &mut Frame, app: &App, area: Rect) {
                     .fg(level_color)
                     .add_modifier(Modifier::BOLD),
             )),
-            Cell::from(truncate_display_width(&kind_str, 20)).style(Style::default().fg(Color::Cyan)),
+            Cell::from(truncate_display_width(&kind_str, 20))
+                .style(Style::default().fg(Color::Cyan)),
             Cell::from(msg).style(Style::default().fg(Color::White)),
         ];
 

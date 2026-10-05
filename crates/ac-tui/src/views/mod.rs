@@ -213,7 +213,7 @@ pub fn render_header(f: &mut Frame, app: &App, area: Rect) {
                 .split(chunks[0]);
 
             let left_title = Paragraph::new(Span::styled(
-                " AGENT CONTROL v1.0.0",
+                concat!(" AGENT CONTROL v", env!("CARGO_PKG_VERSION")),
                 Style::default()
                     .fg(Color::Cyan)
                     .add_modifier(Modifier::BOLD),
@@ -488,7 +488,10 @@ pub fn render_footer(f: &mut Frame, app: &App, area: Rect) {
                         .add_modifier(Modifier::BOLD),
                 ),
                 Span::raw(" "),
-                Span::styled(display_msg, Style::default().fg(color).add_modifier(Modifier::BOLD)),
+                Span::styled(
+                    display_msg,
+                    Style::default().fg(color).add_modifier(Modifier::BOLD),
+                ),
             ]));
             f.render_widget(status_p, chunks[0]);
         } else {

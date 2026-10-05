@@ -234,7 +234,10 @@ mod tests {
         // Different from last entry is accepted
         history.record_submission("cargo check");
         assert_eq!(history.len(), 3);
-        assert_eq!(history.entries(), &["cargo check", "cargo test", "cargo check"]);
+        assert_eq!(
+            history.entries(),
+            &["cargo check", "cargo test", "cargo check"]
+        );
     }
 
     #[test]

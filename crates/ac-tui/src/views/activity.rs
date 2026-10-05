@@ -124,7 +124,8 @@ fn render_activity_table(f: &mut Frame, app: &App, area: Rect) {
             } else {
                 Style::default()
             }),
-            Cell::from(truncate_display_width(&e.triggered_by, 16)).style(Style::default().fg(Color::DarkGray)),
+            Cell::from(truncate_display_width(&e.triggered_by, 16))
+                .style(Style::default().fg(Color::DarkGray)),
             Cell::from(payload_trunc),
         ];
         Row::new(row_cells).style(style).height(1)

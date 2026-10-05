@@ -418,7 +418,7 @@ fn test_btop_dashboard_and_sidebar_rendering() {
     let buffer = terminal.backend().buffer().clone();
     let content = format!("{:?}", buffer);
 
-    assert!(content.contains("AGENT CONTROL v1.0.0"));
+    assert!(content.contains(concat!("AGENT CONTROL v", env!("CARGO_PKG_VERSION"))));
     assert!(!content.contains("▸ Menu"));
     assert!(content.contains("System Status"));
     assert!(content.contains("Recent Events"));

@@ -1,29 +1,9 @@
 //! `agent-control` — Backward-compatible interactive interface for AgentControll.
 //!
-//! Provides the primary interactive dashboard:
-//! AGENTCONTROLL
-//!
-//! AGENTS
-//!   Antigravity       3 accounts     1 running
-//!   Claude Code       2 accounts     0 running
-//!
-//! ACCOUNTS
-//!   Personal Google   Antigravity    Ready
-//!   College Google    Antigravity    Ready
-//!   Work Google       Antigravity    Cooldown
-//!   Claude Main       Claude Code    Ready
-//!
-//! SESSIONS
-//!   Antigravity       Personal Google    AgentMesh     Working
-//!
-//! [Enter] Open
-//! [A] Add Account
-//! [N] New Agent
-//! [S] Sessions
-//! [Q] Quit
+//! Provides the primary interactive dashboard and diagnostics.
 
 use anyhow::Result;
-use clap::Parser;
+use clap::{Args, Parser, Subcommand};
 use std::path::PathBuf;
 
 use ac_cli::client::DaemonClient;
@@ -39,6 +19,26 @@ struct Cli {
     /// Path to the daemon Unix socket.
     #[arg(long, env = "AC_SOCKET")]
     socket: Option<PathBuf>,
+
+    #[command(subcommand)]
+    command: Option<Commands>,
+}
+
+#[derive(Subcommand)]
+enum Commands {
+    /// Diagnose AgentControll installation, configuration, Antigravity integration, accounts, profiles, and sessions.
+    Doctor(DoctorArgs),
+}
+
+#[derive(Args, Debug, Clone)]
+pub struct DoctorArgs {
+    /// Perform additional safe deep diagnostics.
+    #[arg(long)]
+    pub deep: bool,
+
+    /// Return machine-readable JSON.
+    #[arg(long)]
+    pub json: bool,
 }
 
 #[tokio::main]
@@ -49,6 +49,17 @@ async fn main() -> Result<()> {
             .map(PathBuf::from)
             .unwrap_or_else(|_| ac_core::config::Config::default().socket_path)
     });
+
+    if let Some(Commands::Doctor(args)) = cli.command {
+        let code = ac_cli::doctor::run_doctor(ac_core::doctor::DoctorOpts {
+            deep: args.deep,
+            json: args.json,
+            socket_path: Some(socket),
+            ..Default::default()
+        })
+        .await?;
+        std::process::exit(code);
+    }
 
     let client = DaemonClient::new(socket.clone());
     client.ensure_daemon_running().await?;

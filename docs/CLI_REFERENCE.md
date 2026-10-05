@@ -519,6 +519,34 @@ ac status
 
 ---
 
+## 10.1. System Diagnostics & Health (`agentcontroll doctor` / `ac doctor`)
+
+Run an automated, non-destructive health and isolation diagnostic across the AgentControll installation, database, Antigravity accounts, credential store, isolated profiles, and external `agy` CLI binary.
+
+```bash
+# Standard diagnostic check
+agentcontroll doctor
+# or
+ac doctor
+
+# Deep diagnostic check (inspects orphaned profile directories and dangling credentials)
+agentcontroll doctor --deep
+# or
+ac doctor --deep
+
+# Machine-readable JSON output (clean JSON, exits 0 for Healthy/Warnings, 1 for Failures)
+agentcontroll doctor --json
+# or
+ac doctor --json
+```
+
+> **Note**:
+> - `doctor` is strictly **read-only**: it will never delete profiles, modify databases, log out accounts, refresh tokens, spawn persistent daemons, or mutate configuration.
+> - `agy` is an **external Google Antigravity CLI**. AgentControll locates and launches it per-account, but does not own, package, replace, or install it.
+> - Doctor automatically redacts sensitive information. OAuth tokens, refresh tokens, access tokens, API keys, and client secrets are never printed.
+
+---
+
 ## 11. Interactive Terminal Dashboards (`agentcontroll` & `ac-tui`)
 
 Launch the unified Ratatui TUI dashboard:

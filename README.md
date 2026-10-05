@@ -2,7 +2,7 @@
 
 A local-first control plane for coding agents.
 
-> **Status:** Version 1.0.0 released. Fully verified with zero compiler warnings and 100% test pass rate across all workspace test suites.
+> **Status:** Version 1.0.1 released. Fully verified with zero compiler warnings and 100% test pass rate across all workspace test suites.
 
 ---
 
@@ -98,6 +98,8 @@ AgentControll solves this by operating as a unified local supervisor: it pools a
   - Shell-style `Tab` completion for arbitrary filesystem paths with live filtering in the session launcher.
 - **Profile & Credential Isolation:**
   - Every account runs in a dedicated profile directory (`~/.config/agentcontrol/profiles/<account-id>/`), setting `HOME` to the profile and stripping ambient credentials from the environment.
+- **Automated Health & Isolation Diagnostics (`doctor`):**
+  - Run `agentcontroll doctor` (or `ac doctor`) for instant, non-destructive verification of system compatibility, SQLite database integrity, file permissions, account profile isolation, ambient credential leaks, and external `agy` resolution.
 - **Dual Transport Control API:**
   - POSIX Unix domain socket IPC (`0600` permissions) for local processes.
   - Loopback WebSocket (`127.0.0.1:4242`) with token-based scopes (`read`, `write`, `admin`) for external tooling.
@@ -111,7 +113,7 @@ AgentControll solves this by operating as a unified local supervisor: it pools a
 
 ### npm / NPX — Recommended
 
-The official npm package [`agentcontroll`](https://www.npmjs.com/package/agentcontroll) (v1.0.0) is the recommended distribution method for Linux and macOS. It requires Node.js (>= 18) and automatically fetches the prebuilt, SHA256-verified binary for your platform.
+The official npm package [`agentcontroll`](https://www.npmjs.com/package/agentcontroll) (v1.0.1) is the recommended distribution method for Linux and macOS. It requires Node.js (>= 18) and automatically fetches the prebuilt, SHA256-verified binary for your platform.
 
 **Run immediately without global installation:**
 ```bash
@@ -134,10 +136,12 @@ Installing `agentcontroll` globally provides four CLI entry points in your envir
 | `agent-control` | Backward-compatible alias for `agentcontroll`. |
 | `agentcontrold` | Background supervisor daemon service (runs headless or as a system service). |
 | `ac` | Universal agent control plane CLI (sessions, projects, and daemon IPC). |
+| `agentcontroll doctor` | Run automated, non-destructive health and account isolation diagnostics (`--deep`, `--json`). |
+| `ac doctor` | Direct doctor command invocation via the `ac` CLI tool. |
 
 Antigravity accounts are added, switched, and removed from the AgentControll
 TUI. The external `agy` CLI must already be installed separately for
-Antigravity sessions.
+Antigravity sessions. AgentControll does not own, install, or package `agy`.
 
 ---
 
@@ -431,13 +435,59 @@ For security policies and vulnerability reporting, see [SECURITY.md](SECURITY.md
 
 ## Troubleshooting
 
+### Automated Diagnostics (`agentcontroll doctor`)
+
+Before manual debugging, run the built-in diagnostic tool to automatically inspect your environment:
+
+```bash
+# Standard diagnostic check
+agentcontroll doctor
+# or
+ac doctor
+
+# Safe deep inspection (orphan profiles and unreferenced credentials)
+agentcontroll doctor --deep
+
+# Machine-readable JSON output
+agentcontroll doctor --json
+```
+
+`doctor` runs 25 automated, non-destructive checks verifying:
+1. **Google Antigravity CLI (`agy`) Resolution:** Ensures the real external Google CLI (~200MB) is resolved and verifies no legacy AgentControll `agy` wrapper shadows it in `PATH`.
+2. **Account Profile & Credential Isolation:** Verifies unique profile directories (`~/.config/agentcontrol/profiles/<id>/`), permissions (`0700`), valid v2 canonical OAuth token files (`0600`), and zero profile collisions.
+3. **Ambient Credential Leaks:** Detects conflicting ambient environment variables (`GEMINI_API_KEY`, `GOOGLE_API_KEY`, `GOOGLE_APPLICATION_CREDENTIALS`) that could override account tokens.
+4. **Package & Native Binary Version Sync:** Flags version drift between global npm packages and cached native binaries.
+5. **Database & Daemon Health:** Validates SQLite `accounts.db` schema and verifies non-blocking communication with the background daemon.
+
+### Multiple Account Switching Architecture
+
+When AgentControll switches Antigravity accounts, it uses isolated `HOME` profiles:
+
+```text
+User selects Account B in AgentControll
+             ↓
+AgentControll prepares ~/.config/agentcontrol/profiles/<ACCOUNT_B_ID>/
+             ↓
+Writes Account B's OAuth token to:
+  <profile_dir>/.gemini/antigravity-cli/antigravity-oauth-token (chmod 0600)
+             ↓
+Spawns external agy process with:
+  HOME=<profile_dir>
+  ANTIGRAVITY_ACCOUNT_ID=<ACCOUNT_B_ID>
+             ↓
+Google agy reads $HOME/.gemini/antigravity-cli/antigravity-oauth-token
+```
+
+### Common Issues & Resolutions
+
 | Issue | Cause | Resolution |
 |:---|:---|:---|
 | `Daemon: Disconnected` | Background daemon is not running. | Run `agentcontroll` (starts it automatically) or `agentcontrold &`. |
 | `Permission denied` on socket | Stale socket owned by different user. | Remove stale socket: `rm -f ~/.config/agentcontrol/agentcontrold.sock`. |
-| `No Antigravity credential saved` | Credential file deleted or expired. | Add an account from the AgentControll TUI. |
+| `No Antigravity credential saved` | Credential file deleted or expired. | Add an account from the AgentControll TUI (`ac login`). |
+| `Account switching not working` | Old wrapper in `PATH` or ambient `GEMINI_API_KEY`. | Run `agentcontroll doctor` to identify the shadowing binary or ambient key. |
 | `Windows unsupported` | Windows requires POSIX sockets and PTY. | Run inside WSL2 (`wsl --install`), then run `npx agentcontroll`. |
-| `Session hanging` | Legacy PTY back-pressure deadlock. | Fixed in v1.0.0 via 8KB burst buffers, non-blocking `try_send`, and 512-item queues. |
+| `Session hanging` | Legacy PTY back-pressure deadlock. | Fixed via burst buffers, non-blocking `try_send`, and 512-item queues. |
 
 See [docs/INSTALL.md#troubleshooting](docs/INSTALL.md#troubleshooting) and [docs/ANTIGRAVITY_ACCOUNTS.md](docs/ANTIGRAVITY_ACCOUNTS.md) for more details.
 

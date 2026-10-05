@@ -328,6 +328,8 @@ pub struct App {
     pub session_prompt_histories: HashMap<String, PromptHistory>,
     // Transient active prompt drafts per session
     pub session_prompt_buffers: HashMap<String, String>,
+    // Tracks if completion popup was explicitly dismissed for the current prompt (e.g. by Esc/Tab/Enter)
+    pub session_completion_dismissed: HashMap<String, bool>,
     // Global / shared prompt history for general input
     pub global_prompt_history: PromptHistory,
 
@@ -402,6 +404,7 @@ impl App {
             session_terminal_buffers: HashMap::new(),
             session_prompt_histories: HashMap::new(),
             session_prompt_buffers: HashMap::new(),
+            session_completion_dismissed: HashMap::new(),
             global_prompt_history: PromptHistory::new(),
             activity_filter: None,
             active_modal: None,
@@ -926,12 +929,60 @@ impl App {
 
     /// Update the draft prompt buffer for a session.
     pub fn set_session_prompt_buffer(&mut self, session_id: &str, buf: String) {
-        self.session_prompt_buffers.insert(session_id.to_string(), buf);
+        self.session_prompt_buffers
+            .insert(session_id.to_string(), buf);
     }
 
     /// Clear the draft prompt buffer for a session.
     pub fn clear_session_prompt_buffer(&mut self, session_id: &str) {
         self.session_prompt_buffers.remove(session_id);
+    }
+
+    /// Returns true if slash-command completion popup is currently open and active for the session.
+    pub fn is_session_completion_open(&self, session_id: &str) -> bool {
+        if self
+            .session_completion_dismissed
+            .get(session_id)
+            .copied()
+            .unwrap_or(false)
+        {
+            return false;
+        }
+        if let Some(buf) = self.session_terminal_buffers.get(session_id) {
+            buf.is_completion_open()
+        } else {
+            false
+        }
+    }
+
+    /// Mark completion menu as dismissed (e.g. on Esc, Tab, Enter) or active again (e.g. typing).
+    pub fn set_session_completion_dismissed(&mut self, session_id: &str, dismissed: bool) {
+        if dismissed {
+            self.session_completion_dismissed
+                .insert(session_id.to_string(), true);
+        } else {
+            self.session_completion_dismissed.remove(session_id);
+        }
+    }
+
+    /// Attempt to read the current prompt line directly from the terminal buffer.
+    pub fn session_terminal_prompt(&self, session_id: &str) -> Option<String> {
+        let buf = self.session_terminal_buffers.get(session_id)?;
+        if buf.cursor_row < buf.lines.len() {
+            let line = buf.lines[buf.cursor_row].to_plain_string();
+            if let Some(stripped) = line.strip_prefix("> ") {
+                let p = stripped.trim_end().to_string();
+                if !p.is_empty() {
+                    return Some(p);
+                }
+            } else if let Some(stripped) = line.strip_prefix('>') {
+                let p = stripped.trim_start().trim_end().to_string();
+                if !p.is_empty() {
+                    return Some(p);
+                }
+            }
+        }
+        None
     }
 
     // ── Queries / Filtered Views ────────────────────────────────────────────

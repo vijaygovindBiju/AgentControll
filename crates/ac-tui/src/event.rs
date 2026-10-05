@@ -395,8 +395,7 @@ pub async fn handle_paste(app: &mut App, client: &ApiClient, text: &str) -> Resu
                 mut token,
                 active_field,
             } => {
-                let cleaned: String =
-                    text.chars().filter(|c| *c != '\r' && *c != '\n').collect();
+                let cleaned: String = text.chars().filter(|c| *c != '\r' && *c != '\n').collect();
                 match active_field {
                     0 => label.push_str(&cleaned),
                     3 => token.push_str(&cleaned),
@@ -427,8 +426,7 @@ pub async fn handle_paste(app: &mut App, client: &ApiClient, text: &str) -> Resu
                 });
             }
             Modal::FilterActivity { mut input } => {
-                let cleaned: String =
-                    text.chars().filter(|c| *c != '\r' && *c != '\n').collect();
+                let cleaned: String = text.chars().filter(|c| *c != '\r' && *c != '\n').collect();
                 input.push_str(&cleaned);
                 app.active_modal = Some(Modal::FilterActivity { input });
             }
@@ -439,8 +437,7 @@ pub async fn handle_paste(app: &mut App, client: &ApiClient, text: &str) -> Resu
                 active_field,
                 error: _,
             } => {
-                let cleaned: String =
-                    text.chars().filter(|c| *c != '\r' && *c != '\n').collect();
+                let cleaned: String = text.chars().filter(|c| *c != '\r' && *c != '\n').collect();
                 match active_field {
                     0 => name.push_str(&cleaned),
                     1 => repo_path.push_str(&cleaned),
@@ -454,9 +451,11 @@ pub async fn handle_paste(app: &mut App, client: &ApiClient, text: &str) -> Resu
                     error: None,
                 });
             }
-            Modal::SetDefaultWorkingDir { mut input, error: _ } => {
-                let cleaned: String =
-                    text.chars().filter(|c| *c != '\r' && *c != '\n').collect();
+            Modal::SetDefaultWorkingDir {
+                mut input,
+                error: _,
+            } => {
+                let cleaned: String = text.chars().filter(|c| *c != '\r' && *c != '\n').collect();
                 input.push_str(&cleaned);
                 app.active_modal = Some(Modal::SetDefaultWorkingDir { input, error: None });
             }
@@ -478,17 +477,23 @@ pub async fn handle_paste(app: &mut App, client: &ApiClient, text: &str) -> Resu
 
         if !app.session_in_alt_screen(&detail_id.0) {
             let session_key = detail_id.0.clone();
-            let buf = app.session_prompt_buffers.entry(session_key.clone()).or_default();
+            app.set_session_completion_dismissed(&session_key, false);
+            let buf = app
+                .session_prompt_buffers
+                .entry(session_key.clone())
+                .or_default();
             buf.push_str(text);
             if text.contains('\n') || text.contains('\r') {
                 let lines: Vec<&str> = text.split(|c| c == '\n' || c == '\r').collect();
                 for &line in &lines[..lines.len().saturating_sub(1)] {
                     if !line.trim().is_empty() {
-                        app.prompt_history_for_session_mut(&session_key).record_submission(line);
+                        app.prompt_history_for_session_mut(&session_key)
+                            .record_submission(line);
                     }
                 }
                 let trailing = lines.last().copied().unwrap_or("");
-                app.session_prompt_buffers.insert(session_key, trailing.to_string());
+                app.session_prompt_buffers
+                    .insert(session_key, trailing.to_string());
             }
         }
 
@@ -542,7 +547,8 @@ pub async fn handle_key(app: &mut App, client: &ApiClient, key: KeyEvent) -> Res
                 mut input,
             } => match key.code {
                 KeyCode::Esc => {
-                    app.prompt_history_for_session_mut(&session_id.0).reset_nav();
+                    app.prompt_history_for_session_mut(&session_id.0)
+                        .reset_nav();
                     app.active_modal = None;
                 }
                 KeyCode::Enter => {
@@ -560,7 +566,8 @@ pub async fn handle_key(app: &mut App, client: &ApiClient, key: KeyEvent) -> Res
                             }
                         }
                     } else {
-                        app.prompt_history_for_session_mut(&session_id.0).reset_nav();
+                        app.prompt_history_for_session_mut(&session_id.0)
+                            .reset_nav();
                     }
                 }
                 KeyCode::Up => {
@@ -1975,6 +1982,7 @@ pub async fn handle_key(app: &mut App, client: &ApiClient, key: KeyEvent) -> Res
             KeyCode::Char(c) => {
                 if !app.session_in_alt_screen(&detail_id.0) {
                     let session_key = detail_id.0.clone();
+                    app.set_session_completion_dismissed(&session_key, false);
                     app.session_prompt_buffers
                         .entry(session_key)
                         .or_default()
@@ -1985,10 +1993,22 @@ pub async fn handle_key(app: &mut App, client: &ApiClient, key: KeyEvent) -> Res
             KeyCode::Enter => {
                 if !app.session_in_alt_screen(&detail_id.0) {
                     let session_key = detail_id.0.clone();
-                    let submitted = app
-                        .session_prompt_buffers
-                        .remove(&session_key)
-                        .unwrap_or_default();
+                    app.set_session_completion_dismissed(&session_key, true);
+                    let term_prompt = app.session_terminal_prompt(&session_key);
+                    let submitted = if let Some(tp) = term_prompt {
+                        if tp.starts_with('/') {
+                            app.clear_session_prompt_buffer(&session_key);
+                            tp
+                        } else {
+                            app.session_prompt_buffers
+                                .remove(&session_key)
+                                .unwrap_or_default()
+                        }
+                    } else {
+                        app.session_prompt_buffers
+                            .remove(&session_key)
+                            .unwrap_or_default()
+                    };
                     if !submitted.trim().is_empty() {
                         app.prompt_history_for_session_mut(&session_key)
                             .record_submission(&submitted);
@@ -2001,6 +2021,7 @@ pub async fn handle_key(app: &mut App, client: &ApiClient, key: KeyEvent) -> Res
             KeyCode::Backspace => {
                 if !app.session_in_alt_screen(&detail_id.0) {
                     let session_key = detail_id.0.clone();
+                    app.set_session_completion_dismissed(&session_key, false);
                     if let Some(buf) = app.session_prompt_buffers.get_mut(&session_key) {
                         buf.pop();
                     }
@@ -2008,6 +2029,10 @@ pub async fn handle_key(app: &mut App, client: &ApiClient, key: KeyEvent) -> Res
                 let _ = client.send_input(&detail_id, "\x7f").await;
             }
             KeyCode::Tab => {
+                if !app.session_in_alt_screen(&detail_id.0) {
+                    let session_key = detail_id.0.clone();
+                    app.set_session_completion_dismissed(&session_key, true);
+                }
                 let _ = client.send_input(&detail_id, "\t").await;
             }
             KeyCode::BackTab => {
@@ -2022,6 +2047,7 @@ pub async fn handle_key(app: &mut App, client: &ApiClient, key: KeyEvent) -> Res
             KeyCode::Esc => {
                 if !app.session_in_alt_screen(&detail_id.0) {
                     let session_key = detail_id.0.clone();
+                    app.set_session_completion_dismissed(&session_key, true);
                     app.prompt_history_for_session_mut(&session_key).reset_nav();
                 }
                 let _ = client.send_input(&detail_id, "\x1b").await;
@@ -2031,22 +2057,30 @@ pub async fn handle_key(app: &mut App, client: &ApiClient, key: KeyEvent) -> Res
                     && !key.modifiers.contains(KeyModifiers::SHIFT) =>
             {
                 let session_key = detail_id.0.clone();
-                let current_buf = app.session_prompt_buffer(&session_key).to_string();
-                let next_prompt = app
-                    .prompt_history_for_session_mut(&session_key)
-                    .navigate_up(&current_buf)
-                    .map(|s| s.to_string());
-                if let Some(new_text) = next_prompt {
-                    if new_text != current_buf {
-                        let char_count = current_buf.chars().count();
-                        let mut seq = String::with_capacity(char_count + new_text.len() + 3);
-                        seq.push_str("\x1b[F"); // Move cursor to end of line
-                        for _ in 0..char_count {
-                            seq.push('\x7f');
+                let is_nav = app
+                    .prompt_history_for_session(&session_key)
+                    .map(|h| h.is_navigating())
+                    .unwrap_or(false);
+                if !is_nav && app.is_session_completion_open(&session_key) {
+                    let _ = client.send_input(&detail_id, "\x1b[A").await;
+                } else {
+                    let current_buf = app.session_prompt_buffer(&session_key).to_string();
+                    let next_prompt = app
+                        .prompt_history_for_session_mut(&session_key)
+                        .navigate_up(&current_buf)
+                        .map(|s| s.to_string());
+                    if let Some(new_text) = next_prompt {
+                        if new_text != current_buf {
+                            let char_count = current_buf.chars().count();
+                            let mut seq = String::with_capacity(char_count + new_text.len() + 3);
+                            seq.push_str("\x1b[F"); // Move cursor to end of line
+                            for _ in 0..char_count {
+                                seq.push('\x7f');
+                            }
+                            seq.push_str(&new_text);
+                            let _ = client.send_input(&detail_id, &seq).await;
+                            app.set_session_prompt_buffer(&session_key, new_text);
                         }
-                        seq.push_str(&new_text);
-                        let _ = client.send_input(&detail_id, &seq).await;
-                        app.set_session_prompt_buffer(&session_key, new_text);
                     }
                 }
             }
@@ -2055,22 +2089,30 @@ pub async fn handle_key(app: &mut App, client: &ApiClient, key: KeyEvent) -> Res
                     && !key.modifiers.contains(KeyModifiers::SHIFT) =>
             {
                 let session_key = detail_id.0.clone();
-                let current_buf = app.session_prompt_buffer(&session_key).to_string();
-                let next_prompt = app
-                    .prompt_history_for_session_mut(&session_key)
-                    .navigate_down()
-                    .map(|s| s.to_string());
-                if let Some(new_text) = next_prompt {
-                    if new_text != current_buf {
-                        let char_count = current_buf.chars().count();
-                        let mut seq = String::with_capacity(char_count + new_text.len() + 3);
-                        seq.push_str("\x1b[F"); // Move cursor to end of line
-                        for _ in 0..char_count {
-                            seq.push('\x7f');
+                let is_nav = app
+                    .prompt_history_for_session(&session_key)
+                    .map(|h| h.is_navigating())
+                    .unwrap_or(false);
+                if !is_nav && app.is_session_completion_open(&session_key) {
+                    let _ = client.send_input(&detail_id, "\x1b[B").await;
+                } else {
+                    let current_buf = app.session_prompt_buffer(&session_key).to_string();
+                    let next_prompt = app
+                        .prompt_history_for_session_mut(&session_key)
+                        .navigate_down()
+                        .map(|s| s.to_string());
+                    if let Some(new_text) = next_prompt {
+                        if new_text != current_buf {
+                            let char_count = current_buf.chars().count();
+                            let mut seq = String::with_capacity(char_count + new_text.len() + 3);
+                            seq.push_str("\x1b[F"); // Move cursor to end of line
+                            for _ in 0..char_count {
+                                seq.push('\x7f');
+                            }
+                            seq.push_str(&new_text);
+                            let _ = client.send_input(&detail_id, &seq).await;
+                            app.set_session_prompt_buffer(&session_key, new_text);
                         }
-                        seq.push_str(&new_text);
-                        let _ = client.send_input(&detail_id, &seq).await;
-                        app.set_session_prompt_buffer(&session_key, new_text);
                     }
                 }
             }

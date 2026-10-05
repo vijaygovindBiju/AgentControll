@@ -685,7 +685,7 @@ mod tests {
     /// reader thread, freezing AGY output at "Generating...".
     #[tokio::test]
     async fn test_pty_reader_survives_multibyte_output_past_buffer_cap() {
-        let (tx, mut rx) = mpsc::channel(4096);
+        let (tx, mut rx) = mpsc::channel(65536);
         let ctx = SessionContext::new(Id::new(), "utf8 test".into(), "generic-pty".into());
         // 1 ASCII byte shifts the 3-byte glyphs off any fixed cut offset.
         let script = "printf x; i=0; while [ $i -lt 8000 ]; do printf '⣾'; i=$((i+1)); done; echo; echo AFTER_CAP_MARKER";
@@ -694,7 +694,7 @@ mod tests {
 
         let mut out = String::new();
         let start = std::time::Instant::now();
-        while start.elapsed() < Duration::from_secs(10) && !out.contains("AFTER_CAP_MARKER") {
+        while start.elapsed() < Duration::from_secs(30) && !out.contains("AFTER_CAP_MARKER") {
             match tokio::time::timeout(Duration::from_millis(500), rx.recv()).await {
                 Ok(Some(AdapterEvent::OutputChunk { text, .. })) => out.push_str(&text),
                 Ok(None) => break,

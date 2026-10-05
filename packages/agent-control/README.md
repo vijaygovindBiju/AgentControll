@@ -32,9 +32,22 @@ agentcontroll
 # Shorthand alias
 ac
 
+# Diagnose installation health, credentials, and account switching isolation
+agentcontroll doctor
+# or
+ac doctor
+
+# Deep diagnostics (scans for orphan profiles and unreferenced credentials)
+agentcontroll doctor --deep
+
+# Machine-readable JSON output
+agentcontroll doctor --json
+
 # Inspect daemon state or start the background control daemon
 agentcontrold --help
 ```
+
+> **Note on Antigravity (`agy`):** AgentControll manages external Antigravity sessions and credentials, but does **not** install, wrap, or replace the external Google Antigravity CLI (`agy`). The real `agy` executable must be installed separately on your system.
 
 ## Supported Systems
 

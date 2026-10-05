@@ -123,7 +123,9 @@ async fn test_paste_into_modals_routes_to_input_fields() {
         session_id: Id::from("sess-1"),
         input: "initial ".into(),
     });
-    event::handle_paste(&mut app, &client, "pasted prompt --flag=1").await.unwrap();
+    event::handle_paste(&mut app, &client, "pasted prompt --flag=1")
+        .await
+        .unwrap();
     match &app.active_modal {
         Some(Modal::Steer { input, .. }) => {
             assert_eq!(input, "initial pasted prompt --flag=1");
@@ -136,7 +138,9 @@ async fn test_paste_into_modals_routes_to_input_fields() {
         interaction_id: Id::from("intr-1"),
         input: String::new(),
     });
-    event::handle_paste(&mut app, &client, "yes, proceed with changes").await.unwrap();
+    event::handle_paste(&mut app, &client, "yes, proceed with changes")
+        .await
+        .unwrap();
     match &app.active_modal {
         Some(Modal::Reply { input, .. }) => {
             assert_eq!(input, "yes, proceed with changes");
@@ -148,7 +152,9 @@ async fn test_paste_into_modals_routes_to_input_fields() {
     app.active_modal = Some(Modal::FilterActivity {
         input: "kind:".into(),
     });
-    event::handle_paste(&mut app, &client, "state_change").await.unwrap();
+    event::handle_paste(&mut app, &client, "state_change")
+        .await
+        .unwrap();
     match &app.active_modal {
         Some(Modal::FilterActivity { input }) => {
             assert_eq!(input, "kind:state_change");
@@ -161,7 +167,9 @@ async fn test_paste_into_modals_routes_to_input_fields() {
         input: String::new(),
         error: None,
     });
-    event::handle_paste(&mut app, &client, "~/projects/work-dir/\n").await.unwrap();
+    event::handle_paste(&mut app, &client, "~/projects/work-dir/\n")
+        .await
+        .unwrap();
     match &app.active_modal {
         Some(Modal::SetDefaultWorkingDir { input, .. }) => {
             assert_eq!(input, "~/projects/work-dir/");
@@ -175,7 +183,9 @@ async fn test_paste_into_modals_routes_to_input_fields() {
         session_name: "test-".into(),
         active_field: 1,
     });
-    event::handle_paste(&mut app, &client, "special-task").await.unwrap();
+    event::handle_paste(&mut app, &client, "special-task")
+        .await
+        .unwrap();
     match &app.active_modal {
         Some(Modal::NewSession { session_name, .. }) => {
             assert_eq!(session_name, "test-special-task");
@@ -191,7 +201,9 @@ async fn test_paste_into_modals_routes_to_input_fields() {
         token: String::new(),
         active_field: 3,
     });
-    event::handle_paste(&mut app, &client, "sk-ant-api03-secret-token-value").await.unwrap();
+    event::handle_paste(&mut app, &client, "sk-ant-api03-secret-token-value")
+        .await
+        .unwrap();
     match &app.active_modal {
         Some(Modal::AddAccount { token, .. }) => {
             assert_eq!(token, "sk-ant-api03-secret-token-value");
@@ -214,7 +226,9 @@ async fn test_paste_hotkey_immunity_on_main_tabs() {
         // Paste string containing dangerous shortcut characters:
         // 'q' (quit), 'r' (refresh), 'd' (delete), 's' (stop/steer), 'n' (new session), '1'..'6' (tab switch)
         let hostile_paste = "quick red delete stop new 123456";
-        event::handle_paste(&mut app, &client, hostile_paste).await.unwrap();
+        event::handle_paste(&mut app, &client, hostile_paste)
+            .await
+            .unwrap();
 
         // Assert no side-effects happened
         assert!(
@@ -255,7 +269,9 @@ async fn test_multiline_large_and_unicode_paste() {
         Line 3: Code block: `fn main() { println!(\"Hello\"); }`\n"
         .repeat(20);
 
-    event::handle_paste(&mut app, &client, &large_multiline_unicode).await.unwrap();
+    event::handle_paste(&mut app, &client, &large_multiline_unicode)
+        .await
+        .unwrap();
 
     match &app.active_modal {
         Some(Modal::Steer { input, .. }) => {
@@ -463,13 +479,20 @@ async fn test_modal_ctrl_c_and_esc_dismissal() {
         input: "some input".into(),
     });
     let ctrl_c_key = KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL);
-    event::handle_key(&mut app, &client, ctrl_c_key).await.unwrap();
+    event::handle_key(&mut app, &client, ctrl_c_key)
+        .await
+        .unwrap();
     assert!(app.active_modal.is_none());
-    assert!(!app.should_quit, "Ctrl+C on a modal should dismiss the modal, not exit the app");
+    assert!(
+        !app.should_quit,
+        "Ctrl+C on a modal should dismiss the modal, not exit the app"
+    );
 
     // 3. Ctrl+C when no modal is open quits the app
     let ctrl_c_global = KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL);
-    event::handle_key(&mut app, &client, ctrl_c_global).await.unwrap();
+    event::handle_key(&mut app, &client, ctrl_c_global)
+        .await
+        .unwrap();
     assert!(app.should_quit, "Ctrl+C globally should set should_quit");
 }
 
@@ -484,9 +507,13 @@ async fn test_modal_steer_prompt_history_navigation() {
         session_id: session_id.clone(),
         input: "tell me about the project".into(),
     });
-    event::handle_key(&mut app, &client, KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE))
-        .await
-        .unwrap();
+    event::handle_key(
+        &mut app,
+        &client,
+        KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+    )
+    .await
+    .unwrap();
     assert!(app.active_modal.is_none());
 
     // 2. Submit prompt B in Modal::Steer
@@ -494,9 +521,13 @@ async fn test_modal_steer_prompt_history_navigation() {
         session_id: session_id.clone(),
         input: "explain the architecture".into(),
     });
-    event::handle_key(&mut app, &client, KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE))
-        .await
-        .unwrap();
+    event::handle_key(
+        &mut app,
+        &client,
+        KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+    )
+    .await
+    .unwrap();
 
     // 3. Open Modal::Steer with a draft
     app.active_modal = Some(Modal::Steer {
@@ -505,9 +536,13 @@ async fn test_modal_steer_prompt_history_navigation() {
     });
 
     // Press Up -> previous prompt (prompt B)
-    event::handle_key(&mut app, &client, KeyEvent::new(KeyCode::Up, KeyModifiers::NONE))
-        .await
-        .unwrap();
+    event::handle_key(
+        &mut app,
+        &client,
+        KeyEvent::new(KeyCode::Up, KeyModifiers::NONE),
+    )
+    .await
+    .unwrap();
     if let Some(Modal::Steer { ref input, .. }) = app.active_modal {
         assert_eq!(input, "explain the architecture");
     } else {
@@ -515,41 +550,61 @@ async fn test_modal_steer_prompt_history_navigation() {
     }
 
     // Press Up again -> older prompt (prompt A)
-    event::handle_key(&mut app, &client, KeyEvent::new(KeyCode::Up, KeyModifiers::NONE))
-        .await
-        .unwrap();
+    event::handle_key(
+        &mut app,
+        &client,
+        KeyEvent::new(KeyCode::Up, KeyModifiers::NONE),
+    )
+    .await
+    .unwrap();
     if let Some(Modal::Steer { ref input, .. }) = app.active_modal {
         assert_eq!(input, "tell me about the project");
     }
 
     // Press Up at oldest boundary -> stays at prompt A
-    event::handle_key(&mut app, &client, KeyEvent::new(KeyCode::Up, KeyModifiers::NONE))
-        .await
-        .unwrap();
+    event::handle_key(
+        &mut app,
+        &client,
+        KeyEvent::new(KeyCode::Up, KeyModifiers::NONE),
+    )
+    .await
+    .unwrap();
     if let Some(Modal::Steer { ref input, .. }) = app.active_modal {
         assert_eq!(input, "tell me about the project");
     }
 
     // Press Down -> forward to prompt B
-    event::handle_key(&mut app, &client, KeyEvent::new(KeyCode::Down, KeyModifiers::NONE))
-        .await
-        .unwrap();
+    event::handle_key(
+        &mut app,
+        &client,
+        KeyEvent::new(KeyCode::Down, KeyModifiers::NONE),
+    )
+    .await
+    .unwrap();
     if let Some(Modal::Steer { ref input, .. }) = app.active_modal {
         assert_eq!(input, "explain the architecture");
     }
 
     // Press Down again -> restores the original draft!
-    event::handle_key(&mut app, &client, KeyEvent::new(KeyCode::Down, KeyModifiers::NONE))
-        .await
-        .unwrap();
+    event::handle_key(
+        &mut app,
+        &client,
+        KeyEvent::new(KeyCode::Down, KeyModifiers::NONE),
+    )
+    .await
+    .unwrap();
     if let Some(Modal::Steer { ref input, .. }) = app.active_modal {
         assert_eq!(input, "draft prompt");
     }
 
     // Press Down at newest boundary -> stays at draft
-    event::handle_key(&mut app, &client, KeyEvent::new(KeyCode::Down, KeyModifiers::NONE))
-        .await
-        .unwrap();
+    event::handle_key(
+        &mut app,
+        &client,
+        KeyEvent::new(KeyCode::Down, KeyModifiers::NONE),
+    )
+    .await
+    .unwrap();
     if let Some(Modal::Steer { ref input, .. }) = app.active_modal {
         assert_eq!(input, "draft prompt");
     }
@@ -564,70 +619,114 @@ async fn test_session_detail_prompt_history_lifecycle() {
 
     // 1. Type and submit prompt A: "cargo check"
     for c in "cargo check".chars() {
-        event::handle_key(&mut app, &client, KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE))
-            .await
-            .unwrap();
-    }
-    assert_eq!(app.session_prompt_buffer(&sid.0), "cargo check");
-    event::handle_key(&mut app, &client, KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE))
+        event::handle_key(
+            &mut app,
+            &client,
+            KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE),
+        )
         .await
         .unwrap();
+    }
+    assert_eq!(app.session_prompt_buffer(&sid.0), "cargo check");
+    event::handle_key(
+        &mut app,
+        &client,
+        KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+    )
+    .await
+    .unwrap();
     assert_eq!(app.session_prompt_buffer(&sid.0), "");
 
     // 2. Type and submit prompt B: "cargo test"
     for c in "cargo test".chars() {
-        event::handle_key(&mut app, &client, KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE))
-            .await
-            .unwrap();
-    }
-    assert_eq!(app.session_prompt_buffer(&sid.0), "cargo test");
-    event::handle_key(&mut app, &client, KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE))
+        event::handle_key(
+            &mut app,
+            &client,
+            KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE),
+        )
         .await
         .unwrap();
+    }
+    assert_eq!(app.session_prompt_buffer(&sid.0), "cargo test");
+    event::handle_key(
+        &mut app,
+        &client,
+        KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+    )
+    .await
+    .unwrap();
     assert_eq!(app.session_prompt_buffer(&sid.0), "");
 
     // 3. Type a draft: "carg"
     for c in "carg".chars() {
-        event::handle_key(&mut app, &client, KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE))
-            .await
-            .unwrap();
+        event::handle_key(
+            &mut app,
+            &client,
+            KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE),
+        )
+        .await
+        .unwrap();
     }
     assert_eq!(app.session_prompt_buffer(&sid.0), "carg");
 
     // Press Up -> loads prompt B ("cargo test")
-    event::handle_key(&mut app, &client, KeyEvent::new(KeyCode::Up, KeyModifiers::NONE))
-        .await
-        .unwrap();
+    event::handle_key(
+        &mut app,
+        &client,
+        KeyEvent::new(KeyCode::Up, KeyModifiers::NONE),
+    )
+    .await
+    .unwrap();
     assert_eq!(app.session_prompt_buffer(&sid.0), "cargo test");
 
     // Press Up -> loads prompt A ("cargo check")
-    event::handle_key(&mut app, &client, KeyEvent::new(KeyCode::Up, KeyModifiers::NONE))
-        .await
-        .unwrap();
+    event::handle_key(
+        &mut app,
+        &client,
+        KeyEvent::new(KeyCode::Up, KeyModifiers::NONE),
+    )
+    .await
+    .unwrap();
     assert_eq!(app.session_prompt_buffer(&sid.0), "cargo check");
 
     // Press Up at oldest boundary -> stays at "cargo check"
-    event::handle_key(&mut app, &client, KeyEvent::new(KeyCode::Up, KeyModifiers::NONE))
-        .await
-        .unwrap();
+    event::handle_key(
+        &mut app,
+        &client,
+        KeyEvent::new(KeyCode::Up, KeyModifiers::NONE),
+    )
+    .await
+    .unwrap();
     assert_eq!(app.session_prompt_buffer(&sid.0), "cargo check");
 
     // Press Down -> forward to "cargo test"
-    event::handle_key(&mut app, &client, KeyEvent::new(KeyCode::Down, KeyModifiers::NONE))
-        .await
-        .unwrap();
+    event::handle_key(
+        &mut app,
+        &client,
+        KeyEvent::new(KeyCode::Down, KeyModifiers::NONE),
+    )
+    .await
+    .unwrap();
     assert_eq!(app.session_prompt_buffer(&sid.0), "cargo test");
 
     // Press Down past newest entry -> restores draft "carg"
-    event::handle_key(&mut app, &client, KeyEvent::new(KeyCode::Down, KeyModifiers::NONE))
-        .await
-        .unwrap();
+    event::handle_key(
+        &mut app,
+        &client,
+        KeyEvent::new(KeyCode::Down, KeyModifiers::NONE),
+    )
+    .await
+    .unwrap();
     assert_eq!(app.session_prompt_buffer(&sid.0), "carg");
 
     // Press Down at newest boundary -> stays at "carg"
-    event::handle_key(&mut app, &client, KeyEvent::new(KeyCode::Down, KeyModifiers::NONE))
-        .await
-        .unwrap();
+    event::handle_key(
+        &mut app,
+        &client,
+        KeyEvent::new(KeyCode::Down, KeyModifiers::NONE),
+    )
+    .await
+    .unwrap();
     assert_eq!(app.session_prompt_buffer(&sid.0), "carg");
 
     // Verify PgUp and PgDn still work for transcript scrolling and Up does not scroll
@@ -638,15 +737,23 @@ async fn test_session_detail_prompt_history_lifecycle() {
     app.session_terminal_buffers.insert(sid.0.clone(), term_buf);
 
     // PgUp scrolls up into scrollback mode
-    event::handle_key(&mut app, &client, KeyEvent::new(KeyCode::PageUp, KeyModifiers::NONE))
-        .await
-        .unwrap();
+    event::handle_key(
+        &mut app,
+        &client,
+        KeyEvent::new(KeyCode::PageUp, KeyModifiers::NONE),
+    )
+    .await
+    .unwrap();
     assert!(!app.session_terminal_buffers.get(&sid.0).unwrap().follow);
 
     // Up while in session detail snaps back to live bottom and navigates prompt history
-    event::handle_key(&mut app, &client, KeyEvent::new(KeyCode::Up, KeyModifiers::NONE))
-        .await
-        .unwrap();
+    event::handle_key(
+        &mut app,
+        &client,
+        KeyEvent::new(KeyCode::Up, KeyModifiers::NONE),
+    )
+    .await
+    .unwrap();
     assert!(app.session_terminal_buffers.get(&sid.0).unwrap().follow);
     assert_eq!(app.session_prompt_buffer(&sid.0), "cargo test");
 }
@@ -660,66 +767,122 @@ async fn test_prompt_history_exact_requirement_verification() {
 
     // 1. Submit prompt A: "tell me about the project"
     for c in "tell me about the project".chars() {
-        event::handle_key(&mut app, &client, KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE))
-            .await
-            .unwrap();
-    }
-    event::handle_key(&mut app, &client, KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE))
+        event::handle_key(
+            &mut app,
+            &client,
+            KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE),
+        )
         .await
         .unwrap();
+    }
+    event::handle_key(
+        &mut app,
+        &client,
+        KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+    )
+    .await
+    .unwrap();
 
     // 2. Submit prompt B: "explain the architecture"
     for c in "explain the architecture".chars() {
-        event::handle_key(&mut app, &client, KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE))
-            .await
-            .unwrap();
-    }
-    event::handle_key(&mut app, &client, KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE))
+        event::handle_key(
+            &mut app,
+            &client,
+            KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE),
+        )
         .await
         .unwrap();
+    }
+    event::handle_key(
+        &mut app,
+        &client,
+        KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+    )
+    .await
+    .unwrap();
 
     // 3. Press Up -> B ("explain the architecture")
-    event::handle_key(&mut app, &client, KeyEvent::new(KeyCode::Up, KeyModifiers::NONE))
-        .await
-        .unwrap();
-    assert_eq!(app.session_prompt_buffer(&sid.0), "explain the architecture");
+    event::handle_key(
+        &mut app,
+        &client,
+        KeyEvent::new(KeyCode::Up, KeyModifiers::NONE),
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        app.session_prompt_buffer(&sid.0),
+        "explain the architecture"
+    );
 
     // 4. Press Up -> A ("tell me about the project")
-    event::handle_key(&mut app, &client, KeyEvent::new(KeyCode::Up, KeyModifiers::NONE))
-        .await
-        .unwrap();
-    assert_eq!(app.session_prompt_buffer(&sid.0), "tell me about the project");
+    event::handle_key(
+        &mut app,
+        &client,
+        KeyEvent::new(KeyCode::Up, KeyModifiers::NONE),
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        app.session_prompt_buffer(&sid.0),
+        "tell me about the project"
+    );
 
     // 5. Press Down -> B ("explain the architecture")
-    event::handle_key(&mut app, &client, KeyEvent::new(KeyCode::Down, KeyModifiers::NONE))
-        .await
-        .unwrap();
-    assert_eq!(app.session_prompt_buffer(&sid.0), "explain the architecture");
+    event::handle_key(
+        &mut app,
+        &client,
+        KeyEvent::new(KeyCode::Down, KeyModifiers::NONE),
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        app.session_prompt_buffer(&sid.0),
+        "explain the architecture"
+    );
 
     // 6. Press Down -> original empty draft ("")
-    event::handle_key(&mut app, &client, KeyEvent::new(KeyCode::Down, KeyModifiers::NONE))
-        .await
-        .unwrap();
+    event::handle_key(
+        &mut app,
+        &client,
+        KeyEvent::new(KeyCode::Down, KeyModifiers::NONE),
+    )
+    .await
+    .unwrap();
     assert_eq!(app.session_prompt_buffer(&sid.0), "");
 
     // 7. Type a draft, navigate Up, then Down -> original draft restored
     for c in "draft partial".chars() {
-        event::handle_key(&mut app, &client, KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE))
-            .await
-            .unwrap();
+        event::handle_key(
+            &mut app,
+            &client,
+            KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE),
+        )
+        .await
+        .unwrap();
     }
     assert_eq!(app.session_prompt_buffer(&sid.0), "draft partial");
 
     // Navigate Up -> B
-    event::handle_key(&mut app, &client, KeyEvent::new(KeyCode::Up, KeyModifiers::NONE))
-        .await
-        .unwrap();
-    assert_eq!(app.session_prompt_buffer(&sid.0), "explain the architecture");
+    event::handle_key(
+        &mut app,
+        &client,
+        KeyEvent::new(KeyCode::Up, KeyModifiers::NONE),
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        app.session_prompt_buffer(&sid.0),
+        "explain the architecture"
+    );
 
     // Navigate Down -> original draft restored
-    event::handle_key(&mut app, &client, KeyEvent::new(KeyCode::Down, KeyModifiers::NONE))
-        .await
-        .unwrap();
+    event::handle_key(
+        &mut app,
+        &client,
+        KeyEvent::new(KeyCode::Down, KeyModifiers::NONE),
+    )
+    .await
+    .unwrap();
     assert_eq!(app.session_prompt_buffer(&sid.0), "draft partial");
 
     // 8. PgUp/PgDn still scroll transcript
@@ -729,29 +892,58 @@ async fn test_prompt_history_exact_requirement_verification() {
     }
     app.session_terminal_buffers.insert(sid.0.clone(), term_buf);
 
-    event::handle_key(&mut app, &client, KeyEvent::new(KeyCode::PageUp, KeyModifiers::NONE))
-        .await
-        .unwrap();
-    assert!(!app.session_terminal_buffers.get(&sid.0).unwrap().follow, "PgUp should engage scroll mode");
+    event::handle_key(
+        &mut app,
+        &client,
+        KeyEvent::new(KeyCode::PageUp, KeyModifiers::NONE),
+    )
+    .await
+    .unwrap();
+    assert!(
+        !app.session_terminal_buffers.get(&sid.0).unwrap().follow,
+        "PgUp should engage scroll mode"
+    );
 
-    event::handle_key(&mut app, &client, KeyEvent::new(KeyCode::PageDown, KeyModifiers::NONE))
-        .await
-        .unwrap();
+    event::handle_key(
+        &mut app,
+        &client,
+        KeyEvent::new(KeyCode::PageDown, KeyModifiers::NONE),
+    )
+    .await
+    .unwrap();
 
     // 9. Up/Down no longer scroll transcript while input is focused
-    event::handle_key(&mut app, &client, KeyEvent::new(KeyCode::Up, KeyModifiers::NONE))
-        .await
-        .unwrap();
-    assert!(app.session_terminal_buffers.get(&sid.0).unwrap().follow, "Up while focused must not scroll transcript");
-    assert_eq!(app.session_prompt_buffer(&sid.0), "explain the architecture");
+    event::handle_key(
+        &mut app,
+        &client,
+        KeyEvent::new(KeyCode::Up, KeyModifiers::NONE),
+    )
+    .await
+    .unwrap();
+    assert!(
+        app.session_terminal_buffers.get(&sid.0).unwrap().follow,
+        "Up while focused must not scroll transcript"
+    );
+    assert_eq!(
+        app.session_prompt_buffer(&sid.0),
+        "explain the architecture"
+    );
 
     // 10. Terminal resize still works
     app.resize_session_terminals(40, 120);
-    assert_eq!(app.session_prompt_buffer(&sid.0), "explain the architecture");
+    assert_eq!(
+        app.session_prompt_buffer(&sid.0),
+        "explain the architecture"
+    );
 
     // 11. Paste still works
-    event::handle_paste(&mut app, &client, " pasted snippet").await.unwrap();
-    assert_eq!(app.session_prompt_buffer(&sid.0), "explain the architecture pasted snippet");
+    event::handle_paste(&mut app, &client, " pasted snippet")
+        .await
+        .unwrap();
+    assert_eq!(
+        app.session_prompt_buffer(&sid.0),
+        "explain the architecture pasted snippet"
+    );
 }
 
 #[test]
@@ -770,7 +962,7 @@ fn test_backspace_removes_stale_characters_completely() {
     buf.push_str("\x08 \x08"); // 'r'
     buf.push_str("\x08 \x08"); // 'o'
     buf.push_str("\x08 \x08"); // 'w'
-    buf.push_str("\x08");       // ' ' (bare backspace without space)
+    buf.push_str("\x08"); // ' ' (bare backspace without space)
     assert_eq!(buf.lines[0].to_plain_string(), "hello");
     assert_eq!(buf.cursor_col, 5);
 
@@ -781,7 +973,7 @@ fn test_backspace_removes_stale_characters_completely() {
 
     // 3. Backspace 3 more times down to "he" ('o', 'l', 'l')
     buf.push_str("\x08 \x08"); // 'o'
-    buf.push_str("\x08");       // 'l' (bare backspace)
+    buf.push_str("\x08"); // 'l' (bare backspace)
     buf.push_str("\x08 \x08"); // 'l'
     assert_eq!(buf.lines[0].to_plain_string(), "he");
     assert_eq!(buf.cursor_col, 2);
@@ -792,7 +984,7 @@ fn test_backspace_removes_stale_characters_completely() {
 
     // 4. Backspace 2 more times down to <empty> ('e', 'h')
     buf.push_str("\x08 \x08"); // 'e'
-    buf.push_str("\x08");       // 'h' (bare backspace)
+    buf.push_str("\x08"); // 'h' (bare backspace)
     assert_eq!(buf.lines[0].to_plain_string(), "");
     assert_eq!(buf.cursor_col, 0);
 
@@ -848,67 +1040,119 @@ async fn test_prompt_history_replace_longer_with_shorter_in_session_detail() {
 
     // 1. Submit prompt A: "explain the architecture"
     for c in "explain the architecture".chars() {
-        event::handle_key(&mut app, &client, KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE))
-            .await
-            .unwrap();
-    }
-    assert_eq!(app.session_prompt_buffer(&sid.0), "explain the architecture");
-    event::handle_key(&mut app, &client, KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE))
+        event::handle_key(
+            &mut app,
+            &client,
+            KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE),
+        )
         .await
         .unwrap();
+    }
+    assert_eq!(
+        app.session_prompt_buffer(&sid.0),
+        "explain the architecture"
+    );
+    event::handle_key(
+        &mut app,
+        &client,
+        KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+    )
+    .await
+    .unwrap();
     assert_eq!(app.session_prompt_buffer(&sid.0), "");
 
     // 2. Submit prompt B: "cargo test"
     for c in "cargo test".chars() {
-        event::handle_key(&mut app, &client, KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE))
-            .await
-            .unwrap();
-    }
-    assert_eq!(app.session_prompt_buffer(&sid.0), "cargo test");
-    event::handle_key(&mut app, &client, KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE))
+        event::handle_key(
+            &mut app,
+            &client,
+            KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE),
+        )
         .await
         .unwrap();
+    }
+    assert_eq!(app.session_prompt_buffer(&sid.0), "cargo test");
+    event::handle_key(
+        &mut app,
+        &client,
+        KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+    )
+    .await
+    .unwrap();
     assert_eq!(app.session_prompt_buffer(&sid.0), "");
 
     // 3. User types long draft: "tell me about the project"
     for c in "tell me about the project".chars() {
-        event::handle_key(&mut app, &client, KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE))
-            .await
-            .unwrap();
-    }
-    // Verify actual input state
-    assert_eq!(app.session_prompt_buffer(&sid.0), "tell me about the project");
-
-    // 4. Press Up -> restores prompt B: "cargo test"
-    event::handle_key(&mut app, &client, KeyEvent::new(KeyCode::Up, KeyModifiers::NONE))
+        event::handle_key(
+            &mut app,
+            &client,
+            KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE),
+        )
         .await
         .unwrap();
+    }
+    // Verify actual input state
+    assert_eq!(
+        app.session_prompt_buffer(&sid.0),
+        "tell me about the project"
+    );
+
+    // 4. Press Up -> restores prompt B: "cargo test"
+    event::handle_key(
+        &mut app,
+        &client,
+        KeyEvent::new(KeyCode::Up, KeyModifiers::NONE),
+    )
+    .await
+    .unwrap();
     // Actual input state must be "cargo test"
     assert_eq!(app.session_prompt_buffer(&sid.0), "cargo test");
 
     // 5. Press Up -> restores prompt A: "explain the architecture"
-    event::handle_key(&mut app, &client, KeyEvent::new(KeyCode::Up, KeyModifiers::NONE))
-        .await
-        .unwrap();
-    assert_eq!(app.session_prompt_buffer(&sid.0), "explain the architecture");
+    event::handle_key(
+        &mut app,
+        &client,
+        KeyEvent::new(KeyCode::Up, KeyModifiers::NONE),
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        app.session_prompt_buffer(&sid.0),
+        "explain the architecture"
+    );
 
     // 6. Press Down -> forward to prompt B: "cargo test" (shorter than A)
-    event::handle_key(&mut app, &client, KeyEvent::new(KeyCode::Down, KeyModifiers::NONE))
-        .await
-        .unwrap();
+    event::handle_key(
+        &mut app,
+        &client,
+        KeyEvent::new(KeyCode::Down, KeyModifiers::NONE),
+    )
+    .await
+    .unwrap();
     assert_eq!(app.session_prompt_buffer(&sid.0), "cargo test");
 
     // 7. Press Down -> restores original draft: "tell me about the project"
-    event::handle_key(&mut app, &client, KeyEvent::new(KeyCode::Down, KeyModifiers::NONE))
-        .await
-        .unwrap();
-    assert_eq!(app.session_prompt_buffer(&sid.0), "tell me about the project");
+    event::handle_key(
+        &mut app,
+        &client,
+        KeyEvent::new(KeyCode::Down, KeyModifiers::NONE),
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        app.session_prompt_buffer(&sid.0),
+        "tell me about the project"
+    );
 
     // 8. Backspace draft until empty
     for _ in 0..25 {
-        event::handle_key(&mut app, &client, KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE))
-            .await
-            .unwrap();
+        event::handle_key(
+            &mut app,
+            &client,
+            KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE),
+        )
+        .await
+        .unwrap();
     }
     // Verify actual input state is empty
     assert_eq!(app.session_prompt_buffer(&sid.0), "");
@@ -974,3 +1218,270 @@ fn test_terminal_resize_with_trimmed_lines_leaves_no_phantom_lines() {
     assert_eq!(vis10[2], ratatui::text::Line::from(""));
 }
 
+#[test]
+fn test_terminal_buffer_differential_slash_completion_linefeed_preserves_columns() {
+    let mut buf = TerminalBuffer::new(500);
+    buf.resize(20, 80);
+
+    // 1. Initial prompt line and completion menu when user types '/'
+    buf.push_str("> /\r\n───\r\n> /add-dir           Add a directory to the workspace\r\n  /agents            List available custom agents\r\n  /model             Set a model\r\n  ↑/↓ Navigate · enter Select · tab Complete\r\n\x1b[90mesc to cancel\x1b[m\r\x1b[6A\x1b[3C");
+    assert_eq!(buf.cursor_row, 0);
+    assert_eq!(buf.cursor_col, 3);
+    assert!(buf.is_completion_open());
+
+    // 2. User types 'm': AGY appends 'm' on line 0 (cursor now at col 4),
+    // then sends \n\n\x08 to move to line 2, col 3, and updates candidate to 'mcp'
+    buf.push_str("m\n\n\x08\x1b[94mmcp\x1b[15X\x1b[m\r\x1b[2A\x1b[4C");
+    assert_eq!(buf.lines[0].to_plain_string(), "> /m");
+    assert!(buf.lines[2].to_plain_string().starts_with("> /mcp"));
+    assert!(buf.is_completion_open());
+
+    // 3. User types 'o': AGY appends 'o' on line 0 (cursor now at col 5),
+    // then sends \n\n\x08 to move to line 2, col 4, and updates candidate with 'odel' (starting at col 4)
+    buf.push_str("o\n\n\x08\x1b[94model             \x1b[m  Set a model, or run a single prompt\r\x1b[2A\x1b[5C");
+    assert_eq!(buf.lines[0].to_plain_string(), "> /mo");
+    // Line 2 MUST be "> /model", NOT "odel" or "/odel"!
+    assert!(buf.lines[2].to_plain_string().starts_with("> /model"));
+    assert!(!buf.lines[2].to_plain_string().starts_with("/odel"));
+    assert!(!buf.lines[2].to_plain_string().starts_with("odel"));
+    assert!(buf.is_completion_open());
+
+    // 4. User types 'd':
+    buf.push_str("d\r\x1b[2A\x1b[6C");
+    assert_eq!(buf.lines[0].to_plain_string(), "> /mod");
+
+    // 5. User cancels with Esc: AGY clears menu with \x1b[J from line 1
+    buf.push_str("\r\n\x1b[J\r\x1b[1A\x1b[6C");
+    assert_eq!(buf.lines[0].to_plain_string(), "> /mod");
+    assert!(!buf.is_completion_open());
+}
+
+#[tokio::test]
+async fn test_event_routing_slash_completion_navigation_vs_prompt_history() {
+    let mut app = App::new();
+    let sid = Id::from("01SESSION_COMPLETION_TEST");
+    let sess = ac_core::types::AgentSession::new(sid.clone(), "test-session".into(), "agy".into());
+    app.sessions.push(sess);
+    app.session_detail_id = Some(sid.clone());
+
+    let client = create_test_client();
+
+    // 1. Submit prompt A: "cargo check"
+    for c in "cargo check".chars() {
+        event::handle_key(
+            &mut app,
+            &client,
+            KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE),
+        )
+        .await
+        .unwrap();
+    }
+    event::handle_key(
+        &mut app,
+        &client,
+        KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+    )
+    .await
+    .unwrap();
+
+    // 2. Submit prompt B: "cargo test"
+    for c in "cargo test".chars() {
+        event::handle_key(
+            &mut app,
+            &client,
+            KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE),
+        )
+        .await
+        .unwrap();
+    }
+    event::handle_key(
+        &mut app,
+        &client,
+        KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+    )
+    .await
+    .unwrap();
+
+    // 3. User types "/mod"
+    for c in "/mod".chars() {
+        event::handle_key(
+            &mut app,
+            &client,
+            KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE),
+        )
+        .await
+        .unwrap();
+    }
+    assert_eq!(app.session_prompt_buffer(&sid.0), "/mod");
+
+    // Simulate AGY opening completion popup in terminal buffer
+    let mut tb = TerminalBuffer::new(500);
+    tb.push_str("> /mod\r\n───\r\n> /model\r\n  ↑/↓ Navigate · enter Select · tab Complete\r\nesc to cancel\r\n");
+    app.session_terminal_buffers.insert(sid.0.clone(), tb);
+    assert!(app.is_session_completion_open(&sid.0));
+
+    // 1. /mod: User types "/mod", completion popup appears
+    assert_eq!(app.session_prompt_buffer(&sid.0), "/mod");
+    assert!(app.is_session_completion_open(&sid.0));
+
+    // 2. Up/Down completion navigation: while completion menu is OPEN,
+    // Up and Down navigate completion candidates and MUST NOT touch prompt history!
+    event::handle_key(
+        &mut app,
+        &client,
+        KeyEvent::new(KeyCode::Down, KeyModifiers::NONE),
+    )
+    .await
+    .unwrap();
+    assert_eq!(app.session_prompt_buffer(&sid.0), "/mod");
+
+    event::handle_key(
+        &mut app,
+        &client,
+        KeyEvent::new(KeyCode::Up, KeyModifiers::NONE),
+    )
+    .await
+    .unwrap();
+    assert_eq!(app.session_prompt_buffer(&sid.0), "/mod");
+
+    // 3. Tab completion: completes and closes completion menu
+    event::handle_key(
+        &mut app,
+        &client,
+        KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE),
+    )
+    .await
+    .unwrap();
+    assert!(!app.is_session_completion_open(&sid.0));
+
+    // 4. Esc cancellation: close completion without modifying input unexpectedly
+    app.set_session_completion_dismissed(&sid.0, false);
+    assert!(app.is_session_completion_open(&sid.0));
+    event::handle_key(
+        &mut app,
+        &client,
+        KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE),
+    )
+    .await
+    .unwrap();
+    assert!(!app.is_session_completion_open(&sid.0));
+    assert_eq!(app.session_prompt_buffer(&sid.0), "/mod");
+
+    // 5. Backspace while completion is open
+    app.set_session_completion_dismissed(&sid.0, false);
+    event::handle_key(
+        &mut app,
+        &client,
+        KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE),
+    )
+    .await
+    .unwrap();
+    assert_eq!(app.session_prompt_buffer(&sid.0), "/mo");
+
+    // 6. Typing more characters
+    event::handle_key(
+        &mut app,
+        &client,
+        KeyEvent::new(KeyCode::Char('d'), KeyModifiers::NONE),
+    )
+    .await
+    .unwrap();
+    event::handle_key(
+        &mut app,
+        &client,
+        KeyEvent::new(KeyCode::Char('e'), KeyModifiers::NONE),
+    )
+    .await
+    .unwrap();
+    assert_eq!(app.session_prompt_buffer(&sid.0), "/mode");
+
+    // 7. Deleting all characters
+    for _ in 0..5 {
+        event::handle_key(
+            &mut app,
+            &client,
+            KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE),
+        )
+        .await
+        .unwrap();
+    }
+    assert_eq!(app.session_prompt_buffer(&sid.0), "");
+
+    // 8. Reopen completion
+    for c in "/mod".chars() {
+        event::handle_key(
+            &mut app,
+            &client,
+            KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE),
+        )
+        .await
+        .unwrap();
+    }
+    assert_eq!(app.session_prompt_buffer(&sid.0), "/mod");
+    assert!(app.is_session_completion_open(&sid.0));
+
+    // Close completion with Esc before testing prompt history
+    event::handle_key(
+        &mut app,
+        &client,
+        KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE),
+    )
+    .await
+    .unwrap();
+    assert!(!app.is_session_completion_open(&sid.0));
+    assert_eq!(app.session_prompt_buffer(&sid.0), "/mod");
+
+    // 9. Normal prompt history after completion closes:
+    // Up loads newest prompt B ("cargo test")
+    event::handle_key(
+        &mut app,
+        &client,
+        KeyEvent::new(KeyCode::Up, KeyModifiers::NONE),
+    )
+    .await
+    .unwrap();
+    assert_eq!(app.session_prompt_buffer(&sid.0), "cargo test");
+
+    // Up loads older prompt A ("cargo check")
+    event::handle_key(
+        &mut app,
+        &client,
+        KeyEvent::new(KeyCode::Up, KeyModifiers::NONE),
+    )
+    .await
+    .unwrap();
+    assert_eq!(app.session_prompt_buffer(&sid.0), "cargo check");
+
+    // Down moves forward to prompt B ("cargo test")
+    event::handle_key(
+        &mut app,
+        &client,
+        KeyEvent::new(KeyCode::Down, KeyModifiers::NONE),
+    )
+    .await
+    .unwrap();
+    assert_eq!(app.session_prompt_buffer(&sid.0), "cargo test");
+
+    // Down restores original draft ("/mod")
+    event::handle_key(
+        &mut app,
+        &client,
+        KeyEvent::new(KeyCode::Down, KeyModifiers::NONE),
+    )
+    .await
+    .unwrap();
+    assert_eq!(app.session_prompt_buffer(&sid.0), "/mod");
+
+    // 10. Paste while completion is open/closed
+    // 10a. Paste while completion is closed:
+    event::handle_paste(&mut app, &client, "el").await.unwrap();
+    assert_eq!(app.session_prompt_buffer(&sid.0), "/model");
+
+    // 10b. Paste while completion is open:
+    app.set_session_completion_dismissed(&sid.0, false);
+    assert!(app.is_session_completion_open(&sid.0));
+    event::handle_paste(&mut app, &client, " --help")
+        .await
+        .unwrap();
+    assert_eq!(app.session_prompt_buffer(&sid.0), "/model --help");
+}
