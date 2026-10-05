@@ -43,13 +43,13 @@ fn test_json_serialization_and_no_secrets() {
         CheckResult::pass("system.os", "Platform", "Linux"),
         CheckResult::warn("account.state", "Account", "Rate limited", "Wait 30s"),
     ];
-    let report = DoctorReport::new("1.0.4", checks);
+    let report = DoctorReport::new("1.0.5", checks);
     let json_str = ac_core::doctor::format::render_json(&report);
 
     // Parse JSON
     let val: serde_json::Value = serde_json::from_str(&json_str).expect("Valid JSON");
     assert_eq!(val["status"], "warnings");
-    assert_eq!(val["version"], "1.0.4");
+    assert_eq!(val["version"], "1.0.5");
     assert_eq!(val["checks"].as_array().unwrap().len(), 2);
 
     // Verify no ANSI escape codes

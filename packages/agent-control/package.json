@@ -1,6 +1,6 @@
 {
   "name": "agentcontroll",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "Local-first control plane for coding agents (Antigravity, Claude Code, Codex, Devin CLI)",
   "bin": {
     "agentcontroll": "bin/agentcontroll.js",

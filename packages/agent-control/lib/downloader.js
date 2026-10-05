@@ -106,7 +106,28 @@ async function ensureBinary(binaryName = 'agentcontroll') {
     }
   }
 
-  // 3. Need to download archive
+  // 3. Check local workspace build directory if developing or testing within repo
+  const localCandidates = [
+    path.resolve(__dirname, '../../target/release', binaryName),
+    path.resolve(__dirname, '../../target/debug', binaryName),
+    path.resolve(__dirname, '../../../target/release', binaryName),
+    path.resolve(__dirname, '../../../target/debug', binaryName),
+  ];
+  for (const candidate of localCandidates) {
+    if (fs.existsSync(candidate)) {
+      try {
+        fs.accessSync(candidate, fs.constants.X_OK);
+        return candidate;
+      } catch {
+        try {
+          fs.chmodSync(candidate, 0o755);
+          return candidate;
+        } catch {}
+      }
+    }
+  }
+
+  // 4. Need to download archive
   const targetTriple = getTargetTriple();
   const archiveName = getArchiveName(VERSION, targetTriple);
   const baseUrl = process.env.AGENTCONTROL_DOWNLOAD_URL_BASE ||
@@ -149,6 +170,24 @@ async function ensureBinary(binaryName = 'agentcontroll') {
     try {
       if (fs.existsSync(tempArchive)) fs.unlinkSync(tempArchive);
     } catch {}
+
+    // 5. Fallback: check if any other cached version exists before giving up
+    const baseBinDir = path.dirname(cacheDir);
+    if (fs.existsSync(baseBinDir)) {
+      try {
+        const versions = fs.readdirSync(baseBinDir)
+          .filter((v) => v.startsWith('v') && fs.existsSync(path.join(baseBinDir, v, binaryName)))
+          .sort()
+          .reverse();
+        if (versions.length > 0) {
+          const fallbackVersion = versions[0];
+          const fallbackPath = path.join(baseBinDir, fallbackVersion, binaryName);
+          process.stderr.write(`[agentcontroll] Warning: Could not download v${VERSION} (${err.message}). Using cached ${fallbackVersion} binary.\n`);
+          return fallbackPath;
+        }
+      } catch {}
+    }
+
     throw new Error(
       `Failed to download prebuilt AgentControll binary from ${archiveUrl}:\n${err.message}\n` +
       `You can build from source using 'cargo build --release' or set AGENTCONTROL_BIN_DIR.`

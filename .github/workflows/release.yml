@@ -100,12 +100,12 @@ jobs:
           cat *.sha256 > SHA256SUMS
           rm -f *.sha256
 
-      - name: Create GitHub Release (Draft)
+      - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.event.inputs.tag_name || github.ref_name }}
           name: AgentControll ${{ github.event.inputs.tag_name || github.ref_name }}
-          draft: true
+          draft: false
           prerelease: false
           files: |
             dist/*.tar.gz
