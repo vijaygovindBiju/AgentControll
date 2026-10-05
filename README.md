@@ -2,7 +2,7 @@
 
 A local-first control plane for coding agents.
 
-> **Status:** Version 1.0.3 released. Fully verified with zero compiler warnings and 100% test pass rate across all workspace test suites.
+> **Status:** Version 1.0.4 released. Fully verified with zero compiler warnings and 100% test pass rate across all workspace test suites.
 
 ---
 
@@ -113,7 +113,7 @@ AgentControll solves this by operating as a unified local supervisor: it pools a
 
 ### npm / NPX — Recommended
 
-The official npm package [`agentcontroll`](https://www.npmjs.com/package/agentcontroll) (v1.0.3) is the recommended distribution method for Linux and macOS. It requires Node.js (>= 18) and automatically fetches the prebuilt, SHA256-verified binary for your platform.
+The official npm package [`agentcontroll`](https://www.npmjs.com/package/agentcontroll) (v1.0.4) is the recommended distribution method for Linux and macOS. It requires Node.js (>= 18) and automatically fetches the prebuilt, SHA256-verified binary for your platform.
 
 **Run immediately without global installation:**
 ```bash
