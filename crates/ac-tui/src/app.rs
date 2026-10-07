@@ -297,6 +297,11 @@ pub enum Modal {
         input: String,
         error: Option<String>,
     },
+    UrlPicker {
+        session_id: Id,
+        urls: Vec<String>,
+        selected_index: usize,
+    },
 }
 
 #[derive(Debug, Clone)]

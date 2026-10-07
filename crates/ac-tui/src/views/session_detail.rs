@@ -253,6 +253,13 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
             ),
             Span::styled(" Search  ", Style::default().fg(Color::DarkGray)),
             Span::styled(
+                "[Ctrl+O]",
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(" Links  ", Style::default().fg(Color::DarkGray)),
+            Span::styled(
                 "[F1]",
                 Style::default()
                     .fg(Color::Yellow)
@@ -277,7 +284,7 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
                     .add_modifier(Modifier::BOLD),
             ),
             Span::styled(
-                " | [/] Search | Press End/Esc to return] ",
+                " | [/] Search | [o] Links | Press End/Esc to return] ",
                 Style::default()
                     .fg(Color::Yellow)
                     .add_modifier(Modifier::BOLD),

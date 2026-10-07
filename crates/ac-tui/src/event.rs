@@ -1852,6 +1852,74 @@ pub async fn handle_key(app: &mut App, client: &ApiClient, key: KeyEvent) -> Res
                 }
                 _ => {}
             },
+
+            Modal::UrlPicker {
+                session_id,
+                urls,
+                mut selected_index,
+            } => match key.code {
+                KeyCode::Esc => {
+                    app.active_modal = None;
+                }
+                KeyCode::Up | KeyCode::Char('k') => {
+                    if !urls.is_empty() {
+                        selected_index = if selected_index == 0 {
+                            urls.len() - 1
+                        } else {
+                            selected_index - 1
+                        };
+                    }
+                    app.active_modal = Some(Modal::UrlPicker {
+                        session_id,
+                        urls,
+                        selected_index,
+                    });
+                }
+                KeyCode::Down | KeyCode::Char('j') => {
+                    if !urls.is_empty() {
+                        selected_index = (selected_index + 1) % urls.len();
+                    }
+                    app.active_modal = Some(Modal::UrlPicker {
+                        session_id,
+                        urls,
+                        selected_index,
+                    });
+                }
+                KeyCode::Char('y') | KeyCode::Char('Y') => {
+                    app.active_modal = None;
+                    if let Some(url) = urls.get(selected_index) {
+                        crate::clipboard::copy(url);
+                        app.set_status(
+                            format!("Copied URL to clipboard: {url}"),
+                            StatusType::Success,
+                        );
+                    }
+                }
+                KeyCode::Enter => {
+                    app.active_modal = None;
+                    if let Some(url) = urls.get(selected_index) {
+                        if ac_core::agy_auth::open_browser(url) {
+                            app.set_status(
+                                format!("Opened in browser: {url}"),
+                                StatusType::Success,
+                            );
+                        } else {
+                            crate::clipboard::copy(url);
+                            app.set_status(
+                                format!("Could not open browser. Copied URL: {url}"),
+                                StatusType::Warning,
+                            );
+                        }
+                    }
+                }
+                _ => {
+                    app.active_modal = Some(Modal::UrlPicker {
+                        session_id,
+                        urls,
+                        selected_index,
+                    });
+                }
+            },
         }
         return Ok(());
     }
@@ -1900,6 +1968,30 @@ pub async fn handle_key(app: &mut App, client: &ApiClient, key: KeyEvent) -> Res
         {
             if let Some(buf) = app.session_terminal_buffers.get_mut(&detail_id.0) {
                 buf.start_search();
+            }
+            return Ok(());
+        }
+
+        // URL Quick-Open Palette shortcut: Ctrl+O
+        if key.modifiers.contains(KeyModifiers::CONTROL)
+            && (key.code == KeyCode::Char('o') || key.code == KeyCode::Char('O'))
+        {
+            let urls = if let Some(buf) = app.session_terminal_buffers.get(&detail_id.0) {
+                buf.extract_all_urls()
+            } else {
+                Vec::new()
+            };
+            if urls.is_empty() {
+                app.set_status(
+                    "No URLs or hyperlinks found in terminal buffer",
+                    StatusType::Warning,
+                );
+            } else {
+                app.active_modal = Some(Modal::UrlPicker {
+                    session_id: detail_id,
+                    urls,
+                    selected_index: 0,
+                });
             }
             return Ok(());
         }
@@ -2035,6 +2127,26 @@ pub async fn handle_key(app: &mut App, client: &ApiClient, key: KeyEvent) -> Res
                 KeyCode::Char('/') => {
                     if let Some(buf) = app.session_terminal_buffers.get_mut(&detail_id.0) {
                         buf.start_search();
+                    }
+                    return Ok(());
+                }
+                KeyCode::Char('o') | KeyCode::Char('O') => {
+                    let urls = if let Some(buf) = app.session_terminal_buffers.get(&detail_id.0) {
+                        buf.extract_all_urls()
+                    } else {
+                        Vec::new()
+                    };
+                    if urls.is_empty() {
+                        app.set_status(
+                            "No URLs or hyperlinks found in terminal buffer",
+                            StatusType::Warning,
+                        );
+                    } else {
+                        app.active_modal = Some(Modal::UrlPicker {
+                            session_id: detail_id,
+                            urls,
+                            selected_index: 0,
+                        });
                     }
                     return Ok(());
                 }

@@ -391,6 +391,14 @@ fn test_headless_rendering_at_extreme_dimensions() {
                 session_name: "test-sess".into(),
                 active_field: 0,
             },
+            Modal::UrlPicker {
+                session_id: Id::from("sess-1"),
+                urls: vec![
+                    "https://github.com/agentcontrol".into(),
+                    "https://docs.agentcontrol.dev".into(),
+                ],
+                selected_index: 0,
+            },
         ];
 
         for modal in modals {

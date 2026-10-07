@@ -461,3 +461,57 @@ async fn test_keyboard_input_handling_and_modals() {
         .unwrap();
     assert!(app.should_quit);
 }
+
+#[tokio::test]
+async fn test_url_picker_modal_navigation_and_actions() {
+    let mut app = App::new();
+    let client = ApiClient::new(PathBuf::from("/nonexistent.sock"));
+
+    let urls = vec![
+        "https://github.com/agentcontrol".to_string(),
+        "https://docs.agentcontrol.dev".to_string(),
+        "http://localhost:3000".to_string(),
+    ];
+
+    app.active_modal = Some(Modal::UrlPicker {
+        session_id: Id::from("sess-1"),
+        urls: urls.clone(),
+        selected_index: 0,
+    });
+
+    // Down arrow advances selected index
+    handle_key(&mut app, &client, make_key(KeyCode::Down))
+        .await
+        .unwrap();
+    assert_eq!(
+        app.active_modal,
+        Some(Modal::UrlPicker {
+            session_id: Id::from("sess-1"),
+            urls: urls.clone(),
+            selected_index: 1,
+        })
+    );
+
+    // Up arrow returns to 0
+    handle_key(&mut app, &client, make_key(KeyCode::Up))
+        .await
+        .unwrap();
+    assert_eq!(
+        app.active_modal,
+        Some(Modal::UrlPicker {
+            session_id: Id::from("sess-1"),
+            urls: urls.clone(),
+            selected_index: 0,
+        })
+    );
+
+    // 'y' copies to clipboard and dismisses modal
+    handle_key(&mut app, &client, make_key(KeyCode::Char('y')))
+        .await
+        .unwrap();
+    assert!(app.active_modal.is_none());
+    assert!(app.status_message.is_some());
+    let (msg, _, _) = app.status_message.unwrap();
+    assert!(msg.contains("https://github.com/agentcontrol"));
+}
+

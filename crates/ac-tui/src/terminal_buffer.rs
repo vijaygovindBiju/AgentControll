@@ -552,6 +552,50 @@ impl TerminalBuffer {
         links
     }
 
+    /// Extract all distinct URLs (both OSC 8 explicit hyperlinks and plain text URLs)
+    /// found across all terminal buffer lines in order of appearance.
+    pub fn extract_all_urls(&self) -> Vec<String> {
+        let mut urls = Vec::new();
+
+        // 1. Add explicit OSC 8 hyperlinks
+        for link in self.extract_hyperlinks() {
+            if !urls.contains(&link) {
+                urls.push(link);
+            }
+        }
+
+        // 2. Scan plain text across all lines for web URLs
+        for line in &self.lines {
+            let plain = line.to_plain_string();
+            for word in plain.split_whitespace() {
+                if let Some(pos) = word
+                    .find("https://")
+                    .or_else(|| word.find("http://"))
+                    .or_else(|| word.find("file://"))
+                    .or_else(|| word.find("git://"))
+                {
+                    let candidate = &word[pos..];
+                    let trimmed = candidate.trim_matches(|c: char| {
+                        matches!(c, ',' | '.' | ';' | ')' | ']' | '>' | '"' | '\'' | '`')
+                    });
+                    if !trimmed.is_empty()
+                        && (trimmed.starts_with("https://")
+                            || trimmed.starts_with("http://")
+                            || trimmed.starts_with("file://")
+                            || trimmed.starts_with("git://"))
+                    {
+                        let s = trimmed.to_string();
+                        if !urls.contains(&s) {
+                            urls.push(s);
+                        }
+                    }
+                }
+            }
+        }
+
+        urls
+    }
+
     /// Start an interactive search session.
     pub fn start_search(&mut self) {
         self.search.active = true;
@@ -2702,6 +2746,27 @@ mod tests {
                 title: None,
                 body: "Task completed".to_string(),
             }
+        );
+    }
+
+    #[test]
+    fn test_extract_all_urls() {
+        let mut buf = TerminalBuffer::new(100);
+
+        // Add explicit OSC 8 hyperlink
+        buf.push_str("\x1b]8;;https://docs.agentcontrol.dev\x07Documentation\x1b]8;;\x07\n");
+        // Add plain text with multiple URLs, punctuation, duplicates
+        buf.push_str("Check out https://github.com/agentcontrol and http://localhost:8080/api.\n");
+        buf.push_str("Also see https://github.com/agentcontrol (repeated link).\n");
+
+        let urls = buf.extract_all_urls();
+        assert_eq!(
+            urls,
+            vec![
+                "https://docs.agentcontrol.dev",
+                "https://github.com/agentcontrol",
+                "http://localhost:8080/api",
+            ]
         );
     }
 }

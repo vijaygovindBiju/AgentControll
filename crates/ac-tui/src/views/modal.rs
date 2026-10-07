@@ -1802,5 +1802,102 @@ pub fn render(f: &mut Frame, app: &App) {
                 .wrap(Wrap { trim: false });
             f.render_widget(p, area);
         }
+
+        Modal::UrlPicker {
+            session_id,
+            urls,
+            selected_index,
+        } => {
+            let area = centered_rect(70, 50, f.area());
+            f.render_widget(Clear, area);
+
+            let block = Block::default()
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(Color::Cyan))
+                .title(Span::styled(
+                    " URL & Hyperlink Picker ",
+                    Style::default()
+                        .fg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD),
+                ));
+
+            let mut lines = vec![
+                Line::from(vec![
+                    Span::styled("Session: ", Style::default().fg(Color::DarkGray)),
+                    Span::styled(
+                        &session_id.0,
+                        Style::default()
+                            .fg(Color::White)
+                            .add_modifier(Modifier::BOLD),
+                    ),
+                    Span::styled(
+                        format!(
+                            " ({} link{})",
+                            urls.len(),
+                            if urls.len() == 1 { "" } else { "s" }
+                        ),
+                        Style::default().fg(Color::DarkGray),
+                    ),
+                ]),
+                Line::from(Span::styled(
+                    "─────────────────────────────────────────────────────────────",
+                    Style::default().fg(Color::DarkGray),
+                )),
+            ];
+
+            let max_visible = area.height.saturating_sub(6) as usize;
+            let start = if urls.len() <= max_visible || *selected_index < max_visible / 2 {
+                0
+            } else {
+                (*selected_index + 1).saturating_sub(max_visible)
+            };
+            let end = (start + max_visible).min(urls.len());
+
+            for (i, url) in urls.iter().enumerate().skip(start).take(end - start) {
+                let max_url_len = area.width.saturating_sub(8) as usize;
+                let display_url = if url.len() > max_url_len && max_url_len > 3 {
+                    format!("{}...", &url[..max_url_len - 3])
+                } else {
+                    url.clone()
+                };
+
+                if i == *selected_index {
+                    lines.push(Line::from(vec![
+                        Span::styled(
+                            " > ",
+                            Style::default()
+                                .fg(Color::Cyan)
+                                .add_modifier(Modifier::BOLD),
+                        ),
+                        Span::styled(
+                            format!(" {display_url} "),
+                            Style::default()
+                                .fg(Color::Black)
+                                .bg(Color::Cyan)
+                                .add_modifier(Modifier::BOLD),
+                        ),
+                    ]));
+                } else {
+                    lines.push(Line::from(vec![
+                        Span::styled("   ", Style::default()),
+                        Span::styled(
+                            display_url,
+                            Style::default()
+                                .fg(Color::Blue)
+                                .add_modifier(Modifier::UNDERLINED),
+                        ),
+                    ]));
+                }
+            }
+
+            lines.push(Line::from(""));
+            lines.push(Line::from(Span::styled(
+                "↑↓/j/k Select   Enter Open browser   y Copy URL   Esc Close",
+                Style::default().fg(Color::DarkGray),
+            )));
+
+            let p = Paragraph::new(lines).block(block);
+            f.render_widget(p, area);
+        }
     }
 }
