@@ -292,14 +292,69 @@ pub struct TerminalNotification {
     pub body: String,
 }
 
-/// Render a slice of characters to a ratatui line with search matches highlighted.
-pub fn chars_to_ratatui_line_with_search(
+/// Coordinate (row, col) in terminal buffer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BufferPos {
+    pub row: usize,
+    pub col: usize,
+}
+
+/// Visual scrollback selection state.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TerminalSelection {
+    /// Anchor coordinate where selection started.
+    pub anchor: BufferPos,
+    /// Active cursor coordinate of the selection.
+    pub cursor: BufferPos,
+}
+
+impl TerminalSelection {
+    pub fn new(anchor: BufferPos) -> Self {
+        Self {
+            anchor,
+            cursor: anchor,
+        }
+    }
+
+    /// Ordered (start, end) coordinates of the selection.
+    pub fn range(&self) -> (BufferPos, BufferPos) {
+        if self.anchor.row < self.cursor.row
+            || (self.anchor.row == self.cursor.row && self.anchor.col <= self.cursor.col)
+        {
+            (self.anchor, self.cursor)
+        } else {
+            (self.cursor, self.anchor)
+        }
+    }
+
+    /// Whether a specific (row, col) is within the visual selection range.
+    pub fn contains(&self, row: usize, col: usize) -> bool {
+        let (start, end) = self.range();
+        if row < start.row || row > end.row {
+            false
+        } else if start.row == end.row {
+            col >= start.col && col <= end.col
+        } else if row == start.row {
+            col >= start.col
+        } else if row == end.row {
+            col <= end.col
+        } else {
+            true
+        }
+    }
+}
+
+/// Render a slice of characters to a ratatui line with search matches and visual selection highlighted.
+pub fn chars_to_ratatui_line_with_search_and_selection(
     chars: &[StyledChar],
     start_col: usize,
     buf_row: usize,
     search: &TerminalSearch,
+    selection: Option<&TerminalSelection>,
 ) -> Line<'static> {
-    if !search.active || search.query.is_empty() {
+    let has_search = search.active && !search.query.is_empty();
+    let has_selection = selection.is_some();
+    if !has_search && !has_selection {
         return chars_to_ratatui_line(chars);
     }
 
@@ -313,20 +368,20 @@ pub fn chars_to_ratatui_line_with_search(
     }
 
     // Find matches on this line overlapping [start_col, start_col + chars.len())
-    let row_matches: Vec<(usize, &SearchMatch)> = search
-        .matches
-        .iter()
-        .enumerate()
-        .filter(|(_, m)| {
-            m.line_idx == buf_row
-                && m.start_col < start_col + chars.len()
-                && m.end_col > start_col
-        })
-        .collect();
-
-    if row_matches.is_empty() {
-        return chars_to_ratatui_line(chars);
-    }
+    let row_matches: Vec<(usize, &SearchMatch)> = if has_search {
+        search
+            .matches
+            .iter()
+            .enumerate()
+            .filter(|(_, m)| {
+                m.line_idx == buf_row
+                    && m.start_col < start_col + chars.len()
+                    && m.end_col > start_col
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
 
     let mut spans: Vec<Span<'static>> = Vec::new();
     let mut current_text = String::new();
@@ -340,19 +395,27 @@ pub fn chars_to_ratatui_line_with_search(
             cell_style = cell_style.add_modifier(Modifier::UNDERLINED);
         }
 
-        for &(match_idx, m) in &row_matches {
-            if abs_col >= m.start_col && abs_col < m.end_col {
-                if match_idx == search.current_idx {
-                    cell_style = Style::default()
-                        .bg(Color::Rgb(0, 220, 255))
-                        .fg(Color::Black)
-                        .add_modifier(Modifier::BOLD);
-                } else {
-                    cell_style = Style::default()
-                        .bg(Color::Rgb(255, 200, 40))
-                        .fg(Color::Black);
+        let is_selected = selection.map_or(false, |sel| sel.contains(buf_row, abs_col));
+        if is_selected {
+            cell_style = Style::default()
+                .bg(Color::Rgb(60, 95, 145))
+                .fg(Color::White)
+                .add_modifier(Modifier::BOLD);
+        } else {
+            for &(match_idx, m) in &row_matches {
+                if abs_col >= m.start_col && abs_col < m.end_col {
+                    if match_idx == search.current_idx {
+                        cell_style = Style::default()
+                            .bg(Color::Rgb(0, 220, 255))
+                            .fg(Color::Black)
+                            .add_modifier(Modifier::BOLD);
+                    } else {
+                        cell_style = Style::default()
+                            .bg(Color::Rgb(255, 200, 40))
+                            .fg(Color::Black);
+                    }
+                    break;
                 }
-                break;
             }
         }
 
@@ -376,6 +439,16 @@ pub fn chars_to_ratatui_line_with_search(
     }
 
     Line::from(spans)
+}
+
+/// Render a slice of characters to a ratatui line with search matches highlighted.
+pub fn chars_to_ratatui_line_with_search(
+    chars: &[StyledChar],
+    start_col: usize,
+    buf_row: usize,
+    search: &TerminalSearch,
+) -> Line<'static> {
+    chars_to_ratatui_line_with_search_and_selection(chars, start_col, buf_row, search, None)
 }
 
 #[derive(Debug, Clone)]
@@ -438,6 +511,8 @@ pub struct TerminalBuffer {
     pub cwd: Option<PathBuf>,
     /// Pending terminal desktop notifications received via OSC 9 or OSC 777.
     pub pending_notifications: Vec<TerminalNotification>,
+    /// Active visual scrollback selection state, if any.
+    pub selection: Option<TerminalSelection>,
 }
 
 impl Default for TerminalBuffer {
@@ -479,6 +554,7 @@ impl TerminalBuffer {
             current_link: None,
             cwd: None,
             pending_notifications: Vec::new(),
+            selection: None,
         }
     }
 
@@ -502,6 +578,7 @@ impl TerminalBuffer {
         self.current_link = None;
         self.cwd = None;
         self.pending_notifications.clear();
+        self.selection = None;
     }
 
     /// Dynamic terminal/process title reported via OSC 0 / OSC 2, if any.
@@ -594,6 +671,111 @@ impl TerminalBuffer {
         }
 
         urls
+    }
+
+    /// Start visual scrollback selection mode.
+    pub fn start_selection(&mut self) {
+        if self.lines.is_empty() {
+            return;
+        }
+        self.follow = false;
+        let total = self.total_lines();
+        let effective_offset = self.scroll_offset.min(total.saturating_sub(1));
+        let row = total.saturating_sub(effective_offset).saturating_sub(1);
+        let pos = BufferPos { row, col: 0 };
+        self.selection = Some(TerminalSelection::new(pos));
+    }
+
+    /// Clear / cancel visual scrollback selection mode.
+    pub fn clear_selection(&mut self) {
+        self.selection = None;
+    }
+
+    /// Whether visual scrollback selection mode is currently active.
+    pub fn is_selecting(&self) -> bool {
+        self.selection.is_some()
+    }
+
+    /// Move the selection cursor by (d_row, d_col), clamping to buffer boundaries.
+    pub fn move_selection_cursor(&mut self, d_row: isize, d_col: isize) {
+        if let Some(ref mut sel) = self.selection {
+            let total_rows = self.lines.len();
+            if total_rows == 0 {
+                return;
+            }
+            let new_row = if d_row < 0 {
+                sel.cursor.row.saturating_sub((-d_row) as usize)
+            } else {
+                (sel.cursor.row + d_row as usize).min(total_rows.saturating_sub(1))
+            };
+            let row_len = self.lines.get(new_row).map(|l| l.chars.len()).unwrap_or(0);
+            let new_col = if d_col < 0 {
+                sel.cursor.col.saturating_sub((-d_col) as usize)
+            } else {
+                (sel.cursor.col + d_col as usize).min(row_len.max(1).saturating_sub(1))
+            };
+            sel.cursor = BufferPos {
+                row: new_row,
+                col: new_col,
+            };
+        }
+    }
+
+    /// Move selection cursor to beginning of the current row.
+    pub fn move_selection_to_line_start(&mut self) {
+        if let Some(ref mut sel) = self.selection {
+            sel.cursor.col = 0;
+        }
+    }
+
+    /// Move selection cursor to end of the current row.
+    pub fn move_selection_to_line_end(&mut self) {
+        if let Some(ref mut sel) = self.selection {
+            let row_len = self
+                .lines
+                .get(sel.cursor.row)
+                .map(|l| l.chars.len())
+                .unwrap_or(0);
+            sel.cursor.col = row_len.saturating_sub(1);
+        }
+    }
+
+    /// Extract plain text within the active selection, if any.
+    pub fn extract_selected_text(&self) -> Option<String> {
+        let sel = self.selection.as_ref()?;
+        let (start, end) = sel.range();
+        if self.lines.is_empty() {
+            return None;
+        }
+
+        let mut extracted_lines = Vec::new();
+        for r in start.row..=end.row.min(self.lines.len().saturating_sub(1)) {
+            let line = &self.lines[r];
+            let plain_chars: Vec<char> = line
+                .chars
+                .iter()
+                .filter(|sc| sc.c != WIDE_SPACER)
+                .map(|sc| sc.c)
+                .collect();
+            let c_start = if r == start.row {
+                start.col.min(plain_chars.len())
+            } else {
+                0
+            };
+            let c_end = if r == end.row {
+                (end.col + 1).min(plain_chars.len())
+            } else {
+                plain_chars.len()
+            };
+            if c_start < c_end {
+                let s: String = plain_chars[c_start..c_end].iter().collect();
+                extracted_lines.push(s.trim_end().to_string());
+            } else {
+                extracted_lines.push(String::new());
+            }
+        }
+
+        Some(extracted_lines.join("\n"))
     }
 
     /// Start an interactive search session.
@@ -1879,6 +2061,7 @@ impl TerminalBuffer {
     pub fn scroll_to_bottom(&mut self) {
         self.follow = true;
         self.scroll_offset = 0;
+        self.selection = None;
     }
 
     /// Get visible lines for a viewport of given height.
@@ -1910,11 +2093,12 @@ impl TerminalBuffer {
         let mut result = Vec::with_capacity(end_line.saturating_sub(start_line));
 
         for i in start_line..end_line {
-            result.push(chars_to_ratatui_line_with_search(
+            result.push(chars_to_ratatui_line_with_search_and_selection(
                 &self.lines[i].chars,
                 0,
                 i,
                 &self.search,
+                self.selection.as_ref(),
             ));
         }
 
@@ -2033,11 +2217,12 @@ impl TerminalBuffer {
                 });
             } else if effective_len <= viewport_width {
                 visual_lines.push(VisualLineEntry {
-                    line: chars_to_ratatui_line_with_search(
+                    line: chars_to_ratatui_line_with_search_and_selection(
                         &line.chars[..effective_len],
                         0,
                         r_idx,
                         &self.search,
+                        self.selection.as_ref(),
                     ),
                     buf_row: r_idx,
                     start_col: 0,
@@ -2052,11 +2237,12 @@ impl TerminalBuffer {
                         end -= 1;
                     }
                     visual_lines.push(VisualLineEntry {
-                        line: chars_to_ratatui_line_with_search(
+                        line: chars_to_ratatui_line_with_search_and_selection(
                             &line.chars[start..end],
                             start,
                             r_idx,
                             &self.search,
+                            self.selection.as_ref(),
                         ),
                         buf_row: r_idx,
                         start_col: start,
@@ -2768,5 +2954,60 @@ mod tests {
                 "http://localhost:8080/api",
             ]
         );
+    }
+
+    #[test]
+    fn test_visual_selection_and_extract_yank() {
+        let mut buf = TerminalBuffer::new(100);
+        buf.push_str("Line 1: first message\n");
+        buf.push_str("Line 2: second message\n");
+        buf.push_str("Line 3: third message\n");
+
+        assert!(!buf.is_selecting());
+        assert_eq!(buf.extract_selected_text(), None);
+
+        // Start selection
+        buf.start_selection();
+        assert!(buf.is_selecting());
+
+        // Initial selection starts at last line
+        let sel = buf.selection.as_ref().unwrap();
+        assert_eq!(sel.anchor.row, 2);
+        assert_eq!(sel.anchor.col, 0);
+
+        // Single line selection: "first"
+        buf.selection = Some(TerminalSelection {
+            anchor: BufferPos { row: 0, col: 8 },
+            cursor: BufferPos { row: 0, col: 12 },
+        });
+        assert_eq!(buf.extract_selected_text(), Some("first".to_string()));
+
+        // Multi-line selection
+        buf.selection = Some(TerminalSelection {
+            anchor: BufferPos { row: 0, col: 8 },
+            cursor: BufferPos { row: 1, col: 13 },
+        });
+        assert_eq!(
+            buf.extract_selected_text(),
+            Some("first message\nLine 2: second".to_string())
+        );
+
+        // Moving cursor
+        buf.move_selection_cursor(1, 0);
+        assert_eq!(buf.selection.as_ref().unwrap().cursor.row, 2);
+
+        // Render visible lines has selection style
+        let (lines, _) = buf.get_visible_lines(10);
+        let selected_spans: Vec<_> = lines[1]
+            .spans
+            .iter()
+            .filter(|s| s.style.bg == Some(Color::Rgb(60, 95, 145)))
+            .collect();
+        assert!(!selected_spans.is_empty(), "Expected selection background on row 1");
+
+        // Clear selection
+        buf.clear_selection();
+        assert!(!buf.is_selecting());
+        assert_eq!(buf.extract_selected_text(), None);
     }
 }

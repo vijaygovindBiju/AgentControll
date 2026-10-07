@@ -2121,9 +2121,107 @@ pub async fn handle_key(app: &mut App, client: &ApiClient, key: KeyEvent) -> Res
             return Ok(());
         }
 
-        // If in scrollback mode, handle scroll keys or snap back on typing
+        // If in scrollback mode, handle visual selection, scroll keys or snap back on typing
         if in_scroll_mode {
+            let is_selecting = app
+                .session_terminal_buffers
+                .get(&detail_id.0)
+                .map(|b| b.is_selecting())
+                .unwrap_or(false);
+
+            if is_selecting {
+                match key.code {
+                    KeyCode::Esc | KeyCode::Char('v') | KeyCode::Char('V') => {
+                        if let Some(buf) = app.session_terminal_buffers.get_mut(&detail_id.0) {
+                            buf.clear_selection();
+                        }
+                        app.set_status("Visual selection cancelled", StatusType::Info);
+                        return Ok(());
+                    }
+                    KeyCode::Char('y') | KeyCode::Char('Y') => {
+                        if let Some(buf) = app.session_terminal_buffers.get_mut(&detail_id.0) {
+                            if let Some(text) = buf.extract_selected_text() {
+                                let line_count = text.lines().count();
+                                let char_count = text.len();
+                                crate::clipboard::copy(&text);
+                                buf.clear_selection();
+                                app.set_status(
+                                    format!("Yanked {line_count} line(s), {char_count} char(s) to clipboard"),
+                                    StatusType::Success,
+                                );
+                            } else {
+                                buf.clear_selection();
+                            }
+                        }
+                        return Ok(());
+                    }
+                    KeyCode::Up | KeyCode::Char('k') => {
+                        if let Some(buf) = app.session_terminal_buffers.get_mut(&detail_id.0) {
+                            buf.move_selection_cursor(-1, 0);
+                        }
+                        return Ok(());
+                    }
+                    KeyCode::Down | KeyCode::Char('j') => {
+                        if let Some(buf) = app.session_terminal_buffers.get_mut(&detail_id.0) {
+                            buf.move_selection_cursor(1, 0);
+                        }
+                        return Ok(());
+                    }
+                    KeyCode::Left | KeyCode::Char('h') => {
+                        if let Some(buf) = app.session_terminal_buffers.get_mut(&detail_id.0) {
+                            buf.move_selection_cursor(0, -1);
+                        }
+                        return Ok(());
+                    }
+                    KeyCode::Right | KeyCode::Char('l') => {
+                        if let Some(buf) = app.session_terminal_buffers.get_mut(&detail_id.0) {
+                            buf.move_selection_cursor(0, 1);
+                        }
+                        return Ok(());
+                    }
+                    KeyCode::Home | KeyCode::Char('0') | KeyCode::Char('^') => {
+                        if let Some(buf) = app.session_terminal_buffers.get_mut(&detail_id.0) {
+                            buf.move_selection_to_line_start();
+                        }
+                        return Ok(());
+                    }
+                    KeyCode::End | KeyCode::Char('$') => {
+                        if let Some(buf) = app.session_terminal_buffers.get_mut(&detail_id.0) {
+                            buf.move_selection_to_line_end();
+                        }
+                        return Ok(());
+                    }
+                    KeyCode::PageUp => {
+                        if let Some(buf) = app.session_terminal_buffers.get_mut(&detail_id.0) {
+                            buf.move_selection_cursor(-10, 0);
+                            buf.scroll_up(10);
+                        }
+                        return Ok(());
+                    }
+                    KeyCode::PageDown => {
+                        if let Some(buf) = app.session_terminal_buffers.get_mut(&detail_id.0) {
+                            buf.move_selection_cursor(10, 0);
+                            buf.scroll_down(10);
+                        }
+                        return Ok(());
+                    }
+                    _ => {
+                        return Ok(());
+                    }
+                }
+            }
+
             match key.code {
+                KeyCode::Char('v') | KeyCode::Char('V') => {
+                    if let Some(buf) = app.session_terminal_buffers.get_mut(&detail_id.0) {
+                        buf.start_selection();
+                    }
+                    app.set_status(
+                        "Visual mode: move with hjkl/arrows, [y] to yank, [Esc/v] cancel",
+                        StatusType::Info,
+                    );
+                    return Ok(());
+                }
                 KeyCode::Char('/') => {
                     if let Some(buf) = app.session_terminal_buffers.get_mut(&detail_id.0) {
                         buf.start_search();

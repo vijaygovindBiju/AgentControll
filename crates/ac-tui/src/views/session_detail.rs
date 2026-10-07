@@ -269,6 +269,21 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
             Span::styled("[PgUp/PgDn]", Style::default().fg(Color::White)),
             Span::styled(" Scroll", Style::default().fg(Color::DarkGray)),
         ])
+    } else if term_buf.is_selecting() {
+        Line::from(vec![
+            Span::styled(
+                " [VISUAL MODE: ",
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                "move with hjkl/arrows | [y] Yank | [v/Esc] Cancel] ",
+                Style::default()
+                    .fg(Color::White)
+                    .add_modifier(Modifier::BOLD),
+            ),
+        ])
     } else {
         Line::from(vec![
             Span::styled(
@@ -284,7 +299,7 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
                     .add_modifier(Modifier::BOLD),
             ),
             Span::styled(
-                " | [/] Search | [o] Links | Press End/Esc to return] ",
+                " | [/] Search | [v] Select | [o] Links | Press End/Esc to return] ",
                 Style::default()
                     .fg(Color::Yellow)
                     .add_modifier(Modifier::BOLD),
