@@ -208,6 +208,107 @@ pub fn chars_to_ratatui_line(chars: &[StyledChar]) -> Line<'static> {
     Line::from(spans)
 }
 
+/// Single search match coordinate within the buffer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SearchMatch {
+    pub line_idx: usize,
+    pub start_col: usize,
+    pub end_col: usize,
+}
+
+/// State of an interactive scrollback search.
+#[derive(Debug, Clone, Default)]
+pub struct TerminalSearch {
+    pub query: String,
+    pub active: bool,
+    pub editing: bool,
+    pub matches: Vec<SearchMatch>,
+    pub current_idx: usize,
+}
+
+/// Render a slice of characters to a ratatui line with search matches highlighted.
+pub fn chars_to_ratatui_line_with_search(
+    chars: &[StyledChar],
+    start_col: usize,
+    buf_row: usize,
+    search: &TerminalSearch,
+) -> Line<'static> {
+    if !search.active || search.query.is_empty() {
+        return chars_to_ratatui_line(chars);
+    }
+
+    let mut end = chars.len();
+    while end > 0 && chars[end - 1].c == ' ' && chars[end - 1].style == Style::default() {
+        end -= 1;
+    }
+    let chars = &chars[..end];
+    if chars.is_empty() {
+        return Line::from("");
+    }
+
+    // Find matches on this line overlapping [start_col, start_col + chars.len())
+    let row_matches: Vec<(usize, &SearchMatch)> = search
+        .matches
+        .iter()
+        .enumerate()
+        .filter(|(_, m)| {
+            m.line_idx == buf_row
+                && m.start_col < start_col + chars.len()
+                && m.end_col > start_col
+        })
+        .collect();
+
+    if row_matches.is_empty() {
+        return chars_to_ratatui_line(chars);
+    }
+
+    let mut spans: Vec<Span<'static>> = Vec::new();
+    let mut current_text = String::new();
+    let mut current_style = Style::default();
+    let mut first = true;
+
+    for (i, sc) in chars.iter().enumerate().filter(|(_, sc)| sc.c != WIDE_SPACER) {
+        let abs_col = start_col + i;
+        let mut cell_style = sc.style;
+
+        for &(match_idx, m) in &row_matches {
+            if abs_col >= m.start_col && abs_col < m.end_col {
+                if match_idx == search.current_idx {
+                    cell_style = Style::default()
+                        .bg(Color::Rgb(0, 220, 255))
+                        .fg(Color::Black)
+                        .add_modifier(Modifier::BOLD);
+                } else {
+                    cell_style = Style::default()
+                        .bg(Color::Rgb(255, 200, 40))
+                        .fg(Color::Black);
+                }
+                break;
+            }
+        }
+
+        if first {
+            current_style = cell_style;
+            current_text.push(sc.c);
+            first = false;
+        } else if cell_style == current_style {
+            current_text.push(sc.c);
+        } else {
+            if !current_text.is_empty() {
+                spans.push(Span::styled(current_text, current_style));
+                current_text = String::new();
+            }
+            current_style = cell_style;
+            current_text.push(sc.c);
+        }
+    }
+    if !current_text.is_empty() {
+        spans.push(Span::styled(current_text, current_style));
+    }
+
+    Line::from(spans)
+}
+
 #[derive(Debug, Clone)]
 pub struct ScrollInfo {
     pub total_lines: usize,
@@ -260,6 +361,8 @@ pub struct TerminalBuffer {
     pub cursor_shape: CursorShape,
     /// Dynamic window/process title set by child process (OSC 0 / OSC 2).
     pub title: Option<String>,
+    /// Interactive scrollback search state.
+    pub search: TerminalSearch,
 }
 
 impl Default for TerminalBuffer {
@@ -297,6 +400,7 @@ impl TerminalBuffer {
             bracketed_paste: false,
             cursor_shape: CursorShape::Default,
             title: None,
+            search: TerminalSearch::default(),
         }
     }
 
@@ -316,6 +420,7 @@ impl TerminalBuffer {
         self.bracketed_paste = false;
         self.cursor_shape = CursorShape::Default;
         self.title = None;
+        self.search = TerminalSearch::default();
     }
 
     /// Dynamic terminal/process title reported via OSC 0 / OSC 2, if any.
@@ -326,6 +431,130 @@ impl TerminalBuffer {
     /// Current hardware cursor shape requested via DECSCUSR.
     pub fn cursor_shape(&self) -> CursorShape {
         self.cursor_shape
+    }
+
+    /// Start an interactive search session.
+    pub fn start_search(&mut self) {
+        self.search.active = true;
+        self.search.editing = true;
+        self.follow = false;
+    }
+
+    /// Cancel search mode and clear highlighted matches.
+    pub fn cancel_search(&mut self) {
+        self.search.active = false;
+        self.search.editing = false;
+        self.search.query.clear();
+        self.search.matches.clear();
+        self.search.current_idx = 0;
+    }
+
+    /// Update search query and recalculate matches.
+    pub fn set_search_query(&mut self, query: &str) {
+        self.search.query = query.to_string();
+        self.search.active = true;
+        self.search.matches.clear();
+        self.search.current_idx = 0;
+
+        if query.trim().is_empty() {
+            return;
+        }
+
+        let q_chars: Vec<char> = query.chars().collect();
+        let q_len = q_chars.len();
+
+        for (r_idx, line) in self.lines.iter().enumerate() {
+            let mut plain_to_cell = Vec::new();
+            let mut text_chars = Vec::new();
+            for (cell_idx, sc) in line.chars.iter().enumerate() {
+                if sc.c != WIDE_SPACER {
+                    plain_to_cell.push(cell_idx);
+                    text_chars.push(sc.c);
+                }
+            }
+
+            if text_chars.len() >= q_len {
+                for i in 0..=(text_chars.len() - q_len) {
+                    let matches = (0..q_len).all(|k| {
+                        text_chars[i + k]
+                            .to_lowercase()
+                            .eq(q_chars[k].to_lowercase())
+                    });
+                    if matches {
+                        let start_cell = plain_to_cell[i];
+                        let end_cell = if i + q_len < plain_to_cell.len() {
+                            plain_to_cell[i + q_len]
+                        } else {
+                            line.chars.len()
+                        };
+                        self.search.matches.push(SearchMatch {
+                            line_idx: r_idx,
+                            start_col: start_cell,
+                            end_col: end_cell,
+                        });
+                    }
+                }
+            }
+        }
+
+        if !self.search.matches.is_empty() {
+            self.search.current_idx = self.search.matches.len().saturating_sub(1);
+            self.scroll_to_match(self.search.current_idx, 24);
+        }
+    }
+
+    /// Append a character to the current search query and refresh matches.
+    pub fn push_search_char(&mut self, c: char) {
+        self.search.query.push(c);
+        let q = self.search.query.clone();
+        self.set_search_query(&q);
+    }
+
+    /// Pop a character from the search query and refresh matches.
+    pub fn pop_search_char(&mut self) {
+        self.search.query.pop();
+        let q = self.search.query.clone();
+        self.set_search_query(&q);
+    }
+
+    /// Jump to the next match.
+    pub fn next_search_match(&mut self, viewport_height: usize) {
+        if !self.search.matches.is_empty() {
+            self.search.current_idx = (self.search.current_idx + 1) % self.search.matches.len();
+            self.scroll_to_match(self.search.current_idx, viewport_height);
+        }
+    }
+
+    /// Jump to the previous match.
+    pub fn prev_search_match(&mut self, viewport_height: usize) {
+        if !self.search.matches.is_empty() {
+            if self.search.current_idx == 0 {
+                self.search.current_idx = self.search.matches.len() - 1;
+            } else {
+                self.search.current_idx -= 1;
+            }
+            self.scroll_to_match(self.search.current_idx, viewport_height);
+        }
+    }
+
+    /// Scroll such that target line is centered in viewport.
+    pub fn scroll_to_line(&mut self, target_buf_row: usize, viewport_height: usize) {
+        let total = self.lines.len();
+        if total == 0 {
+            return;
+        }
+        let vh = viewport_height.max(1);
+        let target_start = target_buf_row.saturating_sub(vh / 2);
+        let max_scroll = total.saturating_sub(vh);
+        self.scroll_offset = total.saturating_sub(target_start + vh).min(max_scroll);
+        self.follow = false;
+    }
+
+    /// Scroll such that the indexed match is visible in the viewport.
+    pub fn scroll_to_match(&mut self, match_idx: usize, viewport_height: usize) {
+        if let Some(m) = self.search.matches.get(match_idx).copied() {
+            self.scroll_to_line(m.line_idx, viewport_height);
+        }
     }
 
     /// Whether bracketed paste mode is enabled by the running child process.
@@ -1463,7 +1692,12 @@ impl TerminalBuffer {
         let mut result = Vec::with_capacity(end_line.saturating_sub(start_line));
 
         for i in start_line..end_line {
-            result.push(self.lines[i].to_ratatui_line());
+            result.push(chars_to_ratatui_line_with_search(
+                &self.lines[i].chars,
+                0,
+                i,
+                &self.search,
+            ));
         }
 
         (
@@ -1581,7 +1815,12 @@ impl TerminalBuffer {
                 });
             } else if effective_len <= viewport_width {
                 visual_lines.push(VisualLineEntry {
-                    line: chars_to_ratatui_line(&line.chars[..effective_len]),
+                    line: chars_to_ratatui_line_with_search(
+                        &line.chars[..effective_len],
+                        0,
+                        r_idx,
+                        &self.search,
+                    ),
                     buf_row: r_idx,
                     start_col: 0,
                     end_col: effective_len,
@@ -1595,7 +1834,12 @@ impl TerminalBuffer {
                         end -= 1;
                     }
                     visual_lines.push(VisualLineEntry {
-                        line: chars_to_ratatui_line(&line.chars[start..end]),
+                        line: chars_to_ratatui_line_with_search(
+                            &line.chars[start..end],
+                            start,
+                            r_idx,
+                            &self.search,
+                        ),
                         buf_row: r_idx,
                         start_col: start,
                         end_col: end,
@@ -2081,5 +2325,75 @@ mod tests {
         assert_eq!(buf.cursor_shape(), CursorShape::BlinkingBar);
         buf.clear();
         assert_eq!(buf.cursor_shape(), CursorShape::Default);
+    }
+
+    #[test]
+    fn test_scrollback_search_matching_and_navigation() {
+        let mut buf = TerminalBuffer::new(100);
+        buf.push_str("Line 1: Error found in connection\n");
+        buf.push_str("Line 2: Warning: retrying request\n");
+        buf.push_str("Line 3: Second Error encountered\n");
+        buf.push_str("Line 4: All systems operational\n");
+
+        assert!(!buf.search.active);
+        buf.start_search();
+        assert!(buf.search.active);
+        assert!(buf.search.editing);
+        assert!(!buf.follow);
+
+        // Case-insensitive search for "error"
+        buf.set_search_query("error");
+        assert_eq!(buf.search.matches.len(), 2);
+        assert_eq!(buf.search.matches[0].line_idx, 0);
+        assert_eq!(buf.search.matches[1].line_idx, 2);
+        // By default focuses on most recent match (match 1 on line 2)
+        assert_eq!(buf.search.current_idx, 1);
+
+        // Next match wraps to 0
+        buf.next_search_match(10);
+        assert_eq!(buf.search.current_idx, 0);
+
+        // Prev match wraps back to 1
+        buf.prev_search_match(10);
+        assert_eq!(buf.search.current_idx, 1);
+
+        // Test push and pop char
+        buf.cancel_search();
+        assert!(!buf.search.active);
+        assert!(buf.search.matches.is_empty());
+
+        buf.push_search_char('w');
+        buf.push_search_char('a');
+        buf.push_search_char('r');
+        buf.push_search_char('n');
+        assert_eq!(buf.search.query, "warn");
+        assert_eq!(buf.search.matches.len(), 1);
+        assert_eq!(buf.search.matches[0].line_idx, 1);
+
+        buf.pop_search_char();
+        assert_eq!(buf.search.query, "war");
+        assert_eq!(buf.search.matches.len(), 1);
+    }
+
+    #[test]
+    fn test_scrollback_search_highlighting_in_visible_lines() {
+        let mut buf = TerminalBuffer::new(100);
+        buf.push_str("Server started on 127.0.0.1:8080 successfully\n");
+
+        buf.set_search_query("127.0.0.1");
+        assert_eq!(buf.search.matches.len(), 1);
+
+        let (lines, _info) = buf.get_visible_lines(10);
+        assert!(!lines.is_empty());
+        let server_line = &lines[0];
+
+        // Verify that a span with "127.0.0.1" is styled with match highlight background
+        let match_span = server_line
+            .spans
+            .iter()
+            .find(|span| span.content == "127.0.0.1");
+        assert!(match_span.is_some(), "Match span '127.0.0.1' not found in spans: {:?}", server_line.spans);
+        let span = match_span.unwrap();
+        assert_eq!(span.style.bg, Some(Color::Rgb(0, 220, 255))); // Focused match style
     }
 }

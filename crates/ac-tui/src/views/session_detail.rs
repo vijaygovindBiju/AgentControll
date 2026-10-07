@@ -189,7 +189,35 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
         .constraints([Constraint::Min(40), Constraint::Length(20)])
         .split(chunks[2]);
 
-    let shortcuts_line = if scroll_info.follow {
+    let shortcuts_line = if term_buf.search.active {
+        let match_info = if term_buf.search.matches.is_empty() {
+            if term_buf.search.query.is_empty() {
+                "Type to search...".to_string()
+            } else {
+                "No matches".to_string()
+            }
+        } else {
+            format!("{}/{} matches", term_buf.search.current_idx + 1, term_buf.search.matches.len())
+        };
+        let status_badge = if term_buf.search.editing {
+            Span::styled(" [SEARCH EDIT] ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))
+        } else {
+            Span::styled(" [SEARCH NAV] ", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD))
+        };
+        Line::from(vec![
+            status_badge,
+            Span::styled("Query: ", Style::default().fg(Color::DarkGray)),
+            Span::styled(format!("\"{}\"", term_buf.search.query), Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+            Span::raw("  "),
+            Span::styled(format!("[{}] ", match_info), Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+            Span::styled("[n/N]", Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+            Span::styled(" Next/Prev  ", Style::default().fg(Color::DarkGray)),
+            Span::styled("[Enter]", Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+            Span::styled(" Lock  ", Style::default().fg(Color::DarkGray)),
+            Span::styled("[Esc]", Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+            Span::styled(" Exit", Style::default().fg(Color::DarkGray)),
+        ])
+    } else if scroll_info.follow {
         Line::from(vec![
             Span::styled(
                 " [Ctrl+Q]",
@@ -205,6 +233,13 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
                     .add_modifier(Modifier::BOLD),
             ),
             Span::styled(" Control  ", Style::default().fg(Color::DarkGray)),
+            Span::styled(
+                "[Ctrl+F]",
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(" Search  ", Style::default().fg(Color::DarkGray)),
             Span::styled(
                 "[F1]",
                 Style::default()
@@ -230,7 +265,7 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
                     .add_modifier(Modifier::BOLD),
             ),
             Span::styled(
-                " | Press End/Esc or type to return to Live] ",
+                " | [/] Search | Press End/Esc to return] ",
                 Style::default()
                     .fg(Color::Yellow)
                     .add_modifier(Modifier::BOLD),

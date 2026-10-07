@@ -467,8 +467,18 @@ pub async fn handle_paste(app: &mut App, client: &ApiClient, text: &str) -> Resu
         return Ok(());
     }
 
-    // 2. If in session detail view, route paste to the agent PTY stdin.
+    // 2. If in session detail view, route paste to the agent PTY stdin (or search query if searching).
     if let Some(detail_id) = app.session_detail_id.clone() {
+        if let Some(buf) = app.session_terminal_buffers.get_mut(&detail_id.0) {
+            if buf.search.active && buf.search.editing {
+                let clean = text.replace(['\r', '\n'], "");
+                for c in clean.chars() {
+                    buf.push_search_char(c);
+                }
+                return Ok(());
+            }
+        }
+
         let bracketed = app
             .session_terminal_buffers
             .get(&detail_id.0)
@@ -1884,6 +1894,117 @@ pub async fn handle_key(app: &mut App, client: &ApiClient, key: KeyEvent) -> Res
             return Ok(());
         }
 
+        // Scrollback Search shortcut: Ctrl+F
+        if key.modifiers.contains(KeyModifiers::CONTROL)
+            && (key.code == KeyCode::Char('f') || key.code == KeyCode::Char('F'))
+        {
+            if let Some(buf) = app.session_terminal_buffers.get_mut(&detail_id.0) {
+                buf.start_search();
+            }
+            return Ok(());
+        }
+
+        // If interactive scrollback search is currently active:
+        let is_search_active = app
+            .session_terminal_buffers
+            .get(&detail_id.0)
+            .map(|b| b.search.active)
+            .unwrap_or(false);
+
+        if is_search_active {
+            let is_editing = app
+                .session_terminal_buffers
+                .get(&detail_id.0)
+                .map(|b| b.search.editing)
+                .unwrap_or(false);
+
+            if is_editing {
+                match key.code {
+                    KeyCode::Esc => {
+                        if let Some(buf) = app.session_terminal_buffers.get_mut(&detail_id.0) {
+                            buf.cancel_search();
+                        }
+                    }
+                    KeyCode::Enter => {
+                        if let Some(buf) = app.session_terminal_buffers.get_mut(&detail_id.0) {
+                            buf.search.editing = false;
+                        }
+                    }
+                    KeyCode::Backspace => {
+                        if let Some(buf) = app.session_terminal_buffers.get_mut(&detail_id.0) {
+                            buf.pop_search_char();
+                        }
+                    }
+                    KeyCode::Char(c) if !key.modifiers.contains(KeyModifiers::CONTROL) => {
+                        if let Some(buf) = app.session_terminal_buffers.get_mut(&detail_id.0) {
+                            buf.push_search_char(c);
+                        }
+                    }
+                    KeyCode::Up => {
+                        if let Some(buf) = app.session_terminal_buffers.get_mut(&detail_id.0) {
+                            buf.prev_search_match(24);
+                        }
+                    }
+                    KeyCode::Down => {
+                        if let Some(buf) = app.session_terminal_buffers.get_mut(&detail_id.0) {
+                            buf.next_search_match(24);
+                        }
+                    }
+                    _ => {}
+                }
+                return Ok(());
+            } else {
+                // Search match navigation mode (browsing matches):
+                match key.code {
+                    KeyCode::Esc => {
+                        if let Some(buf) = app.session_terminal_buffers.get_mut(&detail_id.0) {
+                            buf.cancel_search();
+                        }
+                        return Ok(());
+                    }
+                    KeyCode::Char('n') => {
+                        if let Some(buf) = app.session_terminal_buffers.get_mut(&detail_id.0) {
+                            buf.next_search_match(24);
+                        }
+                        return Ok(());
+                    }
+                    KeyCode::Char('N') => {
+                        if let Some(buf) = app.session_terminal_buffers.get_mut(&detail_id.0) {
+                            buf.prev_search_match(24);
+                        }
+                        return Ok(());
+                    }
+                    KeyCode::Char('/') | KeyCode::Enter => {
+                        if let Some(buf) = app.session_terminal_buffers.get_mut(&detail_id.0) {
+                            buf.search.editing = true;
+                        }
+                        return Ok(());
+                    }
+                    KeyCode::PageUp => {
+                        app.scroll_session_terminal_up(&detail_id.0, 10);
+                        return Ok(());
+                    }
+                    KeyCode::PageDown => {
+                        app.scroll_session_terminal_down(&detail_id.0, 10);
+                        return Ok(());
+                    }
+                    KeyCode::Home => {
+                        app.scroll_session_terminal_top(&detail_id.0);
+                        return Ok(());
+                    }
+                    KeyCode::End => {
+                        app.scroll_session_terminal_bottom(&detail_id.0);
+                        return Ok(());
+                    }
+                    _ => {
+                        if let Some(buf) = app.session_terminal_buffers.get_mut(&detail_id.0) {
+                            buf.cancel_search();
+                        }
+                    }
+                }
+            }
+        }
+
         // A full-screen program (alternate screen) has no local scrollback:
         // page keys go to the program itself, as in a normal terminal.
         if app.session_in_alt_screen(&detail_id.0)
@@ -1911,6 +2032,12 @@ pub async fn handle_key(app: &mut App, client: &ApiClient, key: KeyEvent) -> Res
         // If in scrollback mode, handle scroll keys or snap back on typing
         if in_scroll_mode {
             match key.code {
+                KeyCode::Char('/') => {
+                    if let Some(buf) = app.session_terminal_buffers.get_mut(&detail_id.0) {
+                        buf.start_search();
+                    }
+                    return Ok(());
+                }
                 KeyCode::Home => {
                     app.scroll_session_terminal_top(&detail_id.0);
                     return Ok(());
