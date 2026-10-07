@@ -57,6 +57,17 @@ impl CursorShape {
 pub struct StyledChar {
     pub c: char,
     pub style: Style,
+    pub link: Option<std::sync::Arc<str>>,
+}
+
+impl StyledChar {
+    pub fn new(c: char, style: Style) -> Self {
+        Self { c, style, link: None }
+    }
+
+    pub fn with_link(c: char, style: Style, link: Option<std::sync::Arc<str>>) -> Self {
+        Self { c, style, link }
+    }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -82,18 +93,26 @@ impl TerminalLine {
         line
     }
 
-    pub fn set_char(&mut self, col: usize, c: char, style: Style) {
+    pub fn set_char_with_link(
+        &mut self,
+        col: usize,
+        c: char,
+        style: Style,
+        link: Option<std::sync::Arc<str>>,
+    ) {
         while self.chars.len() < col {
-            self.chars.push(StyledChar {
-                c: ' ',
-                style: Style::default(),
-            });
+            self.chars.push(StyledChar::new(' ', Style::default()));
         }
+        let sc = StyledChar::with_link(c, style, link);
         if col < self.chars.len() {
-            self.chars[col] = StyledChar { c, style };
+            self.chars[col] = sc;
         } else {
-            self.chars.push(StyledChar { c, style });
+            self.chars.push(sc);
         }
+    }
+
+    pub fn set_char(&mut self, col: usize, c: char, style: Style) {
+        self.set_char_with_link(col, c, style, None);
     }
 
     /// Blank the other half of any double-width character that overlaps `from..to`.
@@ -108,10 +127,22 @@ impl TerminalLine {
 
     /// Write a character of display width `width` (1 or 2) at `col`.
     pub fn put(&mut self, col: usize, c: char, style: Style, width: usize) {
+        self.put_with_link(col, c, style, width, None);
+    }
+
+    /// Write a character of display width `width` with optional hyperlink at `col`.
+    pub fn put_with_link(
+        &mut self,
+        col: usize,
+        c: char,
+        style: Style,
+        width: usize,
+        link: Option<std::sync::Arc<str>>,
+    ) {
         self.split_wide_at_edges(col, col + width);
-        self.set_char(col, c, style);
+        self.set_char_with_link(col, c, style, link.clone());
         if width == 2 {
-            self.set_char(col + 1, WIDE_SPACER, style);
+            self.set_char_with_link(col + 1, WIDE_SPACER, style, link);
         }
     }
 
@@ -186,18 +217,25 @@ pub fn chars_to_ratatui_line(chars: &[StyledChar]) -> Line<'static> {
     let mut spans: Vec<Span<'static>> = Vec::new();
     let mut current_text = String::new();
     let mut current_style = chars[0].style;
+    if chars[0].link.is_some() {
+        current_style = current_style.add_modifier(Modifier::UNDERLINED);
+    }
 
     // Wide-character spacer cells are skipped: Ratatui itself advances two
     // columns for a double-width character.
     for sc in chars.iter().filter(|sc| sc.c != WIDE_SPACER) {
-        if sc.style == current_style {
+        let mut cell_style = sc.style;
+        if sc.link.is_some() {
+            cell_style = cell_style.add_modifier(Modifier::UNDERLINED);
+        }
+        if cell_style == current_style {
             current_text.push(sc.c);
         } else {
             if !current_text.is_empty() {
                 spans.push(Span::styled(current_text, current_style));
                 current_text = String::new();
             }
-            current_style = sc.style;
+            current_style = cell_style;
             current_text.push(sc.c);
         }
     }
@@ -270,6 +308,9 @@ pub fn chars_to_ratatui_line_with_search(
     for (i, sc) in chars.iter().enumerate().filter(|(_, sc)| sc.c != WIDE_SPACER) {
         let abs_col = start_col + i;
         let mut cell_style = sc.style;
+        if sc.link.is_some() {
+            cell_style = cell_style.add_modifier(Modifier::UNDERLINED);
+        }
 
         for &(match_idx, m) in &row_matches {
             if abs_col >= m.start_col && abs_col < m.end_col {
@@ -363,6 +404,8 @@ pub struct TerminalBuffer {
     pub title: Option<String>,
     /// Interactive scrollback search state.
     pub search: TerminalSearch,
+    /// Active hyperlink URL currently in effect for subsequent printed text (OSC 8).
+    pub current_link: Option<std::sync::Arc<str>>,
 }
 
 impl Default for TerminalBuffer {
@@ -401,6 +444,7 @@ impl TerminalBuffer {
             cursor_shape: CursorShape::Default,
             title: None,
             search: TerminalSearch::default(),
+            current_link: None,
         }
     }
 
@@ -421,6 +465,7 @@ impl TerminalBuffer {
         self.cursor_shape = CursorShape::Default;
         self.title = None;
         self.search = TerminalSearch::default();
+        self.current_link = None;
     }
 
     /// Dynamic terminal/process title reported via OSC 0 / OSC 2, if any.
@@ -431,6 +476,34 @@ impl TerminalBuffer {
     /// Current hardware cursor shape requested via DECSCUSR.
     pub fn cursor_shape(&self) -> CursorShape {
         self.cursor_shape
+    }
+
+    /// Active hyperlink URL currently in effect for subsequent printed characters.
+    pub fn current_link(&self) -> Option<&str> {
+        self.current_link.as_deref()
+    }
+
+    /// Retrieve hyperlink URL at specific line and column, if any.
+    pub fn get_link_at(&self, row: usize, col: usize) -> Option<&str> {
+        self.lines.get(row).and_then(|line| {
+            line.chars.get(col).and_then(|sc| sc.link.as_deref())
+        })
+    }
+
+    /// Extract all distinct hyperlink URLs present in the terminal buffer in order.
+    pub fn extract_hyperlinks(&self) -> Vec<String> {
+        let mut links = Vec::new();
+        for line in &self.lines {
+            for sc in &line.chars {
+                if let Some(ref l) = sc.link {
+                    let s = l.to_string();
+                    if !links.contains(&s) {
+                        links.push(s);
+                    }
+                }
+            }
+        }
+        links
     }
 
     /// Start an interactive search session.
@@ -647,7 +720,7 @@ impl TerminalBuffer {
             Some(bg) if bg != Color::Reset => Style::default().bg(bg),
             _ => Style::default(),
         };
-        StyledChar { c: ' ', style }
+        StyledChar::new(' ', style)
     }
 
     fn scroll_region_up(&mut self, n: usize) {
@@ -712,7 +785,7 @@ impl TerminalBuffer {
                 self.linefeed();
             }
             let (row, col) = (self.cursor_row, self.cursor_col);
-            self.lines[row].put(col, c, style, w);
+            self.lines[row].put_with_link(col, c, style, w, self.current_link.clone());
             if col + w >= self.cols {
                 self.cursor_col = self.cols - 1;
                 self.wrap_pending = true;
@@ -721,7 +794,13 @@ impl TerminalBuffer {
             }
         } else {
             self.ensure_cursor();
-            self.lines[self.cursor_row].put(self.cursor_col, c, style, w);
+            self.lines[self.cursor_row].put_with_link(
+                self.cursor_col,
+                c,
+                style,
+                w,
+                self.current_link.clone(),
+            );
             self.cursor_col += w;
         }
     }
@@ -972,6 +1051,15 @@ impl TerminalBuffer {
                             self.title = Some(payload.to_string());
                         }
                     }
+                    "8" => {
+                        // OSC 8: Hyperlink sequence (`\x1b]8;params;url\x1b\` or `\x1b]8;;\x1b\`)
+                        let (_params, url) = payload.split_once(';').unwrap_or(("", payload));
+                        if url.is_empty() {
+                            self.current_link = None;
+                        } else {
+                            self.current_link = Some(std::sync::Arc::from(url));
+                        }
+                    }
                     _ => {}
                 }
             }
@@ -1079,10 +1167,8 @@ impl TerminalBuffer {
                         1 => {
                             for i in 0..self.cursor_col.min(self.lines[self.cursor_row].chars.len())
                             {
-                                self.lines[self.cursor_row].chars[i] = StyledChar {
-                                    c: ' ',
-                                    style: self.current_style,
-                                };
+                                self.lines[self.cursor_row].chars[i] =
+                                    StyledChar::new(' ', self.current_style);
                             }
                         }
                         2 => {
@@ -1109,10 +1195,8 @@ impl TerminalBuffer {
                         if self.cursor_row < self.lines.len() {
                             for c in 0..self.cursor_col.min(self.lines[self.cursor_row].chars.len())
                             {
-                                self.lines[self.cursor_row].chars[c] = StyledChar {
-                                    c: ' ',
-                                    style: self.current_style,
-                                };
+                                self.lines[self.cursor_row].chars[c] =
+                                    StyledChar::new(' ', self.current_style);
                             }
                         }
                     }
@@ -2395,5 +2479,74 @@ mod tests {
         assert!(match_span.is_some(), "Match span '127.0.0.1' not found in spans: {:?}", server_line.spans);
         let span = match_span.unwrap();
         assert_eq!(span.style.bg, Some(Color::Rgb(0, 220, 255))); // Focused match style
+    }
+
+    #[test]
+    fn test_osc8_hyperlink_parsing_and_extraction() {
+        let mut buf = TerminalBuffer::new(100);
+
+        // Print text with OSC 8 hyperlink (ST terminator)
+        buf.push_str("\x1b]8;id=link1;https://github.com/agentcontrol\x1b\\AgentControll\x1b]8;;\x1b\\ is awesome!\n");
+
+        // Plain string should contain only display text
+        assert_eq!(buf.lines[0].to_plain_string(), "AgentControll is awesome!");
+
+        // Verify link attached to characters 0..13
+        assert_eq!(
+            buf.get_link_at(0, 0),
+            Some("https://github.com/agentcontrol")
+        );
+        assert_eq!(
+            buf.get_link_at(0, 12),
+            Some("https://github.com/agentcontrol")
+        );
+        assert_eq!(buf.get_link_at(0, 13), None);
+
+        // Verify hyperlink list extraction
+        let links = buf.extract_hyperlinks();
+        assert_eq!(links, vec!["https://github.com/agentcontrol"]);
+
+        // Verify Ratatui rendering has underline modifier on linked span
+        let (lines, _) = buf.get_visible_lines(10);
+        let line = &lines[0];
+        let link_span = line
+            .spans
+            .iter()
+            .find(|s| s.content == "AgentControll")
+            .expect("Span for 'AgentControll' must exist");
+        assert!(
+            link_span.style.add_modifier.contains(Modifier::UNDERLINED),
+            "Hyperlinked span must have underline modifier"
+        );
+
+        let unlinked_span = line
+            .spans
+            .iter()
+            .find(|s| s.content == " is awesome!")
+            .expect("Span for ' is awesome!' must exist");
+        assert!(
+            !unlinked_span.style.add_modifier.contains(Modifier::UNDERLINED),
+            "Unlinked span must not have underline modifier"
+        );
+
+        // Also test OSC 8 with BEL terminator
+        buf.push_str("\x1b]8;;https://docs.agentcontrol.dev\x07Documentation\x1b]8;;\x07\n");
+        assert_eq!(
+            buf.get_link_at(1, 0),
+            Some("https://docs.agentcontrol.dev")
+        );
+        let links_total = buf.extract_hyperlinks();
+        assert_eq!(
+            links_total,
+            vec![
+                "https://github.com/agentcontrol",
+                "https://docs.agentcontrol.dev"
+            ]
+        );
+
+        // Buffer clear resets hyperlinks
+        buf.clear();
+        assert!(buf.extract_hyperlinks().is_empty());
+        assert_eq!(buf.current_link(), None);
     }
 }
