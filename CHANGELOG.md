@@ -4,6 +4,11 @@ All notable changes to AgentControll are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.6] - 2026-10-07
+
+### Fixed
+- **Account selection bug in TUI launch form**: Fixed a bug where the persisted `default_account` setting would override the currently selected account in the UI. When users selected a different account in the Accounts tab and pressed `n` to start a new session, the form would incorrectly use the stale default account instead of the user's current selection. The fix prioritizes the currently selected account from the UI, using the persisted default only as a fallback when no account is selected.
+
 ## [1.0.0] - 2026-09-22
 
 Initial production-ready release of AgentControll — the multi-account supervision and orchestration daemon for coding agents.

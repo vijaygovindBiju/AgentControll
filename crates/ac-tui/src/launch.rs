@@ -309,21 +309,23 @@ pub fn open_new_session(app: &mut App) {
         ac_core::agy_launch::supported_permission_modes(),
     );
 
-    // Apply persisted default account if matched
-    if let Some(ref default_acc) = app.user_settings.default_account {
-        if let Some(pos) = agy_accounts(app)
+    // Always use the currently selected account from the UI
+    // The persisted default_account is only used as a fallback if no account is selected
+    let selected_id = app.accounts.get(app.selected_account).map(|a| a.id.clone());
+    form.account_index = if let Some(sid) = selected_id {
+        agy_accounts(app)
+            .iter()
+            .position(|a| &a.id == &sid)
+            .unwrap_or(0)
+    } else if let Some(ref default_acc) = app.user_settings.default_account {
+        // Fallback to persisted default if no account is selected
+        agy_accounts(app)
             .iter()
             .position(|a| &a.label == default_acc || &a.id.0 == default_acc)
-        {
-            form.account_index = pos;
-        }
+            .unwrap_or(0)
     } else {
-        let selected_id = app.accounts.get(app.selected_account).map(|a| a.id.clone());
-        form.account_index = agy_accounts(app)
-            .iter()
-            .position(|a| Some(&a.id) == selected_id.as_ref())
-            .unwrap_or(0);
-    }
+        0
+    };
 
     // Apply persisted default working directory if valid
     if let Some(ref default_dir) = app.user_settings.default_working_dir {
