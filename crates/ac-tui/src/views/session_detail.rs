@@ -49,26 +49,31 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
         ])
         .split(area);
 
-    // ── 1. Compact Session Header ───────────────────────────────────────────
-    let acct_label = app.account_label(session.account_id.as_ref());
-    let is_agy = session.agent_type == "agy" || session.agent_type == "antigravity";
-    let agent_name = if is_agy {
-        "Agent Control • Antigravity"
-    } else {
-        "Agent Control • Agent Terminal"
-    };
-
-    let header_chunks = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([Constraint::Min(40), Constraint::Length(28)])
-        .split(chunks[0]);
-
     // ── 2. Full-Screen Dedicated Agent Terminal ─────────────────────────────
     let default_buf = TerminalBuffer::default();
     let term_buf = app
         .session_terminal_buffers
         .get(&session.id.0)
         .unwrap_or(&default_buf);
+
+    let acct_label = app.account_label(session.account_id.as_ref());
+    let is_agy = session.agent_type == "agy" || session.agent_type == "antigravity";
+    let agent_name = if let Some(title) = term_buf.title() {
+        if title.starts_with("Agent Control") {
+            title.to_string()
+        } else {
+            format!("Agent Control • {}", title)
+        }
+    } else if is_agy {
+        "Agent Control • Antigravity".to_string()
+    } else {
+        "Agent Control • Agent Terminal".to_string()
+    };
+
+    let header_chunks = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Min(40), Constraint::Length(28)])
+        .split(chunks[0]);
 
     let term_inner_width = chunks[1].width as usize;
     let term_inner_height = chunks[1].height as usize;
@@ -87,7 +92,7 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
             session_state_badge(&session.state),
             Span::raw("  "),
             Span::styled(
-                agent_name,
+                agent_name.clone(),
                 Style::default()
                     .fg(Color::Cyan)
                     .add_modifier(Modifier::BOLD),
@@ -105,7 +110,7 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
             session_state_badge(&session.state),
             Span::raw("  "),
             Span::styled(
-                agent_name,
+                agent_name.clone(),
                 Style::default()
                     .fg(Color::Cyan)
                     .add_modifier(Modifier::BOLD),
@@ -162,6 +167,18 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
             let cursor_y = chunks[1].y + rel_row;
             if cursor_x < chunks[1].right() && cursor_y < chunks[1].bottom() {
                 f.set_cursor_position(Position::new(cursor_x, cursor_y));
+
+                let cursor_style = match term_buf.cursor_shape() {
+                    crate::terminal_buffer::CursorShape::Default => {
+                        match app.user_settings.terminal_cursor.to_lowercase().as_str() {
+                            "bar" => crossterm::cursor::SetCursorStyle::SteadyBar,
+                            "underline" => crossterm::cursor::SetCursorStyle::SteadyUnderScore,
+                            _ => crossterm::cursor::SetCursorStyle::SteadyBlock,
+                        }
+                    }
+                    shape => shape.to_crossterm(),
+                };
+                let _ = crossterm::execute!(std::io::stdout(), cursor_style);
             }
         }
     }

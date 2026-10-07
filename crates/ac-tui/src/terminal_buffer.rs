@@ -25,6 +25,34 @@ use unicode_width::UnicodeWidthChar;
 /// Marker stored in the cell to the right of a double-width character.
 pub const WIDE_SPACER: char = '\u{0}';
 
+/// Hardware cursor shapes requested by child processes via DECSCUSR (`CSI Ps SP q`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum CursorShape {
+    #[default]
+    Default,
+    BlinkingBlock,
+    SteadyBlock,
+    BlinkingUnderline,
+    SteadyUnderline,
+    BlinkingBar,
+    SteadyBar,
+}
+
+impl CursorShape {
+    /// Convert this cursor shape to crossterm's cursor style.
+    pub fn to_crossterm(self) -> crossterm::cursor::SetCursorStyle {
+        match self {
+            CursorShape::Default => crossterm::cursor::SetCursorStyle::DefaultUserShape,
+            CursorShape::BlinkingBlock => crossterm::cursor::SetCursorStyle::BlinkingBlock,
+            CursorShape::SteadyBlock => crossterm::cursor::SetCursorStyle::SteadyBlock,
+            CursorShape::BlinkingUnderline => crossterm::cursor::SetCursorStyle::BlinkingUnderScore,
+            CursorShape::SteadyUnderline => crossterm::cursor::SetCursorStyle::SteadyUnderScore,
+            CursorShape::BlinkingBar => crossterm::cursor::SetCursorStyle::BlinkingBar,
+            CursorShape::SteadyBar => crossterm::cursor::SetCursorStyle::SteadyBar,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StyledChar {
     pub c: char,
@@ -228,6 +256,10 @@ pub struct TerminalBuffer {
     last_printed: Option<char>,
     /// Whether bracketed paste mode is enabled by the running child process (?2004h/?2004l).
     pub bracketed_paste: bool,
+    /// Hardware cursor shape set by child process (DECSCUSR).
+    pub cursor_shape: CursorShape,
+    /// Dynamic window/process title set by child process (OSC 0 / OSC 2).
+    pub title: Option<String>,
 }
 
 impl Default for TerminalBuffer {
@@ -263,6 +295,8 @@ impl TerminalBuffer {
             wrap_pending: false,
             last_printed: None,
             bracketed_paste: false,
+            cursor_shape: CursorShape::Default,
+            title: None,
         }
     }
 
@@ -280,6 +314,18 @@ impl TerminalBuffer {
         self.scroll_region = None;
         self.wrap_pending = false;
         self.bracketed_paste = false;
+        self.cursor_shape = CursorShape::Default;
+        self.title = None;
+    }
+
+    /// Dynamic terminal/process title reported via OSC 0 / OSC 2, if any.
+    pub fn title(&self) -> Option<&str> {
+        self.title.as_deref()
+    }
+
+    /// Current hardware cursor shape requested via DECSCUSR.
+    pub fn cursor_shape(&self) -> CursorShape {
+        self.cursor_shape
     }
 
     /// Whether bracketed paste mode is enabled by the running child process.
@@ -676,8 +722,35 @@ impl TerminalBuffer {
             _ => {}
         }
 
+        if seq.starts_with("\x1b]") {
+            // OSC sequence (Operating System Command)
+            let osc_body = &seq[2..];
+            let osc_content = if let Some(stripped) = osc_body.strip_suffix("\x1b\\") {
+                stripped
+            } else if let Some(stripped) = osc_body.strip_suffix('\x07') {
+                stripped
+            } else {
+                osc_body
+            };
+
+            if let Some((cmd, payload)) = osc_content.split_once(';') {
+                match cmd {
+                    "0" | "2" => {
+                        // OSC 0: Set window icon name and title; OSC 2: Set window title
+                        if payload.is_empty() {
+                            self.title = None;
+                        } else {
+                            self.title = Some(payload.to_string());
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            return;
+        }
+
         if !seq.starts_with("\x1b[") {
-            // Other OSC / DCS / APC or 2-char escape safely discarded
+            // Other DCS / APC or 2-char escape safely discarded
             return;
         }
 
@@ -689,8 +762,28 @@ impl TerminalBuffer {
         let last_char = body.chars().last().unwrap();
         let params_str = &body[..body.len() - 1];
 
-        // Sequences with intermediate bytes (DECRQM `$p`, DECSCUSR ` q`, ...) are
-        // queries / cursor-shape changes, not screen operations.
+        // Handle DECSCUSR: Set Cursor Style (`CSI Ps SP q` or `CSI Ps q`)
+        if last_char == 'q'
+            && (params_str.is_empty()
+                || params_str
+                    .chars()
+                    .all(|c| c.is_ascii_digit() || c == ' '))
+        {
+            let mode = params_str.trim().parse::<u32>().unwrap_or(0);
+            self.cursor_shape = match mode {
+                1 => CursorShape::BlinkingBlock,
+                2 => CursorShape::SteadyBlock,
+                3 => CursorShape::BlinkingUnderline,
+                4 => CursorShape::SteadyUnderline,
+                5 => CursorShape::BlinkingBar,
+                6 => CursorShape::SteadyBar,
+                _ => CursorShape::Default,
+            };
+            return;
+        }
+
+        // Sequences with intermediate bytes (DECRQM `$p`, ...) are
+        // queries / mode reports, not screen operations.
         if params_str.chars().any(|c| ('\x20'..='\x2f').contains(&c)) {
             return;
         }
@@ -1931,5 +2024,62 @@ mod tests {
         assert_eq!(buf.lines[1].to_plain_string(), "     ▄▀▀▄");
         assert_eq!(buf.lines[2].to_plain_string(), "    ▀▀▀▀▀▀");
         assert_eq!(buf.lines[3].to_plain_string(), "   ▀▀▀▀▀▀▀▀");
+    }
+
+    #[test]
+    fn test_osc_window_title_tracking() {
+        let mut buf = TerminalBuffer::new(100);
+        assert_eq!(buf.title(), None);
+
+        // OSC 0 with BEL terminator
+        buf.push_str("\x1b]0;Antigravity Session\x07");
+        assert_eq!(buf.title(), Some("Antigravity Session"));
+
+        // OSC 2 with ST (\x1b\) terminator
+        buf.push_str("\x1b]2;Vim: main.rs\x1b\\");
+        assert_eq!(buf.title(), Some("Vim: main.rs"));
+
+        // Reset title with empty payload
+        buf.push_str("\x1b]0;\x07");
+        assert_eq!(buf.title(), None);
+
+        // Setting title again and then clearing buffer resets title
+        buf.push_str("\x1b]2;Bash Terminal\x07");
+        assert_eq!(buf.title(), Some("Bash Terminal"));
+        buf.clear();
+        assert_eq!(buf.title(), None);
+    }
+
+    #[test]
+    fn test_decscusr_cursor_shapes() {
+        let mut buf = TerminalBuffer::new(100);
+        assert_eq!(buf.cursor_shape(), CursorShape::Default);
+
+        buf.push_str("\x1b[1 q");
+        assert_eq!(buf.cursor_shape(), CursorShape::BlinkingBlock);
+
+        buf.push_str("\x1b[2 q");
+        assert_eq!(buf.cursor_shape(), CursorShape::SteadyBlock);
+
+        buf.push_str("\x1b[3 q");
+        assert_eq!(buf.cursor_shape(), CursorShape::BlinkingUnderline);
+
+        buf.push_str("\x1b[4 q");
+        assert_eq!(buf.cursor_shape(), CursorShape::SteadyUnderline);
+
+        buf.push_str("\x1b[5 q");
+        assert_eq!(buf.cursor_shape(), CursorShape::BlinkingBar);
+
+        buf.push_str("\x1b[6 q");
+        assert_eq!(buf.cursor_shape(), CursorShape::SteadyBar);
+
+        buf.push_str("\x1b[0 q");
+        assert_eq!(buf.cursor_shape(), CursorShape::Default);
+
+        // Test clear resets cursor shape
+        buf.push_str("\x1b[5 q");
+        assert_eq!(buf.cursor_shape(), CursorShape::BlinkingBar);
+        buf.clear();
+        assert_eq!(buf.cursor_shape(), CursorShape::Default);
     }
 }

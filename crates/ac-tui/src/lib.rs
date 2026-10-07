@@ -30,7 +30,13 @@ pub struct TerminalGuard;
 impl Drop for TerminalGuard {
     fn drop(&mut self) {
         let _ = disable_raw_mode();
-        let _ = execute!(stdout(), DisableBracketedPaste, LeaveAlternateScreen, Show,);
+        let _ = execute!(
+            stdout(),
+            DisableBracketedPaste,
+            LeaveAlternateScreen,
+            Show,
+            crossterm::cursor::SetCursorStyle::DefaultUserShape,
+        );
     }
 }
 
@@ -46,7 +52,13 @@ pub async fn run_tui(socket_path: PathBuf) -> Result<()> {
     let prev_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
         let _ = disable_raw_mode();
-        let _ = execute!(stdout(), DisableBracketedPaste, LeaveAlternateScreen, Show,);
+        let _ = execute!(
+            stdout(),
+            DisableBracketedPaste,
+            LeaveAlternateScreen,
+            Show,
+            crossterm::cursor::SetCursorStyle::DefaultUserShape,
+        );
         prev_hook(info);
     }));
 
