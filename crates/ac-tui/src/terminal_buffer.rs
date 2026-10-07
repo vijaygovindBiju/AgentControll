@@ -16,11 +16,32 @@
 //! - Bounded ring-buffer / scrollback capacity (up to 5,000 lines)
 //! - Follow mode with auto-scroll and manual scroll navigation (Up, Down, PgUp, PgDn, Home, End)
 
+use std::path::{Path, PathBuf};
+
 use ratatui::{
     style::{Color, Modifier, Style},
     text::{Line, Span},
 };
 use unicode_width::UnicodeWidthChar;
+
+/// Simple percent-decode for OSC 7 paths (e.g. `%20` -> `' '`).
+fn percent_decode(input: &str) -> String {
+    let mut output = Vec::with_capacity(input.len());
+    let bytes = input.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' && i + 2 < bytes.len() {
+            if let Ok(val) = u8::from_str_radix(&input[i + 1..i + 3], 16) {
+                output.push(val);
+                i += 3;
+                continue;
+            }
+        }
+        output.push(bytes[i]);
+        i += 1;
+    }
+    String::from_utf8_lossy(&output).into_owned()
+}
 
 /// Marker stored in the cell to the right of a double-width character.
 pub const WIDE_SPACER: char = '\u{0}';
@@ -406,6 +427,8 @@ pub struct TerminalBuffer {
     pub search: TerminalSearch,
     /// Active hyperlink URL currently in effect for subsequent printed text (OSC 8).
     pub current_link: Option<std::sync::Arc<str>>,
+    /// Current working directory reported by child process via OSC 7.
+    pub cwd: Option<PathBuf>,
 }
 
 impl Default for TerminalBuffer {
@@ -445,6 +468,7 @@ impl TerminalBuffer {
             title: None,
             search: TerminalSearch::default(),
             current_link: None,
+            cwd: None,
         }
     }
 
@@ -466,6 +490,7 @@ impl TerminalBuffer {
         self.title = None;
         self.search = TerminalSearch::default();
         self.current_link = None;
+        self.cwd = None;
     }
 
     /// Dynamic terminal/process title reported via OSC 0 / OSC 2, if any.
@@ -476,6 +501,11 @@ impl TerminalBuffer {
     /// Current hardware cursor shape requested via DECSCUSR.
     pub fn cursor_shape(&self) -> CursorShape {
         self.cursor_shape
+    }
+
+    /// Current working directory reported by child process via OSC 7, if any.
+    pub fn cwd(&self) -> Option<&Path> {
+        self.cwd.as_deref()
     }
 
     /// Active hyperlink URL currently in effect for subsequent printed characters.
@@ -1049,6 +1079,27 @@ impl TerminalBuffer {
                             self.title = None;
                         } else {
                             self.title = Some(payload.to_string());
+                        }
+                    }
+                    "7" => {
+                        // OSC 7: Current Working Directory (`\x1b]7;file://hostname/path\x07` or `\x1b]7;/path\x07`)
+                        if payload.is_empty() {
+                            self.cwd = None;
+                        } else {
+                            let raw_path = payload.strip_prefix("file://").unwrap_or(payload);
+                            let path_part = if !raw_path.starts_with('/') {
+                                if let Some(slash_idx) = raw_path.find('/') {
+                                    &raw_path[slash_idx..]
+                                } else {
+                                    raw_path
+                                }
+                            } else {
+                                raw_path
+                            };
+                            let decoded = percent_decode(path_part);
+                            if !decoded.is_empty() {
+                                self.cwd = Some(PathBuf::from(decoded));
+                            }
                         }
                     }
                     "8" => {
@@ -2548,5 +2599,29 @@ mod tests {
         buf.clear();
         assert!(buf.extract_hyperlinks().is_empty());
         assert_eq!(buf.current_link(), None);
+    }
+
+    #[test]
+    fn test_osc7_cwd_tracking() {
+        let mut buf = TerminalBuffer::new(100);
+        assert_eq!(buf.cwd(), None);
+
+        // OSC 7 with hostname and BEL terminator
+        buf.push_str("\x1b]7;file://localhost/home/user/workspace\x07");
+        assert_eq!(buf.cwd(), Some(Path::new("/home/user/workspace")));
+
+        // OSC 7 with percent-encoding and ST terminator
+        buf.push_str("\x1b]7;file:///home/user/my%20project/sub%2Fdir\x1b\\");
+        assert_eq!(buf.cwd(), Some(Path::new("/home/user/my project/sub/dir")));
+
+        // OSC 7 with empty payload resets CWD
+        buf.push_str("\x1b]7;\x07");
+        assert_eq!(buf.cwd(), None);
+
+        // Buffer clear resets CWD
+        buf.push_str("\x1b]7;file:///tmp\x07");
+        assert_eq!(buf.cwd(), Some(Path::new("/tmp")));
+        buf.clear();
+        assert_eq!(buf.cwd(), None);
     }
 }

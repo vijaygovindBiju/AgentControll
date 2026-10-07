@@ -121,6 +121,18 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
         left_spans.push(Span::styled(" • ", Style::default().fg(Color::DarkGray)));
         left_spans.push(Span::styled(acct_label, Style::default().fg(Color::Yellow)));
     }
+    if let Some(cwd) = term_buf.cwd() {
+        if chunks[0].width >= 80 {
+            let cwd_display = cwd.display().to_string();
+            let display_str = if cwd_display.len() > 30 {
+                format!("…{}", &cwd_display[cwd_display.len().saturating_sub(29)..])
+            } else {
+                cwd_display
+            };
+            left_spans.push(Span::styled(" • ", Style::default().fg(Color::DarkGray)));
+            left_spans.push(Span::styled(display_str, Style::default().fg(Color::LightBlue)));
+        }
+    }
     f.render_widget(Paragraph::new(Line::from(left_spans)), header_chunks[0]);
 
     let model_tag = if is_agy {
