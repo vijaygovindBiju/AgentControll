@@ -9,7 +9,7 @@ Agent Control interfaces with autonomous coding agents through adapter drivers t
 Google Antigravity is a terminal-based autonomous coding agent. Agent Control provides deep integration for Antigravity, including multi-account credential rotation, profile isolation, and launch customization.
 
 ### Authentication & Credential Storage
-- **Isolated Profiles:** Each Antigravity account is assigned a sandboxed home directory: `~/.config/agentcontrol/profiles/<account-id>/`. The adapter launches the agent with `HOME` set to this directory, preventing token collisions between concurrent accounts.
+- **Isolated Profiles:** Each Antigravity account is assigned a sandboxed home directory: `~/.config/agentcontrol/profiles/<account-id>/`. The adapter launches the agent with `HOME` set to this directory, preventing token collisions between concurrent accounts. Desktop keyring IPC is neutralized via `DBUS_SESSION_BUS_ADDRESS="disabled:"` so `agy` strictly reads its isolated profile token.
 - **Login Flows:**
   - **`agy-browser`**: Spawns local OAuth loopback listener and opens the browser.
   - **`agy-login-link`**: Generates PKCE authorization URL for headless/remote machines; paste redirect URL back into CLI or TUI.

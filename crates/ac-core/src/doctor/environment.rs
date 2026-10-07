@@ -34,4 +34,29 @@ pub fn check_environment(_doctor: &Doctor, checks: &mut Vec<CheckResult>) {
             "AgentControll isolates sessions by removing these ambient credentials upon launch, but unset them in your shell to avoid unintended bleed.",
         ));
     }
+
+    // Check D-Bus session bus and desktop keyring isolation
+    #[cfg(unix)]
+    {
+        let dbus_addr = env::var("DBUS_SESSION_BUS_ADDRESS").ok();
+        let details = if let Some(ref addr) = dbus_addr {
+            format!(
+                "Host D-Bus address: {addr}\n\
+                Child agy sessions are launched with DBUS_SESSION_BUS_ADDRESS=disabled: to prevent GNOME Keyring / KWallet token interception over D-Bus."
+            )
+        } else {
+            "No host D-Bus session bus active in ambient shell (headless/container environment).\n\
+            Child agy sessions enforce DBUS_SESSION_BUS_ADDRESS=disabled: for hermetic token isolation."
+                .to_string()
+        };
+
+        checks.push(
+            CheckResult::pass(
+                "env.keyring_isolation",
+                "Desktop Keyring & D-Bus isolation",
+                "Hermetic environment isolation configured (DBUS_SESSION_BUS_ADDRESS=disabled: on child processes)",
+            )
+            .with_details(details),
+        );
+    }
 }

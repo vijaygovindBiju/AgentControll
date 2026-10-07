@@ -201,7 +201,7 @@ pub fn check_accounts_and_profiles(doctor: &Doctor, checks: &mut Vec<CheckResult
                      ↓\n\
         Writes Account B's OAuth token to: <profile>/.gemini/antigravity-cli/antigravity-oauth-token (chmod 0600)\n\
                      ↓\n\
-        Spawns external agy process with: HOME=<profile>, ANTIGRAVITY_ACCOUNT_ID=<ACCOUNT_B_ID>\n\
+        Spawns external agy process with: HOME=<profile>, ANTIGRAVITY_ACCOUNT_ID=<ACCOUNT_B_ID>, DBUS_SESSION_BUS_ADDRESS=disabled:\n\
                      ↓\n\
         Google agy reads $HOME/.gemini/antigravity-cli/antigravity-oauth-token";
 
@@ -226,9 +226,10 @@ pub fn check_accounts_and_profiles(doctor: &Doctor, checks: &mut Vec<CheckResult
                 "Common Causes on Broken Systems:\n\
                 1. PATH Shadowing: Old AgentControll agy wrapper in PATH ahead of real Google agy\n\
                 2. Ambient Credentials: GEMINI_API_KEY/GOOGLE_API_KEY overriding profile tokens\n\
-                3. Incomplete OAuth: Missing refresh token in credential file\n\
-                4. Shared Profiles: Accounts pointing to the same profile\n\
-                5. Binary Drift: npm package vs cached native binary version mismatch",
+                3. Keyring Interception: Host GNOME Keyring/D-Bus intercepting token lookup (prevented by DBUS_SESSION_BUS_ADDRESS=disabled:)\n\
+                4. Incomplete OAuth: Missing refresh token in credential file\n\
+                5. Shared Profiles: Accounts pointing to the same profile\n\
+                6. Binary Drift: npm package vs cached native binary version mismatch",
             ),
         );
     }

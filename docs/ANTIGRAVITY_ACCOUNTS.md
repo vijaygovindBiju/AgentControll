@@ -196,6 +196,7 @@ Writes Account B's OAuth token to:
 Spawns external agy process with:
   HOME=<profile_dir>
   ANTIGRAVITY_ACCOUNT_ID=<ACCOUNT_B_ID>
+  DBUS_SESSION_BUS_ADDRESS=disabled:
              ↓
 Google agy reads $HOME/.gemini/antigravity-cli/antigravity-oauth-token
 ```
@@ -217,16 +218,21 @@ If multiple account switching works on one computer but fails on another, the fa
 - **Why it broke:** When Google `agy` launches, ambient API keys take precedence over `$HOME/.gemini/antigravity-cli/antigravity-oauth-token`. Even when AgentControll pointed `HOME` to Account B's profile, `agy` ignored Account B's token and continued using the ambient account/key for all requests.
 - **Remediation:** Unset `GEMINI_API_KEY` and `GOOGLE_API_KEY` in the shell or service running AgentControll.
 
-#### 3. Incomplete OAuth Credentials (Authorization Code vs. Stored Refresh Token)
+#### 3. Linux Desktop Keyring / D-Bus Interception (GNOME Keyring / KWallet)
+- **The Difference:** On Linux graphical desktops, `agy` queries the D-Bus Secret Service (`org.freedesktop.secrets`) before checking local files.
+- **Why it broke:** Keyrings are session-level IPC daemons connected via D-Bus (`$DBUS_SESSION_BUS_ADDRESS`), not scoped to `$HOME`. If D-Bus is connected, `agy` retrieves whatever token was stored in the desktop keyring (e.g., your primary personal account) regardless of `$HOME`.
+- **Remediation & Fix:** AgentControll automatically launches child `agy` sessions with `DBUS_SESSION_BUS_ADDRESS="disabled:"`. This neutralizes D-Bus secret lookup, causing `agy`'s internal auth chain to bypass the desktop keyring and strictly use the profile's token file. Verified by `ac doctor`.
+
+#### 4. Incomplete OAuth Credentials (Authorization Code vs. Stored Refresh Token)
 - **The Difference:** An account was saved with only an authorization code (`4/...`) instead of completing the PKCE token exchange to acquire a persistent refresh token.
 - **Why it broke:** Without a refresh token, `agy_auth::prepare_profile` fails or `agy` falls back to default interactive login.
 - **Remediation:** Re-authenticate the account cleanly using `ac login` or browser login in the TUI.
 
-#### 4. Shared / Non-Isolated Profiles
+#### 5. Shared / Non-Isolated Profiles
 - **The Difference:** AgentControll requires every account to have a unique directory in `~/.config/agentcontrol/profiles/<ACCOUNT_ID>`.
 - **Why it broke:** If account profiles were manually altered or if multiple accounts pointed to the same directory, switching accounts did not change the credentials used by `agy`.
 
-#### 5. npm Version Drift (v1.0.1 npm vs v1.0.0 Native Binary)
+#### 6. npm Version Drift (v1.0.1 npm vs v1.0.0 Native Binary)
 - **The Difference:** The npm package was updated to 1.0.1 (removing the rogue `agy` wrapper), but `~/.cache/agentcontrol/bin/` retained the old native 1.0.0 executable.
 - **Remediation:** Update with `npm update -g agentcontroll` and verify with `agentcontroll doctor`.
 
@@ -242,4 +248,4 @@ agentcontroll doctor
 ac doctor
 ```
 
-`doctor` automatically verifies all 5 conditions and reports exact remedial instructions if any failure is detected.
+`doctor` automatically verifies all conditions (including D-Bus keyring isolation) and reports exact remedial instructions if any failure is detected.

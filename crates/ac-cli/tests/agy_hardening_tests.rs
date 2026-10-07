@@ -50,7 +50,7 @@ struct Env {
 const FAKE_AGY: &str = r#"#!/bin/sh
 tok="$HOME/.gemini/antigravity-cli/antigravity-oauth-token"
 marker=$(grep -o 'MARK_[A-Z]*' "$tok" 2>/dev/null | head -1)
-printf 'HOME=%s MARK=%s ARGC=%s GEMINI=%s ACCT=%s ARGS=%s PWD=%s\n' "$HOME" "${marker:-NONE}" "$#" "${GEMINI_API_KEY:-unset}" "$AGENTCONTROL_ACCOUNT_ID" "$(for a in "$@"; do printf '%s,' "$a"; done)" "$(pwd)" >> "$AC_TEST_LOG"
+printf 'HOME=%s MARK=%s ARGC=%s GEMINI=%s ACCT=%s AGY_ACCT=%s DBUS=%s ARGS=%s PWD=%s\n' "$HOME" "${marker:-NONE}" "$#" "${GEMINI_API_KEY:-unset}" "$AGENTCONTROL_ACCOUNT_ID" "$ANTIGRAVITY_ACCOUNT_ID" "${DBUS_SESSION_BUS_ADDRESS:-unset}" "$(for a in "$@"; do printf '%s,' "$a"; done)" "$(pwd)" >> "$AC_TEST_LOG"
 exec sleep 30
 "#;
 
@@ -276,6 +276,8 @@ async fn three_accounts_launch_with_their_own_isolated_credentials() {
             "ambient API keys must not leak into agy"
         );
         assert_eq!(kv["ACCT"], aid.0);
+        assert_eq!(kv["AGY_ACCT"], aid.0);
+        assert_eq!(kv["DBUS"], "disabled:");
         let tok = profile.join(".gemini/antigravity-cli/antigravity-oauth-token");
         assert!(
             !tok.symlink_metadata().unwrap().file_type().is_symlink(),
@@ -501,6 +503,8 @@ async fn switching_accounts_restarts_agy_with_target_credentials_only() {
         "successor must not inherit A's profile"
     );
     assert_eq!(kv["ACCT"], b.0);
+    assert_eq!(kv["AGY_ACCT"], b.0);
+    assert_eq!(kv["DBUS"], "disabled:");
     let pred = d.client.get_session(&sid).await.unwrap().unwrap();
     assert_eq!(pred.state, SessionState::HandedOff);
 

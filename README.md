@@ -2,7 +2,7 @@
 
 A local-first control plane for coding agents.
 
-> **Status:** Version 1.0.5 released. Fully verified with zero compiler warnings and 100% test pass rate across all workspace test suites.
+> **Status:** Version 1.0.7 released. Fully verified with zero compiler warnings and 100% test pass rate across all workspace test suites.
 
 ---
 
@@ -97,7 +97,7 @@ AgentControll solves this by operating as a unified local supervisor: it pools a
 - **Interactive Directory Completion:**
   - Shell-style `Tab` completion for arbitrary filesystem paths with live filtering in the session launcher.
 - **Profile & Credential Isolation:**
-  - Every account runs in a dedicated profile directory (`~/.config/agentcontrol/profiles/<account-id>/`), setting `HOME` to the profile and stripping ambient credentials from the environment.
+  - Every account runs in a dedicated profile directory (`~/.config/agentcontrol/profiles/<account-id>/`), setting `HOME` to the profile, neutralizing desktop keyring D-Bus IPC (`DBUS_SESSION_BUS_ADDRESS="disabled:"`), and stripping ambient credentials from the environment.
 - **Automated Health & Isolation Diagnostics (`doctor`):**
   - Run `agentcontroll doctor` (or `ac doctor`) for instant, non-destructive verification of system compatibility, SQLite database integrity, file permissions, account profile isolation, ambient credential leaks, and external `agy` resolution.
 - **Dual Transport Control API:**

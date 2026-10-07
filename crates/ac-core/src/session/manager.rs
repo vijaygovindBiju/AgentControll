@@ -526,9 +526,15 @@ impl SessionManager {
             let actual_id = if let Some(h) = &self.account_mgr {
                 let mgr = h.0.lock().unwrap();
                 let acct = mgr.validate_and_select_explicit(&aid, &agent_type)?;
+                tracing::info!(
+                    "Session creation: explicit account selected: label={}, id={}",
+                    acct.label,
+                    acct.id.0
+                );
                 acct.id.clone()
             } else {
-                aid
+                tracing::info!("Session creation: explicit account (no account mgr): {}", aid.0);
+                aid.clone()
             };
             Some(actual_id)
         } else if let Some(h) = &self.account_mgr {
@@ -549,8 +555,14 @@ impl SessionManager {
                 vec![]
             };
             // Expire cooldowns before selection (best-effort)
-            Some(h.0.lock().unwrap().select(&agent_type, &required_tags)?)
+            let selected_id = h.0.lock().unwrap().select(&agent_type, &required_tags)?;
+            tracing::info!(
+                "Session creation: auto-selected account id: {}",
+                selected_id.0
+            );
+            Some(selected_id)
         } else {
+            tracing::warn!("Session creation: no account manager, account_id will be None");
             None
         };
 
@@ -665,14 +677,22 @@ impl SessionManager {
             workspace_path.or_else(|| launch.as_ref().and_then(|l| l.working_dir.clone()));
         let credential_ref = if let Some(aid) = &session.account_id {
             if let Some(h) = &self.account_mgr {
-                h.0.lock()
+                let cref = h.0.lock()
                     .unwrap()
                     .get(aid)
-                    .map(|a| a.credential_ref.clone())
+                    .map(|a| a.credential_ref.clone());
+                tracing::info!(
+                    "Session start: account_id={}, credential_ref={:?}",
+                    aid,
+                    cref
+                );
+                cref
             } else {
+                tracing::warn!("Session start: account_id={} but no account manager", aid);
                 None
             }
         } else {
+            tracing::warn!("Session start: no account_id");
             None
         };
         let account_id = session.account_id.clone();

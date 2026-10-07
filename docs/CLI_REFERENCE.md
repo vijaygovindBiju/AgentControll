@@ -521,7 +521,7 @@ ac status
 
 ## 10.1. System Diagnostics & Health (`agentcontroll doctor` / `ac doctor`)
 
-Run an automated, non-destructive health and isolation diagnostic across the AgentControll installation, database, Antigravity accounts, credential store, isolated profiles, and external `agy` CLI binary.
+Run an automated, non-destructive health and isolation diagnostic across the AgentControll installation, database, Antigravity accounts, credential store, isolated profiles, desktop keyring D-Bus isolation, and external `agy` CLI binary.
 
 ```bash
 # Standard diagnostic check

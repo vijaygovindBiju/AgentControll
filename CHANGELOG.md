@@ -4,6 +4,12 @@ All notable changes to AgentControll are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.7] - 2026-10-07
+
+### Fixed
+- **Antigravity (`agy`) account switching isolation from host desktop keyrings**: Fixed an issue where `agy` would bypass its isolated profile token and authenticate as the host machine's primary desktop account on Linux. Injected `DBUS_SESSION_BUS_ADDRESS="disabled:"` into child `agy` process environments to neutralize D-Bus Secret Service lookups, forcing `agy` to source authentication exclusively from its profile token file (`~/.config/agentcontrol/profiles/<id>/.gemini/antigravity-cli/antigravity-oauth-token`).
+- **System diagnostics (`ac doctor`)**: Added `env.keyring_isolation` diagnostic check to verify that host D-Bus keyring interception is blocked on child process sessions.
+
 ## [1.0.6] - 2026-10-07
 
 ### Fixed

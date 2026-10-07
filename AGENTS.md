@@ -16,7 +16,7 @@ cargo test --workspace
 ## Antigravity (agy) accounts
 
 - All agy auth, credential storage, validation, profile and removal logic lives in `crates/ac-core/src/agy_auth.rs`. The CLI (`crates/ac-cli/src/auth.rs`, `launcher.rs`) and the TUI (`crates/ac-tui/src/event.rs`) are only front ends; do not duplicate the logic there.
-- `agy` must never start without a selected account and a validated credential. The adapter (`adapter/mod.rs`) prepares `~/.config/agentcontrol/profiles/<account-id>/` and sets `HOME` to it.
+- `agy` must never start without a selected account and a validated credential. The adapter (`adapter/mod.rs`) prepares `~/.config/agentcontrol/profiles/<account-id>/`, sets `HOME` to it, and sets `DBUS_SESSION_BUS_ADDRESS="disabled:"` to isolate child processes from host desktop keyrings (GNOME Keyring / KWallet) over D-Bus.
 - End-to-end tests with a fake `agy` binary: `crates/ac-cli/tests/agy_hardening_tests.rs`. Tests that change env vars use a global lock.
 - User guide: `docs/ANTIGRAVITY_ACCOUNTS.md`.
 - Per-session launch options (permission mode, model, working directory) live in `crates/ac-core/src/agy_launch.rs`; they travel as `session.create` → `launch`, are stored on `AgentSession.launch` and reach the adapter via `SessionContext.agent_config`. Only modes the installed agy advertises are offered; `Normal` (no flag) is the default. The TUI form is `crates/ac-tui/src/launch.rs` + `views/start_session.rs`.

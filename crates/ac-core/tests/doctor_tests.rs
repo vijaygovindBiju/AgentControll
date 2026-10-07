@@ -353,3 +353,33 @@ async fn test_doctor_detects_missing_agy() {
     // In our test, if agy_bin is nonexistent, it falls back to path or reports failure
     assert!(agy_check.status.is_fail() || agy_check.status.is_pass());
 }
+
+#[tokio::test]
+async fn test_doctor_keyring_isolation_check() {
+    let tmp = tempdir().unwrap();
+    let opts = DoctorOpts {
+        deep: false,
+        json: true,
+        config_dir: Some(tmp.path().join("config")),
+        data_dir: Some(tmp.path().join("data")),
+        cache_dir: Some(tmp.path().join("cache")),
+        home_dir: Some(tmp.path().join("home")),
+        socket_path: None,
+        agy_bin: None,
+    };
+
+    let doctor = Doctor::new(opts);
+    let (report, _) = doctor.execute().await;
+
+    #[cfg(unix)]
+    {
+        let check = report
+            .checks
+            .iter()
+            .find(|c| c.id == "env.keyring_isolation")
+            .expect("env.keyring_isolation check must be present on unix");
+        assert!(check.status.is_pass());
+        assert!(check.summary.contains("DBUS_SESSION_BUS_ADDRESS=disabled:"));
+    }
+}
+

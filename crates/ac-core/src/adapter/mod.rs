@@ -167,11 +167,21 @@ impl AdapterFactory for CompositeAdapterFactory {
             "agy" | "antigravity" => {
                 let mut agy_cfg = self.pty_config.clone();
                 agy_cfg.program = resolve_real_antigravity_bin();
+                tracing::info!(
+                    "Launching agy for session {} with account_id={:?}, credential_ref={:?}",
+                    ctx.session_id,
+                    ctx.account_id,
+                    ctx.credential_ref
+                );
                 agy_cfg.envs.extend(agy_account_env(&ctx)?);
                 agy_cfg.env_remove.extend(
                     crate::agy_auth::AMBIENT_AUTH_ENV
                         .iter()
                         .map(|s| s.to_string()),
+                );
+                tracing::info!(
+                    "Removed ambient auth env vars: {:?}",
+                    crate::agy_auth::AMBIENT_AUTH_ENV
                 );
                 agy_cfg.args.extend(
                     crate::agy_launch::AgyLaunchOptions::from_agent_config(

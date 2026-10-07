@@ -674,6 +674,17 @@ pub fn prepare_profile(account_id: &Id, cred_ref: &str) -> AuthResult<HashMap<St
     }
     envs.insert("HOME".into(), home.to_string_lossy().into_owned());
     envs.insert("AGENTCONTROL_ACCOUNT_ID".into(), account_id.0.clone());
+    envs.insert("ANTIGRAVITY_ACCOUNT_ID".into(), account_id.0.clone());
+    // Invalidate D-Bus session bus so agy bypasses the host desktop keyring
+    // (GNOME Keyring / KWallet) and strictly sources authentication from the
+    // isolated profile token file.
+    envs.insert("DBUS_SESSION_BUS_ADDRESS".into(), "disabled:".into());
+    tracing::info!(
+        "Prepared isolated profile for account {}: HOME={}, profile_dir={}",
+        account_id,
+        home.display(),
+        home.display()
+    );
     Ok(envs)
 }
 

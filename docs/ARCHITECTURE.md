@@ -203,7 +203,7 @@ agent-specific code.
 - **Antigravity adapter** (`CompositeAdapterFactory` support for `"agy"` / `"antigravity"`):
   - Resolves the external Antigravity binary via `ANTIGRAVITY_BIN`, `AGY_BIN`, `~/.local/bin/agy`, or `~/.gemini/antigravity-cli/bin/agy`, avoiding recursive self-invocation. AgentControll does not install or own the `agy` command.
   - **Account Profile Isolation**: Prepares an isolated profile directory at `~/.config/agentcontrol/profiles/<account-id>/` and sets `HOME` to it. The profile contains private tokens and config symlinks, completely isolated from ambient `~/.gemini` defaults.
-  - **Ambient Credential Stripping**: Strips ambient Google environment variables (`GEMINI_API_KEY`, `GOOGLE_API_KEY`, `GOOGLE_APPLICATION_CREDENTIALS`, `GOOGLE_GENAI_USE_VERTEXAI`, `GOOGLE_CLOUD_ACCESS_TOKEN`) so sessions run strictly under the bound account.
+  - **Ambient Credential Stripping & Keyring Isolation**: Strips ambient Google environment variables (`GEMINI_API_KEY`, `GOOGLE_API_KEY`, `GOOGLE_APPLICATION_CREDENTIALS`, `GOOGLE_GENAI_USE_VERTEXAI`, `GOOGLE_CLOUD_ACCESS_TOKEN`) and sets `DBUS_SESSION_BUS_ADDRESS="disabled:"` so sessions run strictly under the bound account without leaking to/from the host desktop keyring.
   - **Per-Session Launch Options**: Consumes `AgyLaunchOptions` (`execution_mode`, `permission_mode`, `model`, `working_dir`, `sandbox`), validating values against advertised options of the installed binary.
   - **Anti-Deadlock PTY Streaming**: Employs non-blocking `try_send` dispatch, 8KB burst read buffers, and 512-item per-session event queues to prevent reader thread deadlocks during large output bursts.
 - **Composite Adapter Factory** (`CompositeAdapterFactory`):
