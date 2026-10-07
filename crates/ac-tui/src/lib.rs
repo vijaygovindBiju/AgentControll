@@ -131,6 +131,7 @@ pub async fn run_tui(socket_path: PathBuf) -> Result<()> {
                     while let Ok(next_evt) = rx.try_recv() {
                         app.apply_event(next_evt);
                     }
+                    app.drain_terminal_notifications();
                 }
             }
 
@@ -142,6 +143,7 @@ pub async fn run_tui(socket_path: PathBuf) -> Result<()> {
                 if app.drain_background_notices() {
                     event::refresh_data(&mut app, &client).await;
                 }
+                app.drain_terminal_notifications();
                 // Check reconnection if disconnected
                 let reachable = client.check_daemon().await;
                 if reachable != app.daemon_connected {

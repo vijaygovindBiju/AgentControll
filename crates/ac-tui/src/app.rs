@@ -479,6 +479,31 @@ impl App {
         any
     }
 
+    /// Drain terminal notifications (OSC 9 / OSC 777) from all session buffers into status messages. Returns true if any arrived.
+    pub fn drain_terminal_notifications(&mut self) -> bool {
+        let mut notifications = Vec::new();
+        for (session_id, buf) in &mut self.session_terminal_buffers {
+            let notifs = buf.take_notifications();
+            for notif in notifs {
+                notifications.push((session_id.clone(), notif));
+            }
+        }
+        let any = !notifications.is_empty();
+        for (session_id, notif) in notifications {
+            let prefix = if session_id.len() >= 8 {
+                &session_id[..8]
+            } else {
+                &session_id
+            };
+            let text = match notif.title {
+                Some(title) => format!("[{prefix}] {title}: {}", notif.body),
+                None => format!("[{prefix}] Notification: {}", notif.body),
+            };
+            self.set_status(text, StatusType::Info);
+        }
+        any
+    }
+
     pub fn clear_expired_status(&mut self) {
         if let Some((_, _, time)) = self.status_message {
             if time.elapsed() > Duration::from_secs(6) {

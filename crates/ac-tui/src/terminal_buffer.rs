@@ -285,6 +285,13 @@ pub struct TerminalSearch {
     pub current_idx: usize,
 }
 
+/// Terminal notification sent by child process via OSC 9 or OSC 777.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TerminalNotification {
+    pub title: Option<String>,
+    pub body: String,
+}
+
 /// Render a slice of characters to a ratatui line with search matches highlighted.
 pub fn chars_to_ratatui_line_with_search(
     chars: &[StyledChar],
@@ -429,6 +436,8 @@ pub struct TerminalBuffer {
     pub current_link: Option<std::sync::Arc<str>>,
     /// Current working directory reported by child process via OSC 7.
     pub cwd: Option<PathBuf>,
+    /// Pending terminal desktop notifications received via OSC 9 or OSC 777.
+    pub pending_notifications: Vec<TerminalNotification>,
 }
 
 impl Default for TerminalBuffer {
@@ -469,6 +478,7 @@ impl TerminalBuffer {
             search: TerminalSearch::default(),
             current_link: None,
             cwd: None,
+            pending_notifications: Vec::new(),
         }
     }
 
@@ -491,6 +501,7 @@ impl TerminalBuffer {
         self.search = TerminalSearch::default();
         self.current_link = None;
         self.cwd = None;
+        self.pending_notifications.clear();
     }
 
     /// Dynamic terminal/process title reported via OSC 0 / OSC 2, if any.
@@ -506,6 +517,11 @@ impl TerminalBuffer {
     /// Current working directory reported by child process via OSC 7, if any.
     pub fn cwd(&self) -> Option<&Path> {
         self.cwd.as_deref()
+    }
+
+    /// Take all pending terminal notifications, clearing the buffer's queue.
+    pub fn take_notifications(&mut self) -> Vec<TerminalNotification> {
+        std::mem::take(&mut self.pending_notifications)
     }
 
     /// Active hyperlink URL currently in effect for subsequent printed characters.
@@ -1109,6 +1125,29 @@ impl TerminalBuffer {
                             self.current_link = None;
                         } else {
                             self.current_link = Some(std::sync::Arc::from(url));
+                        }
+                    }
+                    "9" => {
+                        // OSC 9: iTerm2 style desktop notification (`\x1b]9;message\x07`)
+                        if !payload.is_empty() {
+                            self.pending_notifications.push(TerminalNotification {
+                                title: None,
+                                body: payload.to_string(),
+                            });
+                        }
+                    }
+                    "777" => {
+                        // OSC 777: rxvt/Kitty style notification (`\x1b]777;notify;title;body\x07`)
+                        if let Some(rest) = payload.strip_prefix("notify;") {
+                            let (title, body) = rest.split_once(';').unwrap_or((rest, ""));
+                            self.pending_notifications.push(TerminalNotification {
+                                title: if title.is_empty() {
+                                    None
+                                } else {
+                                    Some(title.to_string())
+                                },
+                                body: body.to_string(),
+                            });
                         }
                     }
                     _ => {}
@@ -2623,5 +2662,46 @@ mod tests {
         assert_eq!(buf.cwd(), Some(Path::new("/tmp")));
         buf.clear();
         assert_eq!(buf.cwd(), None);
+    }
+
+    #[test]
+    fn test_osc9_and_osc777_notifications() {
+        let mut buf = TerminalBuffer::new(100);
+
+        // OSC 9 notification
+        buf.push_str("\x1b]9;Build finished successfully!\x07");
+        let notifs = buf.take_notifications();
+        assert_eq!(notifs.len(), 1);
+        assert_eq!(
+            notifs[0],
+            TerminalNotification {
+                title: None,
+                body: "Build finished successfully!".to_string(),
+            }
+        );
+        // After take_notifications, pending queue is empty
+        assert!(buf.take_notifications().is_empty());
+
+        // OSC 777 notification with title and body
+        buf.push_str("\x1b]777;notify;Cargo;All 42 tests passed\x1b\\");
+        // OSC 777 notification without title
+        buf.push_str("\x1b]777;notify;;Task completed\x07");
+
+        let notifs2 = buf.take_notifications();
+        assert_eq!(notifs2.len(), 2);
+        assert_eq!(
+            notifs2[0],
+            TerminalNotification {
+                title: Some("Cargo".to_string()),
+                body: "All 42 tests passed".to_string(),
+            }
+        );
+        assert_eq!(
+            notifs2[1],
+            TerminalNotification {
+                title: None,
+                body: "Task completed".to_string(),
+            }
+        );
     }
 }
