@@ -85,10 +85,15 @@ AgentControll solves this by operating as a unified local supervisor: it pools a
 
 - **Instant Launch via npm / NPX (Recommended):** Run directly with zero compilation via `npx agentcontroll` or install globally with `npm install -g agentcontroll`. Verified prebuilt binaries are automatically fetched and cached for your platform.
 
-- **Full-Screen Virtual ANSI Terminal:**
-  - Dedicated virtual terminal buffer (`crates/ac-tui/src/terminal_buffer.rs`) with 256-color, truecolor, scrollback history, and alternate screen (`1049h`/`1049l`) emulation.
-  - Transparent key forwarding: `Esc` passes directly to agent processes (for nano, vi, fzf, and CLI prompts), while `Ctrl+]` or `Ctrl+Q` safely detaches back to the supervisor dashboard.
-  - Multi-byte UTF-8 stream decoding (`decode_utf8_stream`) prevents glyph splitting and character corruption across PTY chunks.
+- **Full-Screen Virtual ANSI & TrueColor Terminal (`TerminalBuffer`):**
+  - Dedicated virtual terminal buffer (`crates/ac-tui/src/terminal_buffer.rs`) with 256-color, 24-bit TrueColor (RGB), scrollback history, and alternate screen (`1049h`/`1049l`) emulation.
+  - **Non-Destructive Cursor Navigation:** Full arrow key navigation (`Left` / `Right` / `Up` / `Down` / `Home` / `End`) without deleting or corrupting input characters; non-destructive `cub1` (`\x08`) and intelligent trailing whitespace cleanup for terminal echoes (`\x08 \x08`).
+  - **Mouse Selection & Edge Autoscrolling:** Click-and-drag text selection with multi-click word/line granularity and automatic edge scrolling when dragging beyond viewport boundaries.
+  - **Incremental Scrollback Search (`/`):** Live regex search modal across all historical lines with match count and `n` / `N` navigation.
+  - **Interactive URL Picker (`o`):** Scans buffer for standard URLs and OSC 8 hyperlinks to open (`Enter`) or copy (`c`).
+  - **Visual Mode (`v`) & Multi-Line Prompt History:** Vi-like keyboard selection mode and complete multi-line prompt submission recall.
+  - **Transparent Key Forwarding:** `Esc` passes directly to agent processes (for nano, vi, fzf, and CLI prompts), while `Ctrl+]` or `Ctrl+Q` safely detaches back to the supervisor dashboard.
+  - **Stream-Safe Multi-Byte UTF-8:** `decode_utf8_stream` buffers split bytes across PTY chunks, preserving emojis and Braille spinners (`⡿`, `⢿`, `⣻`).
 - **Multi-Account Pooling & Controlled Hand-Off:**
   - Maintain multiple provider accounts with concurrency caps, cooldown tracking, and quota health status.
   - Seamlessly hand off tasks: capture context snapshots and switch accounts without re-entering prompts.
@@ -402,6 +407,8 @@ Configured per-session or globally in Settings:
 
 ## TUI Controls
 
+### Top-Level Navigation & Session Management
+
 | Key | Tab View | Action |
 |:---|:---|:---|
 | **`1`–`6`** | Top Bar | Jump to tab: Dashboard (`1`), Sessions (`2`), Accounts (`3`), Activity (`4`), Agents (`5`), Settings (`6`). |
@@ -418,7 +425,21 @@ Configured per-session or globally in Settings:
 | **`?`** | Global | Toggle Help & Keybindings modal. |
 | **`q`** | Global | Exit TUI application (sessions continue running in background). |
 
-For complete keybindings, see [docs/TUI.md](docs/TUI.md).
+### Virtual Terminal Controls (When Attached)
+
+| Key | Context | Action |
+|:---|:---|:---|
+| **`Left` / `Right`** | Terminal Input | Move cursor backward/forward without deleting input text. |
+| **`Up` / `Down`** | Terminal Input | Traverse multi-line prompt history drafts as complete units. |
+| **`Shift+Up` / `Shift+Down`** | Terminal Buffer | Scroll viewport up/down through scrollback history. |
+| **`PageUp` / `PageDown`** | Terminal Buffer | Page viewport up/down through scrollback history. |
+| **`/`** | Terminal Buffer | Open incremental scrollback regex search with match counts and `n`/`N` cycling. |
+| **`o`** | Terminal Buffer | Open interactive URL picker palette to copy (`c`) or open in browser (`Enter`). |
+| **`v`** | Terminal Buffer | Toggle keyboard visual selection mode (`y` to yank to clipboard). |
+| **Mouse Drag** | Terminal Buffer | Highlight text selection across cells with automatic edge autoscrolling. |
+| **`Ctrl+Shift+C`** | Terminal Selection | Copy active text selection to system clipboard. |
+
+For detailed terminal emulator architecture and specifications, see [`crates/ac-tui/README.md`](crates/ac-tui/README.md) and [`docs/TUI.md`](docs/TUI.md).
 
 ---
 
