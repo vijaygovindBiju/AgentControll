@@ -513,6 +513,8 @@ pub struct TerminalBuffer {
     pub pending_notifications: Vec<TerminalNotification>,
     /// Active visual scrollback selection state, if any.
     pub selection: Option<TerminalSelection>,
+    /// Preserved scrollback history for lines scrolled off the top of the alternate screen.
+    pub alt_scrollback: Vec<TerminalLine>,
 }
 
 impl Default for TerminalBuffer {
@@ -555,6 +557,7 @@ impl TerminalBuffer {
             cwd: None,
             pending_notifications: Vec::new(),
             selection: None,
+            alt_scrollback: Vec::new(),
         }
     }
 
@@ -579,6 +582,7 @@ impl TerminalBuffer {
         self.cwd = None;
         self.pending_notifications.clear();
         self.selection = None;
+        self.alt_scrollback.clear();
     }
 
     /// Dynamic terminal/process title reported via OSC 0 / OSC 2, if any.
@@ -616,7 +620,7 @@ impl TerminalBuffer {
     /// Extract all distinct hyperlink URLs present in the terminal buffer in order.
     pub fn extract_hyperlinks(&self) -> Vec<String> {
         let mut links = Vec::new();
-        for line in &self.lines {
+        for line in self.alt_scrollback.iter().chain(self.lines.iter()) {
             for sc in &line.chars {
                 if let Some(ref l) = sc.link {
                     let s = l.to_string();
@@ -642,7 +646,7 @@ impl TerminalBuffer {
         }
 
         // 2. Scan plain text across all lines for web URLs
-        for line in &self.lines {
+        for line in self.alt_scrollback.iter().chain(self.lines.iter()) {
             let plain = line.to_plain_string();
             for word in plain.split_whitespace() {
                 if let Some(pos) = word
@@ -675,7 +679,7 @@ impl TerminalBuffer {
 
     /// Start visual scrollback selection mode.
     pub fn start_selection(&mut self) {
-        if self.lines.is_empty() {
+        if self.lines.is_empty() && self.alt_scrollback.is_empty() {
             return;
         }
         self.follow = false;
@@ -698,22 +702,38 @@ impl TerminalBuffer {
 
     /// Move the selection cursor by (d_row, d_col), clamping to buffer boundaries.
     pub fn move_selection_cursor(&mut self, d_row: isize, d_col: isize) {
-        if let Some(ref mut sel) = self.selection {
-            let total_rows = self.lines.len();
-            if total_rows == 0 {
-                return;
+        let Some(sel) = self.selection.as_ref() else {
+            return;
+        };
+        let total_rows = self.total_lines();
+        if total_rows == 0 {
+            return;
+        }
+        let old_cursor = sel.cursor;
+        let new_row = if d_row < 0 {
+            old_cursor.row.saturating_sub((-d_row) as usize)
+        } else {
+            (old_cursor.row + d_row as usize).min(total_rows.saturating_sub(1))
+        };
+        let row_len = if self.in_alt_screen() {
+            if new_row < self.alt_scrollback.len() {
+                self.alt_scrollback.get(new_row)
+            } else {
+                self.lines.get(new_row - self.alt_scrollback.len())
             }
-            let new_row = if d_row < 0 {
-                sel.cursor.row.saturating_sub((-d_row) as usize)
-            } else {
-                (sel.cursor.row + d_row as usize).min(total_rows.saturating_sub(1))
-            };
-            let row_len = self.lines.get(new_row).map(|l| l.chars.len()).unwrap_or(0);
-            let new_col = if d_col < 0 {
-                sel.cursor.col.saturating_sub((-d_col) as usize)
-            } else {
-                (sel.cursor.col + d_col as usize).min(row_len.max(1).saturating_sub(1))
-            };
+        } else {
+            self.lines.get(new_row)
+        }
+        .map(|l| l.chars.len())
+        .unwrap_or(0);
+
+        let new_col = if d_col < 0 {
+            old_cursor.col.saturating_sub((-d_col) as usize)
+        } else {
+            (old_cursor.col + d_col as usize).min(row_len.max(1).saturating_sub(1))
+        };
+
+        if let Some(ref mut sel) = self.selection {
             sel.cursor = BufferPos {
                 row: new_row,
                 col: new_col,
@@ -730,12 +750,23 @@ impl TerminalBuffer {
 
     /// Move selection cursor to end of the current row.
     pub fn move_selection_to_line_end(&mut self) {
+        let Some(sel) = self.selection.as_ref() else {
+            return;
+        };
+        let cur_row = sel.cursor.row;
+        let row_len = if self.in_alt_screen() {
+            if cur_row < self.alt_scrollback.len() {
+                self.alt_scrollback.get(cur_row)
+            } else {
+                self.lines.get(cur_row - self.alt_scrollback.len())
+            }
+        } else {
+            self.lines.get(cur_row)
+        }
+        .map(|l| l.chars.len())
+        .unwrap_or(0);
+
         if let Some(ref mut sel) = self.selection {
-            let row_len = self
-                .lines
-                .get(sel.cursor.row)
-                .map(|l| l.chars.len())
-                .unwrap_or(0);
             sel.cursor.col = row_len.saturating_sub(1);
         }
     }
@@ -744,13 +775,26 @@ impl TerminalBuffer {
     pub fn extract_selected_text(&self) -> Option<String> {
         let sel = self.selection.as_ref()?;
         let (start, end) = sel.range();
-        if self.lines.is_empty() {
+        let total = self.total_lines();
+        if total == 0 {
             return None;
         }
 
+        let get_line = |r: usize| -> &TerminalLine {
+            if self.in_alt_screen() {
+                if r < self.alt_scrollback.len() {
+                    &self.alt_scrollback[r]
+                } else {
+                    &self.lines[r - self.alt_scrollback.len()]
+                }
+            } else {
+                &self.lines[r]
+            }
+        };
+
         let mut extracted_lines = Vec::new();
-        for r in start.row..=end.row.min(self.lines.len().saturating_sub(1)) {
-            let line = &self.lines[r];
+        for r in start.row..=end.row.min(total.saturating_sub(1)) {
+            let line = get_line(r);
             let plain_chars: Vec<char> = line
                 .chars
                 .iter()
@@ -808,7 +852,7 @@ impl TerminalBuffer {
         let q_chars: Vec<char> = query.chars().collect();
         let q_len = q_chars.len();
 
-        for (r_idx, line) in self.lines.iter().enumerate() {
+        for (r_idx, line) in self.alt_scrollback.iter().chain(self.lines.iter()).enumerate() {
             let mut plain_to_cell = Vec::new();
             let mut text_chars = Vec::new();
             for (cell_idx, sc) in line.chars.iter().enumerate() {
@@ -998,7 +1042,13 @@ impl TerminalBuffer {
     fn scroll_region_up(&mut self, n: usize) {
         let (t, b) = self.region();
         for _ in 0..n.min(b - t + 1) {
-            self.lines.remove(t);
+            let removed = self.lines.remove(t);
+            if t == 0 {
+                if self.alt_scrollback.len() >= self.max_lines {
+                    self.alt_scrollback.remove(0);
+                }
+                self.alt_scrollback.push(removed);
+            }
             self.lines.insert(b, TerminalLine::new());
         }
     }
@@ -1097,6 +1147,7 @@ impl TerminalBuffer {
         self.follow = true;
         self.scroll_region = None;
         self.wrap_pending = false;
+        self.alt_scrollback.clear();
     }
 
     fn leave_alt_screen(&mut self) {
@@ -1110,6 +1161,7 @@ impl TerminalBuffer {
             self.prev_line_col = 0;
             self.scroll_region = None;
             self.wrap_pending = false;
+            self.alt_scrollback.clear();
         }
     }
 
@@ -2024,15 +2076,15 @@ impl TerminalBuffer {
 
     /// Total number of lines currently buffered.
     pub fn total_lines(&self) -> usize {
-        self.lines.len()
+        if self.in_alt_screen() {
+            self.alt_scrollback.len() + self.lines.len()
+        } else {
+            self.lines.len()
+        }
     }
 
-    /// User scrolled up by `delta` lines. The alternate screen has no
-    /// scrollback (the program owns the whole screen), so this is a no-op there.
+    /// User scrolled up by `delta` lines.
     pub fn scroll_up(&mut self, delta: usize) {
-        if self.in_alt_screen() {
-            return;
-        }
         let total = self.total_lines();
         self.follow = false;
         self.scroll_offset = (self.scroll_offset + delta).min(total.saturating_sub(1));
@@ -2051,7 +2103,7 @@ impl TerminalBuffer {
     /// User scrolled to the very top (Home).
     pub fn scroll_to_top(&mut self) {
         let total = self.total_lines();
-        if total > 0 && !self.in_alt_screen() {
+        if total > 0 {
             self.follow = false;
             self.scroll_offset = total.saturating_sub(1);
         }
@@ -2115,32 +2167,88 @@ impl TerminalBuffer {
         )
     }
 
-    /// Alternate screen: the grid is shown exactly as the program drew it —
-    /// no re-wrapping, no scrollback — with the cursor at its grid position.
+    /// Alternate screen: renders the active screen grid along with preserved scrollback
+    /// when the user scrolls back.
     fn alt_screen_view(
         &self,
         viewport_height: usize,
         viewport_width: usize,
     ) -> (Vec<Line<'static>>, ScrollInfo, Option<(u16, u16)>) {
-        let shown = self.lines.len().min(viewport_height);
-        let mut result: Vec<Line<'static>> = self.lines[..shown]
-            .iter()
-            .map(TerminalLine::to_ratatui_line)
-            .collect();
+        let total = self.total_lines();
+        if self.follow || self.scroll_offset == 0 {
+            let shown = self.lines.len().min(viewport_height);
+            let mut result: Vec<Line<'static>> = self.lines[..shown]
+                .iter()
+                .enumerate()
+                .map(|(idx, line)| {
+                    chars_to_ratatui_line_with_search_and_selection(
+                        &line.chars,
+                        0,
+                        self.alt_scrollback.len() + idx,
+                        &self.search,
+                        self.selection.as_ref(),
+                    )
+                })
+                .collect();
+            result.resize(viewport_height, Line::from(""));
+            let cursor = (self.cursor_visible
+                && self.cursor_row < viewport_height
+                && self.cursor_col < viewport_width)
+                .then_some((self.cursor_col as u16, self.cursor_row as u16));
+            return (
+                result,
+                ScrollInfo {
+                    total_lines: total,
+                    viewport_height,
+                    start_line: self.alt_scrollback.len(),
+                    end_line: self.alt_scrollback.len() + shown,
+                    follow: true,
+                    scroll_offset: 0,
+                },
+                cursor,
+            );
+        }
+
+        let effective_offset = self.scroll_offset.min(total.saturating_sub(1));
+        let end_line = total.saturating_sub(effective_offset);
+        let start_line = end_line.saturating_sub(viewport_height);
+
+        let get_line = |idx: usize| -> &TerminalLine {
+            if idx < self.alt_scrollback.len() {
+                &self.alt_scrollback[idx]
+            } else {
+                &self.lines[idx - self.alt_scrollback.len()]
+            }
+        };
+
+        let mut result = Vec::with_capacity(end_line.saturating_sub(start_line));
+        for i in start_line..end_line {
+            result.push(chars_to_ratatui_line_with_search_and_selection(
+                &get_line(i).chars,
+                0,
+                i,
+                &self.search,
+                self.selection.as_ref(),
+            ));
+        }
         result.resize(viewport_height, Line::from(""));
+
+        let cursor_idx = self.alt_scrollback.len() + self.cursor_row;
         let cursor = (self.cursor_visible
-            && self.cursor_row < viewport_height
+            && cursor_idx >= start_line
+            && cursor_idx < end_line
             && self.cursor_col < viewport_width)
-            .then_some((self.cursor_col as u16, self.cursor_row as u16));
+            .then_some((self.cursor_col as u16, (cursor_idx - start_line) as u16));
+
         (
             result,
             ScrollInfo {
-                total_lines: self.lines.len(),
+                total_lines: total,
                 viewport_height,
-                start_line: 0,
-                end_line: shown,
-                follow: true,
-                scroll_offset: 0,
+                start_line,
+                end_line,
+                follow: false,
+                scroll_offset: effective_offset,
             },
             cursor,
         )
@@ -3009,5 +3117,53 @@ mod tests {
         buf.clear_selection();
         assert!(!buf.is_selecting());
         assert_eq!(buf.extract_selected_text(), None);
+    }
+
+    #[test]
+    fn test_alt_screen_scrollback_preservation_and_scrolling() {
+        let mut buf = TerminalBuffer::new(100);
+        buf.resize(4, 20);
+        // Enter alternate screen (\x1b[?1049h)
+        buf.push_str("\x1b[?1049h");
+        assert!(buf.in_alt_screen());
+
+        // Fill grid (4 lines)
+        buf.push_str("Line 1\r\nLine 2\r\nLine 3\r\nLine 4");
+        assert_eq!(buf.alt_scrollback.len(), 0);
+
+        // Print more lines, causing scroll_region_up to trigger
+        buf.push_str("\r\nLine 5\r\nLine 6");
+        // Lines 1 and 2 should have been preserved into alt_scrollback!
+        assert_eq!(buf.alt_scrollback.len(), 2);
+        assert_eq!(buf.alt_scrollback[0].to_plain_string(), "Line 1");
+        assert_eq!(buf.alt_scrollback[1].to_plain_string(), "Line 2");
+        assert_eq!(buf.total_lines(), 6);
+
+        // Live view (offset == 0) shows the live grid
+        let (lines, info, _) = buf.get_visible_lines_wrapped(4, 20);
+        assert_eq!(info.scroll_offset, 0);
+        assert!(info.follow);
+        assert_eq!(lines[0].spans[0].content, "Line 3");
+
+        // Scroll up by 2 lines
+        buf.scroll_up(2);
+        assert!(!buf.follow);
+        assert_eq!(buf.scroll_offset, 2);
+
+        // Scrolled view shows Line 1 and Line 2 from alt_scrollback
+        let (scrolled_lines, scrolled_info, _) = buf.get_visible_lines_wrapped(4, 20);
+        assert_eq!(scrolled_info.scroll_offset, 2);
+        assert!(!scrolled_info.follow);
+        assert_eq!(scrolled_lines[0].spans[0].content, "Line 1");
+        assert_eq!(scrolled_lines[1].spans[0].content, "Line 2");
+
+        // Scroll to top
+        buf.scroll_to_top();
+        assert_eq!(buf.scroll_offset, 5);
+
+        // Scroll to bottom
+        buf.scroll_to_bottom();
+        assert_eq!(buf.scroll_offset, 0);
+        assert!(buf.follow);
     }
 }

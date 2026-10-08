@@ -299,7 +299,7 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
                     .add_modifier(Modifier::BOLD),
             ),
             Span::styled(
-                " | [/] Search | [v] Select | [o] Links | Press End/Esc to return] ",
+                " | [k/j] Line | [u/d] Page | [v] Select | [/] Search | [o] Links | [Esc/q] Live] ",
                 Style::default()
                     .fg(Color::Yellow)
                     .add_modifier(Modifier::BOLD),

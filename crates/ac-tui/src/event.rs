@@ -319,6 +319,58 @@ pub fn active_sessions_for_account(app: &App, account_id: &Id) -> usize {
         .count()
 }
 
+/// Handle mouse scroll wheel and click events.
+pub async fn handle_mouse(
+    app: &mut App,
+    _client: &ApiClient,
+    mouse: crossterm::event::MouseEvent,
+) -> Result<()> {
+    match mouse.kind {
+        crossterm::event::MouseEventKind::ScrollUp => {
+            if let Some(ref mut modal) = app.active_modal {
+                match modal {
+                    Modal::UrlPicker { selected_index, .. } => {
+                        *selected_index = selected_index.saturating_sub(1);
+                    }
+                    Modal::CommandPalette { selected_index, .. } => {
+                        *selected_index = selected_index.saturating_sub(1);
+                    }
+                    _ => {}
+                }
+            } else if let Some(ref detail_id) = app.session_detail_id.clone() {
+                app.scroll_session_terminal_up(&detail_id.0, 3);
+            } else {
+                app.prev_row();
+            }
+        }
+        crossterm::event::MouseEventKind::ScrollDown => {
+            if let Some(ref mut modal) = app.active_modal {
+                match modal {
+                    Modal::UrlPicker {
+                        selected_index,
+                        urls,
+                        ..
+                    } => {
+                        if *selected_index + 1 < urls.len() {
+                            *selected_index += 1;
+                        }
+                    }
+                    Modal::CommandPalette { selected_index, .. } => {
+                        *selected_index += 1;
+                    }
+                    _ => {}
+                }
+            } else if let Some(ref detail_id) = app.session_detail_id.clone() {
+                app.scroll_session_terminal_down(&detail_id.0, 3);
+            } else {
+                app.next_row();
+            }
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
 /// Handle pasted text received either via bracketed paste or explicit clipboard paste.
 pub async fn handle_paste(app: &mut App, client: &ApiClient, text: &str) -> Result<()> {
     if text.is_empty() {
@@ -2097,27 +2149,26 @@ pub async fn handle_key(app: &mut App, client: &ApiClient, key: KeyEvent) -> Res
             }
         }
 
-        // A full-screen program (alternate screen) has no local scrollback:
-        // page keys go to the program itself, as in a normal terminal.
-        if app.session_in_alt_screen(&detail_id.0)
-            && matches!(key.code, KeyCode::PageUp | KeyCode::PageDown)
+        // Dedicated scroll navigation (works in both normal and alternate screen):
+        // PageUp / PageDown, Shift+Up / Down, Ctrl+Up / Down, Alt+Up / Down
+        if matches!(key.code, KeyCode::PageUp)
+            || (key.code == KeyCode::Up
+                && (key.modifiers.contains(KeyModifiers::SHIFT)
+                    || key.modifiers.contains(KeyModifiers::CONTROL)
+                    || key.modifiers.contains(KeyModifiers::ALT)))
         {
-            let seq = if key.code == KeyCode::PageUp {
-                "\x1b[5~"
-            } else {
-                "\x1b[6~"
-            };
-            let _ = client.send_input(&detail_id, seq).await;
+            let delta = if key.code == KeyCode::PageUp { 10 } else { 3 };
+            app.scroll_session_terminal_up(&detail_id.0, delta);
             return Ok(());
         }
-
-        // Dedicated Scroll navigation
-        if key.code == KeyCode::PageUp {
-            app.scroll_session_terminal_up(&detail_id.0, 10);
-            return Ok(());
-        }
-        if key.code == KeyCode::PageDown {
-            app.scroll_session_terminal_down(&detail_id.0, 10);
+        if matches!(key.code, KeyCode::PageDown)
+            || (key.code == KeyCode::Down
+                && (key.modifiers.contains(KeyModifiers::SHIFT)
+                    || key.modifiers.contains(KeyModifiers::CONTROL)
+                    || key.modifiers.contains(KeyModifiers::ALT)))
+        {
+            let delta = if key.code == KeyCode::PageDown { 10 } else { 3 };
+            app.scroll_session_terminal_down(&detail_id.0, delta);
             return Ok(());
         }
 
@@ -2248,11 +2299,15 @@ pub async fn handle_key(app: &mut App, client: &ApiClient, key: KeyEvent) -> Res
                     }
                     return Ok(());
                 }
-                KeyCode::Home => {
+                KeyCode::Home | KeyCode::Char('g') => {
                     app.scroll_session_terminal_top(&detail_id.0);
                     return Ok(());
                 }
-                KeyCode::End | KeyCode::Esc => {
+                KeyCode::End | KeyCode::Char('G') => {
+                    app.scroll_session_terminal_bottom(&detail_id.0);
+                    return Ok(());
+                }
+                KeyCode::Esc | KeyCode::Char('q') => {
                     app.scroll_session_terminal_bottom(&detail_id.0);
                     return Ok(());
                 }
@@ -2260,6 +2315,22 @@ pub async fn handle_key(app: &mut App, client: &ApiClient, key: KeyEvent) -> Res
                     // Up and Down are dedicated to prompt history navigation;
                     // snap to bottom so user is at the live input line.
                     app.scroll_session_terminal_bottom(&detail_id.0);
+                }
+                KeyCode::Char('k') => {
+                    app.scroll_session_terminal_up(&detail_id.0, 1);
+                    return Ok(());
+                }
+                KeyCode::Char('j') => {
+                    app.scroll_session_terminal_down(&detail_id.0, 1);
+                    return Ok(());
+                }
+                KeyCode::PageUp | KeyCode::Char('u') => {
+                    app.scroll_session_terminal_up(&detail_id.0, 10);
+                    return Ok(());
+                }
+                KeyCode::PageDown | KeyCode::Char('d') => {
+                    app.scroll_session_terminal_down(&detail_id.0, 10);
+                    return Ok(());
                 }
                 _ => {
                     // Typing any key immediately snaps back to live bottom to interact

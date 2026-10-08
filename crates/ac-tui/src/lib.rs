@@ -13,7 +13,10 @@ pub mod views;
 use anyhow::Result;
 use crossterm::{
     cursor::Show,
-    event::{DisableBracketedPaste, EnableBracketedPaste, Event, EventStream},
+    event::{
+        DisableBracketedPaste, DisableMouseCapture, EnableBracketedPaste, EnableMouseCapture,
+        Event, EventStream,
+    },
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
@@ -33,6 +36,7 @@ impl Drop for TerminalGuard {
         let _ = execute!(
             stdout(),
             DisableBracketedPaste,
+            DisableMouseCapture,
             LeaveAlternateScreen,
             Show,
             crossterm::cursor::SetCursorStyle::DefaultUserShape,
@@ -45,7 +49,12 @@ pub async fn run_tui(socket_path: PathBuf) -> Result<()> {
     // ── 1. Setup terminal ───────────────────────────────────────────────────
     enable_raw_mode()?;
     let mut out = stdout();
-    execute!(out, EnterAlternateScreen, EnableBracketedPaste)?;
+    execute!(
+        out,
+        EnterAlternateScreen,
+        EnableBracketedPaste,
+        EnableMouseCapture
+    )?;
     let _guard = TerminalGuard;
 
     // Install panic hook to restore terminal before printing panics
@@ -55,6 +64,7 @@ pub async fn run_tui(socket_path: PathBuf) -> Result<()> {
         let _ = execute!(
             stdout(),
             DisableBracketedPaste,
+            DisableMouseCapture,
             LeaveAlternateScreen,
             Show,
             crossterm::cursor::SetCursorStyle::DefaultUserShape,
@@ -102,6 +112,9 @@ pub async fn run_tui(socket_path: PathBuf) -> Result<()> {
                 match evt {
                     Event::Key(key) => {
                         let _ = event::handle_key(&mut app, &client, key).await;
+                    }
+                    Event::Mouse(mouse) => {
+                        let _ = event::handle_mouse(&mut app, &client, mouse).await;
                     }
                     Event::Paste(ref text) => {
                         let _ = event::handle_paste(&mut app, &client, text).await;
