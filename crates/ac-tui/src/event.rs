@@ -322,7 +322,7 @@ pub fn active_sessions_for_account(app: &App, account_id: &Id) -> usize {
 /// Handle mouse scroll wheel and click events.
 pub async fn handle_mouse(
     app: &mut App,
-    _client: &ApiClient,
+    client: &ApiClient,
     mouse: crossterm::event::MouseEvent,
 ) -> Result<()> {
     match mouse.kind {
@@ -364,6 +364,168 @@ pub async fn handle_mouse(
                 app.scroll_session_terminal_down(&detail_id.0, 3);
             } else {
                 app.next_row();
+            }
+        }
+        crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left) => {
+            if app.active_modal.is_none() {
+                if let Some(ref detail_id) = app.session_detail_id.clone() {
+                    let (cols, rows) = crossterm::terminal::size().unwrap_or((80, 24));
+                    let (header_h, footer_h) = if rows < 3 {
+                        (0, 0)
+                    } else if rows < 5 {
+                        (1, 0)
+                    } else {
+                        (1, 1)
+                    };
+                    let term_inner_h = rows.saturating_sub(header_h + footer_h) as usize;
+                    let term_inner_w = cols as usize;
+
+                    if mouse.row >= header_h && mouse.row < header_h + term_inner_h as u16 {
+                        let rel_row = (mouse.row - header_h) as usize;
+                        let rel_col = (mouse.column as usize).min(term_inner_w.saturating_sub(1));
+
+                        let now = std::time::Instant::now();
+                        let is_multiclick = app
+                            .mouse_selection
+                            .last_click_time
+                            .map(|t| now.duration_since(t) < std::time::Duration::from_millis(400))
+                            .unwrap_or(false)
+                            && app.mouse_selection.last_click_pos == (mouse.column, mouse.row);
+
+                        let click_count = if is_multiclick {
+                            (app.mouse_selection.click_count % 3) + 1
+                        } else {
+                            1
+                        };
+                        app.mouse_selection.click_count = click_count;
+                        app.mouse_selection.last_click_time = Some(now);
+                        app.mouse_selection.last_click_pos = (mouse.column, mouse.row);
+                        app.mouse_selection.is_dragging = true;
+
+                        if let Some(buf) = app.session_terminal_buffers.get_mut(&detail_id.0) {
+                            let buf_pos = buf.screen_to_buffer_pos(
+                                rel_col,
+                                rel_row,
+                                term_inner_h,
+                                term_inner_w,
+                            );
+                            match click_count {
+                                1 => buf.start_selection_at(buf_pos),
+                                2 => buf.select_word_at(buf_pos),
+                                3 => buf.select_line_at(buf_pos.row),
+                                _ => buf.start_selection_at(buf_pos),
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        crossterm::event::MouseEventKind::Drag(crossterm::event::MouseButton::Left) => {
+            if app.active_modal.is_none() && app.mouse_selection.is_dragging {
+                if let Some(ref detail_id) = app.session_detail_id.clone() {
+                    let (cols, rows) = crossterm::terminal::size().unwrap_or((80, 24));
+                    let (header_h, footer_h) = if rows < 3 {
+                        (0, 0)
+                    } else if rows < 5 {
+                        (1, 0)
+                    } else {
+                        (1, 1)
+                    };
+                    let term_inner_h = rows.saturating_sub(header_h + footer_h) as usize;
+                    let term_inner_w = cols as usize;
+
+                    // Auto-scroll when dragging near viewport boundaries
+                    if mouse.row < header_h {
+                        app.scroll_session_terminal_up(&detail_id.0, 1);
+                    } else if mouse.row >= header_h + term_inner_h as u16 {
+                        app.scroll_session_terminal_down(&detail_id.0, 1);
+                    }
+
+                    let rel_row = (mouse.row.saturating_sub(header_h) as usize)
+                        .min(term_inner_h.saturating_sub(1));
+                    let rel_col = (mouse.column as usize).min(term_inner_w.saturating_sub(1));
+
+                    if let Some(buf) = app.session_terminal_buffers.get_mut(&detail_id.0) {
+                        let buf_pos = buf.screen_to_buffer_pos(
+                            rel_col,
+                            rel_row,
+                            term_inner_h,
+                            term_inner_w,
+                        );
+                        buf.update_selection_cursor(buf_pos);
+                    }
+                }
+            }
+        }
+        crossterm::event::MouseEventKind::Up(crossterm::event::MouseButton::Left) => {
+            if app.mouse_selection.is_dragging {
+                app.mouse_selection.is_dragging = false;
+                if let Some(ref detail_id) = app.session_detail_id.clone() {
+                    let copied_text = if let Some(buf) = app.session_terminal_buffers.get_mut(&detail_id.0) {
+                        let should_extract = buf.selection.as_ref().map_or(false, |sel| {
+                            !sel.is_empty() || app.mouse_selection.click_count > 1
+                        });
+                        if should_extract {
+                            buf.extract_selected_text()
+                        } else {
+                            buf.clear_selection();
+                            None
+                        }
+                    } else {
+                        None
+                    };
+
+                    if let Some(text) = copied_text {
+                        if !text.is_empty() {
+                            crate::clipboard::copy(&text);
+                            let line_count = text.lines().count();
+                            let char_count = text.len();
+                            app.set_status(
+                                format!(
+                                    "Copied {line_count} line(s), {char_count} char(s) to clipboard"
+                                ),
+                                StatusType::Success,
+                            );
+                        }
+                    }
+                }
+            }
+        }
+        crossterm::event::MouseEventKind::Up(crossterm::event::MouseButton::Right) => {
+            if app.active_modal.is_none() {
+                if let Some(ref detail_id) = app.session_detail_id.clone() {
+                    let has_selection = app
+                        .session_terminal_buffers
+                        .get(&detail_id.0)
+                        .map(|b| b.is_selecting())
+                        .unwrap_or(false);
+
+                    if has_selection {
+                        let copied_text = if let Some(buf) = app.session_terminal_buffers.get_mut(&detail_id.0) {
+                            let text = buf.extract_selected_text();
+                            buf.clear_selection();
+                            text
+                        } else {
+                            None
+                        };
+
+                        if let Some(text) = copied_text {
+                            if !text.is_empty() {
+                                crate::clipboard::copy(&text);
+                                let line_count = text.lines().count();
+                                let char_count = text.len();
+                                app.set_status(
+                                    format!(
+                                        "Copied {line_count} line(s), {char_count} char(s) to clipboard"
+                                    ),
+                                    StatusType::Success,
+                                );
+                            }
+                        }
+                    } else if let Some(pasted) = crate::clipboard::paste() {
+                        handle_paste(app, client, &pasted).await?;
+                    }
+                }
             }
         }
         _ => {}
@@ -2048,6 +2210,43 @@ pub async fn handle_key(app: &mut App, client: &ApiClient, key: KeyEvent) -> Res
             return Ok(());
         }
 
+        // Copy selection shortcut: Ctrl+Shift+C
+        if key.modifiers.contains(KeyModifiers::CONTROL)
+            && key.modifiers.contains(KeyModifiers::SHIFT)
+            && matches!(key.code, KeyCode::Char('c') | KeyCode::Char('C'))
+        {
+            if let Some(buf) = app.session_terminal_buffers.get_mut(&detail_id.0) {
+                if let Some(text) = buf.extract_selected_text() {
+                    if !text.is_empty() {
+                        crate::clipboard::copy(&text);
+                        let line_count = text.lines().count();
+                        let char_count = text.len();
+                        app.set_status(
+                            format!("Copied {line_count} line(s), {char_count} char(s) to clipboard"),
+                            StatusType::Success,
+                        );
+                        return Ok(());
+                    }
+                }
+            }
+        }
+
+        // Cancel selection shortcut: Esc (when selection is active and not searching)
+        if key.code == KeyCode::Esc {
+            let is_selecting = app
+                .session_terminal_buffers
+                .get(&detail_id.0)
+                .map(|b| b.is_selecting())
+                .unwrap_or(false);
+            if is_selecting {
+                if let Some(buf) = app.session_terminal_buffers.get_mut(&detail_id.0) {
+                    buf.clear_selection();
+                }
+                app.set_status("Selection cleared", StatusType::Info);
+                return Ok(());
+            }
+        }
+
         // If interactive scrollback search is currently active:
         let is_search_active = app
             .session_terminal_buffers
@@ -2386,6 +2585,12 @@ pub async fn handle_key(app: &mut App, client: &ApiClient, key: KeyEvent) -> Res
         }
 
         // Direct keyboard input to agent PTY stdin
+        if let Some(buf) = app.session_terminal_buffers.get_mut(&detail_id.0) {
+            if buf.is_selecting() {
+                buf.clear_selection();
+            }
+        }
+
         match key.code {
             KeyCode::Char(c) => {
                 if !app.session_in_alt_screen(&detail_id.0) {

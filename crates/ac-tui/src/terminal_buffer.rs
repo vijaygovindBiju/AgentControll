@@ -342,6 +342,11 @@ impl TerminalSelection {
             true
         }
     }
+
+    /// Whether the selection is empty (anchor and cursor at the same cell).
+    pub fn is_empty(&self) -> bool {
+        self.anchor == self.cursor
+    }
 }
 
 /// Render a slice of characters to a ratatui line with search matches and visual selection highlighted.
@@ -695,6 +700,278 @@ impl TerminalBuffer {
         self.selection = Some(TerminalSelection::new(pos));
     }
 
+    /// Start visual selection at an explicit buffer position (e.g. mouse cursor click).
+    pub fn start_selection_at(&mut self, pos: BufferPos) {
+        if self.lines.is_empty() && self.alt_scrollback.is_empty() {
+            return;
+        }
+        self.follow = false;
+        self.selection = Some(TerminalSelection::new(pos));
+    }
+
+    /// Update the selection cursor coordinate to an explicit buffer position (e.g. mouse drag).
+    pub fn update_selection_cursor(&mut self, pos: BufferPos) {
+        self.follow = false;
+        if let Some(ref mut sel) = self.selection {
+            sel.cursor = pos;
+        } else {
+            self.selection = Some(TerminalSelection::new(pos));
+        }
+    }
+
+    /// Select the word under the given buffer position (e.g. double-click).
+    pub fn select_word_at(&mut self, pos: BufferPos) {
+        if self.lines.is_empty() && self.alt_scrollback.is_empty() {
+            return;
+        }
+        self.follow = false;
+        let total = self.total_lines();
+        if total == 0 || pos.row >= total {
+            return;
+        }
+
+        let line_chars: Vec<char> = if self.in_alt_screen() {
+            if pos.row < self.alt_scrollback.len() {
+                self.alt_scrollback[pos.row]
+                    .chars
+                    .iter()
+                    .map(|sc| sc.c)
+                    .collect()
+            } else {
+                self.lines[pos.row - self.alt_scrollback.len()]
+                    .chars
+                    .iter()
+                    .map(|sc| sc.c)
+                    .collect()
+            }
+        } else {
+            self.lines[pos.row]
+                .chars
+                .iter()
+                .map(|sc| sc.c)
+                .collect()
+        };
+
+        if line_chars.is_empty() {
+            self.selection = Some(TerminalSelection::new(pos));
+            return;
+        }
+
+        let col = pos.col.min(line_chars.len().saturating_sub(1));
+        let target_char = line_chars[col];
+
+        fn is_word_char(c: char) -> bool {
+            c.is_alphanumeric() || c == '_' || c == '-' || c == '.' || c == '/' || c == ':'
+        }
+
+        let is_word = is_word_char(target_char);
+        let is_space = target_char.is_whitespace();
+
+        let mut start_col = col;
+        while start_col > 0 {
+            let prev = line_chars[start_col - 1];
+            if (is_word && is_word_char(prev))
+                || (is_space && prev.is_whitespace())
+                || (!is_word && !is_space && !is_word_char(prev) && !prev.is_whitespace())
+            {
+                start_col -= 1;
+            } else {
+                break;
+            }
+        }
+
+        let mut end_col = col;
+        while end_col + 1 < line_chars.len() {
+            let next = line_chars[end_col + 1];
+            if (is_word && is_word_char(next))
+                || (is_space && next.is_whitespace())
+                || (!is_word && !is_space && !is_word_char(next) && !next.is_whitespace())
+            {
+                end_col += 1;
+            } else {
+                break;
+            }
+        }
+
+        self.selection = Some(TerminalSelection {
+            anchor: BufferPos {
+                row: pos.row,
+                col: start_col,
+            },
+            cursor: BufferPos {
+                row: pos.row,
+                col: end_col,
+            },
+        });
+    }
+
+    /// Select the entire line under the given buffer row (e.g. triple-click).
+    pub fn select_line_at(&mut self, row: usize) {
+        if self.lines.is_empty() && self.alt_scrollback.is_empty() {
+            return;
+        }
+        self.follow = false;
+        let total = self.total_lines();
+        if total == 0 || row >= total {
+            return;
+        }
+
+        let line_len = if self.in_alt_screen() {
+            if row < self.alt_scrollback.len() {
+                self.alt_scrollback[row].chars.len()
+            } else {
+                self.lines[row - self.alt_scrollback.len()].chars.len()
+            }
+        } else {
+            self.lines[row].chars.len()
+        };
+
+        self.selection = Some(TerminalSelection {
+            anchor: BufferPos { row, col: 0 },
+            cursor: BufferPos {
+                row,
+                col: line_len.saturating_sub(1),
+            },
+        });
+    }
+
+    /// Convert screen viewport coordinates (rel_col, rel_row) into a buffer coordinate (`BufferPos`).
+    pub fn screen_to_buffer_pos(
+        &self,
+        rel_col: usize,
+        rel_row: usize,
+        viewport_height: usize,
+        viewport_width: usize,
+    ) -> BufferPos {
+        if viewport_height == 0 {
+            return BufferPos { row: 0, col: 0 };
+        }
+
+        if self.in_alt_screen() {
+            let total = self.total_lines();
+            if total == 0 {
+                return BufferPos { row: 0, col: 0 };
+            }
+            let (start_line, _) = if self.follow || self.scroll_offset == 0 {
+                let shown = self.lines.len().min(viewport_height);
+                (self.alt_scrollback.len(), self.alt_scrollback.len() + shown)
+            } else {
+                let max_offset = total.saturating_sub(viewport_height);
+                let effective_offset = self.scroll_offset.min(max_offset);
+                let end = total.saturating_sub(effective_offset);
+                (end.saturating_sub(viewport_height), end)
+            };
+            let row = (start_line + rel_row).min(total.saturating_sub(1));
+            let col = rel_col;
+            return BufferPos { row, col };
+        }
+
+        if viewport_width == 0 {
+            let total = self.lines.len();
+            if total == 0 {
+                return BufferPos { row: 0, col: 0 };
+            }
+            let max_offset = total.saturating_sub(viewport_height);
+            let effective_offset = if self.follow {
+                0
+            } else {
+                self.scroll_offset.min(max_offset)
+            };
+            let end_line = total.saturating_sub(effective_offset);
+            let start_line = end_line.saturating_sub(viewport_height);
+            let row = (start_line + rel_row).min(total.saturating_sub(1));
+            let col = rel_col;
+            return BufferPos { row, col };
+        }
+
+        struct VisualLineSpan {
+            buf_row: usize,
+            start_col: usize,
+            _end_col: usize,
+        }
+
+        let mut visual_spans = Vec::new();
+        for (r_idx, line) in self.lines.iter().enumerate() {
+            let effective_len = {
+                let mut e = line.chars.len();
+                while e > 0
+                    && line.chars[e - 1].c == ' '
+                    && line.chars[e - 1].style == Style::default()
+                {
+                    e -= 1;
+                }
+                e
+            };
+            if effective_len == 0 {
+                visual_spans.push(VisualLineSpan {
+                    buf_row: r_idx,
+                    start_col: 0,
+                    _end_col: 0,
+                });
+            } else if effective_len <= viewport_width {
+                visual_spans.push(VisualLineSpan {
+                    buf_row: r_idx,
+                    start_col: 0,
+                    _end_col: effective_len,
+                });
+            } else {
+                let mut start = 0;
+                while start < effective_len {
+                    let mut end = (start + viewport_width).min(effective_len);
+                    if end < effective_len && line.chars[end].c == WIDE_SPACER && end > start + 1 {
+                        end -= 1;
+                    }
+                    visual_spans.push(VisualLineSpan {
+                        buf_row: r_idx,
+                        start_col: start,
+                        _end_col: end,
+                    });
+                    start = end;
+                }
+            }
+        }
+
+        if self.cursor_row >= self.lines.len() {
+            visual_spans.push(VisualLineSpan {
+                buf_row: self.cursor_row,
+                start_col: 0,
+                _end_col: 0,
+            });
+        }
+
+        let total_visual = visual_spans.len();
+        if total_visual == 0 {
+            return BufferPos { row: 0, col: 0 };
+        }
+
+        let max_offset = total_visual.saturating_sub(viewport_height);
+        let effective_offset = if self.follow {
+            0
+        } else {
+            self.scroll_offset.min(max_offset)
+        };
+        let end_idx = total_visual.saturating_sub(effective_offset);
+        let start_idx = end_idx.saturating_sub(viewport_height);
+
+        let target_v_idx = start_idx + rel_row;
+        if target_v_idx < visual_spans.len() {
+            let span = &visual_spans[target_v_idx];
+            let line_len = self.lines.get(span.buf_row).map_or(0, |l| l.chars.len());
+            let col = (span.start_col + rel_col).min(line_len);
+            BufferPos {
+                row: span.buf_row,
+                col,
+            }
+        } else {
+            let last_row = self.lines.len().saturating_sub(1);
+            let line_len = self.lines.get(last_row).map_or(0, |l| l.chars.len());
+            BufferPos {
+                row: last_row,
+                col: line_len,
+            }
+        }
+    }
+
     /// Clear / cancel visual scrollback selection mode.
     pub fn clear_selection(&mut self) {
         self.selection = None;
@@ -800,24 +1077,23 @@ impl TerminalBuffer {
         let mut extracted_lines = Vec::new();
         for r in start.row..=end.row.min(total.saturating_sub(1)) {
             let line = get_line(r);
-            let plain_chars: Vec<char> = line
-                .chars
-                .iter()
-                .filter(|sc| sc.c != WIDE_SPACER)
-                .map(|sc| sc.c)
-                .collect();
+            let len = line.chars.len();
             let c_start = if r == start.row {
-                start.col.min(plain_chars.len())
+                start.col.min(len)
             } else {
                 0
             };
             let c_end = if r == end.row {
-                (end.col + 1).min(plain_chars.len())
+                (end.col + 1).min(len)
             } else {
-                plain_chars.len()
+                len
             };
             if c_start < c_end {
-                let s: String = plain_chars[c_start..c_end].iter().collect();
+                let s: String = line.chars[c_start..c_end]
+                    .iter()
+                    .filter(|sc| sc.c != WIDE_SPACER)
+                    .map(|sc| sc.c)
+                    .collect();
                 extracted_lines.push(s.trim_end().to_string());
             } else {
                 extracted_lines.push(String::new());
@@ -3201,5 +3477,48 @@ mod tests {
         buf.scroll_to_bottom();
         assert_eq!(buf.scroll_offset, 0);
         assert!(buf.follow);
+    }
+
+    #[test]
+    fn test_mouse_cursor_selection_and_coordinate_mapping() {
+        let mut buf = TerminalBuffer::new(100);
+        buf.push_str("Hello world\nThis is a test of cursor selection\nThird line here\n");
+
+        // Test screen_to_buffer_pos with unwrapped / wrapped viewport
+        let pos1 = buf.screen_to_buffer_pos(6, 0, 10, 80);
+        assert_eq!(pos1, BufferPos { row: 0, col: 6 }); // 'w' in "world"
+
+        let pos2 = buf.screen_to_buffer_pos(4, 1, 10, 80);
+        assert_eq!(pos2, BufferPos { row: 1, col: 4 }); // ' ' after "This"
+
+        // Mouse click down starts selection
+        buf.start_selection_at(pos1);
+        assert!(buf.is_selecting());
+        assert!(!buf.follow);
+        assert_eq!(buf.selection.as_ref().unwrap().anchor, pos1);
+        assert_eq!(buf.selection.as_ref().unwrap().cursor, pos1);
+        assert!(buf.selection.as_ref().unwrap().is_empty());
+
+        // Mouse drag updates cursor
+        buf.update_selection_cursor(BufferPos { row: 0, col: 10 });
+        assert!(!buf.selection.as_ref().unwrap().is_empty());
+        assert_eq!(buf.extract_selected_text(), Some("world".to_string()));
+
+        // Multi-line drag selection
+        buf.update_selection_cursor(BufferPos { row: 1, col: 3 });
+        let extracted = buf.extract_selected_text().unwrap();
+        assert_eq!(extracted, "world\nThis");
+
+        // Clear selection
+        buf.clear_selection();
+        assert!(!buf.is_selecting());
+
+        // Double click selects word
+        buf.select_word_at(BufferPos { row: 1, col: 12 }); // Inside "test"
+        assert_eq!(buf.extract_selected_text(), Some("test".to_string()));
+
+        // Triple click selects entire line
+        buf.select_line_at(0);
+        assert_eq!(buf.extract_selected_text(), Some("Hello world".to_string()));
     }
 }

@@ -1493,3 +1493,137 @@ async fn test_event_routing_slash_completion_navigation_vs_prompt_history() {
         .unwrap();
     assert_eq!(app.session_prompt_buffer(&sid.0), "/model --help");
 }
+
+#[tokio::test]
+async fn test_mouse_cursor_selection_in_terminal() {
+    let mut app = App::new();
+    let sid = Id::new();
+    let sess = ac_core::types::AgentSession::new(sid.clone(), "test-session".into(), "agy".into());
+    app.sessions.push(sess);
+    app.session_detail_id = Some(sid.clone());
+
+    let mut buf = TerminalBuffer::new(100);
+    buf.push_str("Selected terminal text with cursor\r\nSecond line\r\n");
+    app.session_terminal_buffers.insert(sid.0.clone(), buf);
+
+    let client = ApiClient::new("http://127.0.0.1:0".to_string());
+
+    // Mouse Left Down at column 0, row 1 (terminal area begins at row 1)
+    event::handle_mouse(
+        &mut app,
+        &client,
+        crossterm::event::MouseEvent {
+            kind: crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
+            column: 0,
+            row: 1,
+            modifiers: crossterm::event::KeyModifiers::NONE,
+        },
+    )
+    .await
+    .unwrap();
+
+    let tb = app.session_terminal_buffers.get(&sid.0).unwrap();
+    assert!(tb.is_selecting());
+    assert!(!tb.follow);
+
+    // Mouse Left Drag to column 7, row 1 ("Selected")
+    event::handle_mouse(
+        &mut app,
+        &client,
+        crossterm::event::MouseEvent {
+            kind: crossterm::event::MouseEventKind::Drag(crossterm::event::MouseButton::Left),
+            column: 7,
+            row: 1,
+            modifiers: crossterm::event::KeyModifiers::NONE,
+        },
+    )
+    .await
+    .unwrap();
+
+    let tb = app.session_terminal_buffers.get(&sid.0).unwrap();
+    assert_eq!(tb.extract_selected_text(), Some("Selected".to_string()));
+
+    // Mouse Left Up copies and retains selection
+    event::handle_mouse(
+        &mut app,
+        &client,
+        crossterm::event::MouseEvent {
+            kind: crossterm::event::MouseEventKind::Up(crossterm::event::MouseButton::Left),
+            column: 7,
+            row: 1,
+            modifiers: crossterm::event::KeyModifiers::NONE,
+        },
+    )
+    .await
+    .unwrap();
+
+    let tb = app.session_terminal_buffers.get(&sid.0).unwrap();
+    assert!(tb.is_selecting());
+
+    // Esc cancels selection
+    event::handle_key(
+        &mut app,
+        &client,
+        KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE),
+    )
+    .await
+    .unwrap();
+
+    let tb = app.session_terminal_buffers.get(&sid.0).unwrap();
+    assert!(!tb.is_selecting());
+
+    // Double-click at column 12, row 1 (word "terminal")
+    event::handle_mouse(
+        &mut app,
+        &client,
+        crossterm::event::MouseEvent {
+            kind: crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
+            column: 12,
+            row: 1,
+            modifiers: crossterm::event::KeyModifiers::NONE,
+        },
+    )
+    .await
+    .unwrap();
+    event::handle_mouse(
+        &mut app,
+        &client,
+        crossterm::event::MouseEvent {
+            kind: crossterm::event::MouseEventKind::Up(crossterm::event::MouseButton::Left),
+            column: 12,
+            row: 1,
+            modifiers: crossterm::event::KeyModifiers::NONE,
+        },
+    )
+    .await
+    .unwrap();
+    // Second click within 400ms at same position
+    event::handle_mouse(
+        &mut app,
+        &client,
+        crossterm::event::MouseEvent {
+            kind: crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
+            column: 12,
+            row: 1,
+            modifiers: crossterm::event::KeyModifiers::NONE,
+        },
+    )
+    .await
+    .unwrap();
+    event::handle_mouse(
+        &mut app,
+        &client,
+        crossterm::event::MouseEvent {
+            kind: crossterm::event::MouseEventKind::Up(crossterm::event::MouseButton::Left),
+            column: 12,
+            row: 1,
+            modifiers: crossterm::event::KeyModifiers::NONE,
+        },
+    )
+    .await
+    .unwrap();
+
+    let tb = app.session_terminal_buffers.get(&sid.0).unwrap();
+    assert!(tb.is_selecting());
+    assert_eq!(tb.extract_selected_text(), Some("terminal".to_string()));
+}

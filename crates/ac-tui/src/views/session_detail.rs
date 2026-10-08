@@ -278,7 +278,7 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
                     .add_modifier(Modifier::BOLD),
             ),
             Span::styled(
-                "move with hjkl/arrows | [y] Yank | [v/Esc] Cancel] ",
+                "drag with mouse or move with arrows | [y/Ctrl+Shift+C] Copy | [Esc] Cancel] ",
                 Style::default()
                     .fg(Color::White)
                     .add_modifier(Modifier::BOLD),

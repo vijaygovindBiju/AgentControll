@@ -382,6 +382,18 @@ pub struct App {
     pub settings_account_selected: usize,
     pub settings_project_selected: usize,
     pub settings_model_selected: usize,
+
+    // Mouse selection tracking
+    pub mouse_selection: MouseSelectionState,
+}
+
+/// Tracks mouse cursor drag and multi-click selection state.
+#[derive(Debug, Clone, Default)]
+pub struct MouseSelectionState {
+    pub is_dragging: bool,
+    pub last_click_time: Option<Instant>,
+    pub last_click_pos: (u16, u16),
+    pub click_count: usize,
 }
 
 impl Default for App {
@@ -435,6 +447,7 @@ impl App {
             settings_account_selected: 0,
             settings_project_selected: 0,
             settings_model_selected: 0,
+            mouse_selection: MouseSelectionState::default(),
         }
     }
 
