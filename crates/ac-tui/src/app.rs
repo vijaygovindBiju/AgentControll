@@ -391,6 +391,8 @@ pub struct App {
 #[derive(Debug, Clone, Default)]
 pub struct MouseSelectionState {
     pub is_dragging: bool,
+    pub drag_pos: Option<(u16, u16)>,
+    pub last_autoscroll_time: Option<Instant>,
     pub last_click_time: Option<Instant>,
     pub last_click_pos: (u16, u16),
     pub click_count: usize,
@@ -1100,7 +1102,15 @@ impl App {
             let term_buf = self
                 .session_terminal_buffers
                 .entry(session_id.0.clone())
-                .or_default();
+                .or_insert_with(|| {
+                    let mut b = TerminalBuffer::default();
+                    if let Ok((cols, rows)) = crossterm::terminal::size() {
+                        let p_rows = rows.saturating_sub(2).max(1);
+                        let p_cols = cols.max(1);
+                        b.resize(p_rows as usize, p_cols as usize);
+                    }
+                    b
+                });
 
             if let EventKind::AgentOutputReceived = event.kind {
                 let text = event.payload["text"].as_str().unwrap_or("");

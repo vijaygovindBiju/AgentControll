@@ -400,6 +400,7 @@ pub async fn handle_mouse(
                         app.mouse_selection.click_count = click_count;
                         app.mouse_selection.last_click_time = Some(now);
                         app.mouse_selection.last_click_pos = (mouse.column, mouse.row);
+                        app.mouse_selection.drag_pos = Some((mouse.column, mouse.row));
                         app.mouse_selection.is_dragging = true;
 
                         if let Some(buf) = app.session_terminal_buffers.get_mut(&detail_id.0) {
@@ -422,6 +423,7 @@ pub async fn handle_mouse(
         }
         crossterm::event::MouseEventKind::Drag(crossterm::event::MouseButton::Left) => {
             if app.active_modal.is_none() && app.mouse_selection.is_dragging {
+                app.mouse_selection.drag_pos = Some((mouse.column, mouse.row));
                 if let Some(ref detail_id) = app.session_detail_id.clone() {
                     let (cols, rows) = crossterm::terminal::size().unwrap_or((80, 24));
                     let (header_h, footer_h) = if rows < 3 {
@@ -434,11 +436,13 @@ pub async fn handle_mouse(
                     let term_inner_h = rows.saturating_sub(header_h + footer_h) as usize;
                     let term_inner_w = cols as usize;
 
-                    // Auto-scroll when dragging near viewport boundaries
-                    if mouse.row < header_h {
-                        app.scroll_session_terminal_up(&detail_id.0, 1);
-                    } else if mouse.row >= header_h + term_inner_h as u16 {
-                        app.scroll_session_terminal_down(&detail_id.0, 1);
+                    // Auto-scroll when dragging to or past viewport boundaries
+                    if mouse.row <= header_h {
+                        let delta = if mouse.row < header_h { 2 } else { 1 };
+                        app.scroll_session_terminal_up(&detail_id.0, delta);
+                    } else if mouse.row + 1 >= header_h + term_inner_h as u16 {
+                        let delta = if mouse.row >= header_h + term_inner_h as u16 { 2 } else { 1 };
+                        app.scroll_session_terminal_down(&detail_id.0, delta);
                     }
 
                     let rel_row = (mouse.row.saturating_sub(header_h) as usize)
@@ -460,6 +464,7 @@ pub async fn handle_mouse(
         crossterm::event::MouseEventKind::Up(crossterm::event::MouseButton::Left) => {
             if app.mouse_selection.is_dragging {
                 app.mouse_selection.is_dragging = false;
+                app.mouse_selection.drag_pos = None;
                 if let Some(ref detail_id) = app.session_detail_id.clone() {
                     let copied_text = if let Some(buf) = app.session_terminal_buffers.get_mut(&detail_id.0) {
                         let should_extract = buf.selection.as_ref().map_or(false, |sel| {
@@ -531,6 +536,71 @@ pub async fn handle_mouse(
         _ => {}
     }
     Ok(())
+}
+
+/// Auto-scroll terminal buffer and expand visual selection when mouse cursor is held at or past viewport edges.
+pub fn handle_mouse_autoscroll(app: &mut App) {
+    if !app.mouse_selection.is_dragging {
+        return;
+    }
+    let Some((col, row)) = app.mouse_selection.drag_pos else {
+        return;
+    };
+    let Some(ref detail_id) = app.session_detail_id.clone() else {
+        return;
+    };
+
+    let (cols, rows) = crossterm::terminal::size().unwrap_or((80, 24));
+    let (header_h, footer_h) = if rows < 3 {
+        (0, 0)
+    } else if rows < 5 {
+        (1, 0)
+    } else {
+        (1, 1)
+    };
+    let term_inner_h = rows.saturating_sub(header_h + footer_h) as usize;
+    let term_inner_w = cols as usize;
+
+    let is_top = row <= header_h;
+    let is_bottom = row + 1 >= header_h + term_inner_h as u16;
+
+    if !is_top && !is_bottom {
+        return;
+    }
+
+    let now = std::time::Instant::now();
+    if let Some(last_scroll) = app.mouse_selection.last_autoscroll_time {
+        if now.duration_since(last_scroll) < std::time::Duration::from_millis(50) {
+            return;
+        }
+    }
+    app.mouse_selection.last_autoscroll_time = Some(now);
+
+    if is_top {
+        let delta = if row < header_h { 2 } else { 1 };
+        app.scroll_session_terminal_up(&detail_id.0, delta);
+        if let Some(buf) = app.session_terminal_buffers.get_mut(&detail_id.0) {
+            let buf_pos = buf.screen_to_buffer_pos(
+                (col as usize).min(term_inner_w.saturating_sub(1)),
+                0,
+                term_inner_h,
+                term_inner_w,
+            );
+            buf.update_selection_cursor(buf_pos);
+        }
+    } else if is_bottom {
+        let delta = if row >= header_h + term_inner_h as u16 { 2 } else { 1 };
+        app.scroll_session_terminal_down(&detail_id.0, delta);
+        if let Some(buf) = app.session_terminal_buffers.get_mut(&detail_id.0) {
+            let buf_pos = buf.screen_to_buffer_pos(
+                (col as usize).min(term_inner_w.saturating_sub(1)),
+                term_inner_h.saturating_sub(1),
+                term_inner_h,
+                term_inner_w,
+            );
+            buf.update_selection_cursor(buf_pos);
+        }
+    }
 }
 
 /// Handle pasted text received either via bracketed paste or explicit clipboard paste.

@@ -151,6 +151,7 @@ pub async fn run_tui(socket_path: PathBuf) -> Result<()> {
             // Periodic tick for animations, status expiry, and reconnection
             _ = tick_interval.tick() => {
                 app.clear_expired_status();
+                event::handle_mouse_autoscroll(&mut app);
                 event::poll_agy_login(&mut app, &client).await;
                 launch::poll_jobs(&mut app);
                 if app.drain_background_notices() {

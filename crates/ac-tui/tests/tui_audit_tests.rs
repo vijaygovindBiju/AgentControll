@@ -1627,3 +1627,70 @@ async fn test_mouse_cursor_selection_in_terminal() {
     assert!(tb.is_selecting());
     assert_eq!(tb.extract_selected_text(), Some("terminal".to_string()));
 }
+
+#[tokio::test]
+async fn test_mouse_cursor_autoscroll_at_top_boundary() {
+    let mut app = App::new();
+    let sid = Id::new();
+    let sess = ac_core::types::AgentSession::new(sid.clone(), "test-session".into(), "agy".into());
+    app.sessions.push(sess);
+    app.session_detail_id = Some(sid.clone());
+
+    let mut buf = TerminalBuffer::new(500);
+    for i in 1..=60 {
+        buf.push_str(&format!("Line {i:02} of terminal build output\r\n"));
+    }
+    app.session_terminal_buffers.insert(sid.0.clone(), buf);
+
+    let client = ApiClient::new("http://127.0.0.1:0".to_string());
+
+    // 1. Start selection at row 10
+    event::handle_mouse(
+        &mut app,
+        &client,
+        crossterm::event::MouseEvent {
+            kind: crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
+            column: 5,
+            row: 10,
+            modifiers: crossterm::event::KeyModifiers::NONE,
+        },
+    )
+    .await
+    .unwrap();
+
+    let initial_offset = app.session_terminal_buffers.get(&sid.0).unwrap().scroll_offset;
+    assert_eq!(initial_offset, 0);
+
+    // 2. Drag cursor to row 0 (top header boundary)
+    event::handle_mouse(
+        &mut app,
+        &client,
+        crossterm::event::MouseEvent {
+            kind: crossterm::event::MouseEventKind::Drag(crossterm::event::MouseButton::Left),
+            column: 5,
+            row: 0,
+            modifiers: crossterm::event::KeyModifiers::NONE,
+        },
+    )
+    .await
+    .unwrap();
+
+    let tb = app.session_terminal_buffers.get(&sid.0).unwrap();
+    assert!(tb.is_selecting());
+    assert!(tb.scroll_offset > 0, "Expected immediate scroll up on drag to top");
+    let first_scroll_offset = tb.scroll_offset;
+
+    // 3. User holds cursor at the top: simulate periodic tick autoscrolling
+    app.mouse_selection.last_autoscroll_time = None;
+    event::handle_mouse_autoscroll(&mut app);
+
+    let tb = app.session_terminal_buffers.get(&sid.0).unwrap();
+    assert!(tb.scroll_offset > first_scroll_offset, "Expected continuous autoscroll up on tick");
+    let second_scroll_offset = tb.scroll_offset;
+
+    // Further ticks continue moving the terminal automatically upwards
+    app.mouse_selection.last_autoscroll_time = None;
+    event::handle_mouse_autoscroll(&mut app);
+    let tb = app.session_terminal_buffers.get(&sid.0).unwrap();
+    assert!(tb.scroll_offset > second_scroll_offset, "Expected terminal to keep moving upwards");
+}
