@@ -1538,8 +1538,30 @@ impl TerminalBuffer {
                         self.cursor_col = self.cursor_col.min(self.cols - 1);
                     }
                 }
-                '\x08' | '\x7f' => {
-                    // Backspace / Delete
+                '\x08' => {
+                    // Backspace: move cursor backward 1 column (non-destructive)
+                    let old_col = if self.cursor_col == 0 && self.prev_line_col > 0 {
+                        self.prev_line_col
+                    } else {
+                        self.cursor_col
+                    };
+                    self.cursor_col = old_col.saturating_sub(1);
+                    self.prev_line_col = 0;
+                    self.wrap_pending = false;
+                    if !self.in_alt_screen() && self.cursor_row < self.lines.len() {
+                        let line = &mut self.lines[self.cursor_row];
+                        if old_col >= line.chars.len()
+                            && line
+                                .chars
+                                .last()
+                                .is_some_and(|sc| sc.c == ' ' && sc.style == ratatui::style::Style::default())
+                        {
+                            line.trim_trailing_spaces();
+                        }
+                    }
+                }
+                '\x7f' => {
+                    // DEL byte
                     let old_col = if self.cursor_col == 0 && self.prev_line_col > 0 {
                         self.prev_line_col
                     } else {

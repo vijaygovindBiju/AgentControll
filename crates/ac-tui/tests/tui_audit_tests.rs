@@ -981,7 +981,7 @@ fn test_backspace_removes_stale_characters_completely() {
 
     // 3. Backspace 3 more times down to "he" ('o', 'l', 'l')
     buf.push_str("\x08 \x08"); // 'o'
-    buf.push_str("\x08"); // 'l' (bare backspace)
+    buf.push_str("\x08 \x08"); // 'l'
     buf.push_str("\x08 \x08"); // 'l'
     assert_eq!(buf.lines[0].to_plain_string(), "he");
     assert_eq!(buf.cursor_col, 2);
@@ -992,7 +992,7 @@ fn test_backspace_removes_stale_characters_completely() {
 
     // 4. Backspace 2 more times down to <empty> ('e', 'h')
     buf.push_str("\x08 \x08"); // 'e'
-    buf.push_str("\x08"); // 'h' (bare backspace)
+    buf.push_str("\x08 \x08"); // 'h'
     assert_eq!(buf.lines[0].to_plain_string(), "");
     assert_eq!(buf.cursor_col, 0);
 
@@ -1172,7 +1172,7 @@ async fn test_prompt_history_replace_longer_with_shorter_in_session_detail() {
 
     // Simulate PTY receiving 25 backspaces and "cargo test":
     for _ in 0..25 {
-        tb.push_str("\x08");
+        tb.push_str("\x08 \x08");
     }
     tb.push_str("cargo test");
     // Displayed buffer must contain "cargo test" with NO leftover "project" or "about"
@@ -1186,19 +1186,19 @@ async fn test_prompt_history_replace_longer_with_shorter_in_session_detail() {
 
     // Backspace 6 times -> "hello"
     for _ in 0..6 {
-        tb.push_str("\x08");
+        tb.push_str("\x08 \x08");
     }
     assert_eq!(tb.lines[0].to_plain_string(), "hello");
 
     // Backspace 3 times -> "he"
     for _ in 0..3 {
-        tb.push_str("\x08");
+        tb.push_str("\x08 \x08");
     }
     assert_eq!(tb.lines[0].to_plain_string(), "he");
 
     // Backspace 2 times -> empty
     for _ in 0..2 {
-        tb.push_str("\x08");
+        tb.push_str("\x08 \x08");
     }
     assert_eq!(tb.lines[0].to_plain_string(), "");
 }
@@ -1754,5 +1754,47 @@ async fn test_multiline_paste_and_prompt_history_cohesion() {
     .unwrap();
 
     assert_eq!(app.session_prompt_buffer(&sid.0), "");
+}
+
+#[test]
+fn test_left_and_right_arrow_navigation_preserves_input_text() {
+    let mut buf = TerminalBuffer::new(500);
+
+    // 1. Initial input: user types "cargo test"
+    buf.push_str("cargo test");
+    assert_eq!(buf.lines[0].to_plain_string(), "cargo test");
+    assert_eq!(buf.cursor_col, 10);
+
+    // 2. Press Left Arrow: agy/readline sends \x08 (terminfo cub1)
+    // Moving cursor backward MUST NOT truncate or erase characters.
+    buf.push_str("\x08"); // cursor over 't'
+    assert_eq!(buf.cursor_col, 9);
+    assert_eq!(buf.lines[0].to_plain_string(), "cargo test");
+
+    buf.push_str("\x08"); // cursor over 's'
+    assert_eq!(buf.cursor_col, 8);
+    assert_eq!(buf.lines[0].to_plain_string(), "cargo test");
+
+    buf.push_str("\x08"); // cursor over 'e'
+    assert_eq!(buf.cursor_col, 7);
+    assert_eq!(buf.lines[0].to_plain_string(), "cargo test");
+
+    buf.push_str("\x08"); // cursor over 't'
+    assert_eq!(buf.cursor_col, 6);
+    assert_eq!(buf.lines[0].to_plain_string(), "cargo test");
+
+    // 3. Move cursor back to beginning via CSI D
+    buf.push_str("\x1b[6D");
+    assert_eq!(buf.cursor_col, 0);
+    assert_eq!(buf.lines[0].to_plain_string(), "cargo test");
+
+    // 4. Move cursor forward to end via CSI C (Right Arrow)
+    buf.push_str("\x1b[10C");
+    assert_eq!(buf.cursor_col, 10);
+    assert_eq!(buf.lines[0].to_plain_string(), "cargo test");
+
+    // Visible rendered line must contain full "cargo test" without missing characters
+    let (vis, _, _) = buf.get_visible_lines_wrapped(5, 80);
+    assert_eq!(vis[0].spans[0].content, "cargo test");
 }
 
