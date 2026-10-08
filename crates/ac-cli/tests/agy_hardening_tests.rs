@@ -1366,6 +1366,7 @@ async fn selected_permission_mode_model_and_directory_reach_the_agy_process() {
             sandbox: *sandbox,
             model: None,
             working_dir: Some(work.display().to_string()),
+            ..Default::default()
         };
         let (tx, rx) = tokio::sync::mpsc::channel(64);
         handles.push((
@@ -1387,6 +1388,7 @@ async fn selected_permission_mode_model_and_directory_reach_the_agy_process() {
         sandbox: false,
         model: Some("gemini-3.8-flash-medium".into()),
         working_dir: None,
+        ..Default::default()
     };
     let (tx, rx) = tokio::sync::mpsc::channel(64);
     handles.push((

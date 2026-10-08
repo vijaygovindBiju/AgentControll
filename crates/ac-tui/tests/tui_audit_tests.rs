@@ -1798,3 +1798,24 @@ fn test_left_and_right_arrow_navigation_preserves_input_text() {
     assert_eq!(vis[0].spans[0].content, "cargo test");
 }
 
+#[test]
+fn test_backspace_with_styled_trailing_spaces_cleans_prompt_buffer_completely() {
+    let mut buf = TerminalBuffer::new(500);
+
+    // 1. Initial input: prompt with color style
+    buf.push_str("\x1b[36m> dsafdf  sa\x1b[0m");
+    assert_eq!(buf.lines[0].to_plain_string(), "> dsafdf  sa");
+
+    // 2. Erase each character using standard CLI \x08 \x08 sequences with active style
+    let len = "dsafdf  sa".len();
+    for _ in 0..len {
+        buf.push_str("\x08 \x08");
+    }
+
+    // Must leave only "> " without any leftover "dsafdf  sa" ghost characters
+    assert_eq!(buf.lines[0].to_plain_string(), ">");
+    let (vis, _, _) = buf.get_visible_lines_wrapped(5, 80);
+    assert_eq!(vis[0].spans[0].content, ">");
+}
+
+

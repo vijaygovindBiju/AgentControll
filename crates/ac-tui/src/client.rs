@@ -196,8 +196,23 @@ impl ApiClient {
             "project_id": project_id,
             "account_id": account_id,
         });
+        if let Ok((cols, rows)) = crossterm::terminal::size() {
+            params["rows"] = json!(rows.saturating_sub(2).max(1));
+            params["cols"] = json!(cols.max(1));
+        }
         if let Some(l) = launch {
-            params["launch"] = json!(l);
+            let mut l_val = json!(l);
+            if l.initial_rows.is_none() {
+                if let Ok((_, rows)) = crossterm::terminal::size() {
+                    l_val["initial_rows"] = json!(rows.saturating_sub(2).max(1));
+                }
+            }
+            if l.initial_cols.is_none() {
+                if let Ok((cols, _)) = crossterm::terminal::size() {
+                    l_val["initial_cols"] = json!(cols.max(1));
+                }
+            }
+            params["launch"] = l_val;
         }
         let resp = self.send_request("session.create", params).await?;
         let sid = resp

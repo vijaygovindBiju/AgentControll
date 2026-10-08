@@ -159,6 +159,14 @@ pub struct AgyLaunchOptions {
     /// Absolute working directory for the agent; None = daemon default.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub working_dir: Option<String>,
+
+    /// Initial terminal rows for the agent PTY; None = 24 default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub initial_rows: Option<u16>,
+
+    /// Initial terminal columns for the agent PTY; None = 80 default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub initial_cols: Option<u16>,
 }
 
 impl AgyLaunchOptions {
@@ -480,6 +488,7 @@ mod tests {
             sandbox: false,
             model: None,
             working_dir: None,
+            ..Default::default()
         };
         assert_eq!(opts.args(), vec!["--mode=accept-edits"]);
 
@@ -489,6 +498,7 @@ mod tests {
             sandbox: false,
             model: None,
             working_dir: None,
+            ..Default::default()
         };
         assert_eq!(dangerous.args(), vec!["--dangerously-skip-permissions"]);
 
@@ -498,6 +508,7 @@ mod tests {
             sandbox: false,
             model: Some("gemini-3.8-flash-medium".into()),
             working_dir: None,
+            ..Default::default()
         };
         assert_eq!(
             plan_with_model.args(),

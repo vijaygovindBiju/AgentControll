@@ -297,8 +297,11 @@ pub async fn launch_session_and_open(
                 app.session_detail_id = Some(new_id.clone());
                 load_session_history_if_needed(app, client, &new_id).await;
                 if let Ok((cols, rows)) = crossterm::terminal::size() {
+                    let p_rows = rows.saturating_sub(2).max(1);
+                    let p_cols = cols.max(1);
+                    app.resize_session_terminals(p_rows, p_cols);
                     let _ = client
-                        .resize_session(&new_id, rows.saturating_sub(2), cols)
+                        .resize_session(&new_id, p_rows, p_cols)
                         .await;
                 }
             }
@@ -2971,8 +2974,11 @@ pub async fn handle_key(app: &mut App, client: &ApiClient, key: KeyEvent) -> Res
                 if let Some(ref sid) = app.session_detail_id.clone() {
                     load_session_history_if_needed(app, client, sid).await;
                     if let Ok((cols, rows)) = crossterm::terminal::size() {
+                        let p_rows = rows.saturating_sub(2).max(1);
+                        let p_cols = cols.max(1);
+                        app.resize_session_terminals(p_rows, p_cols);
                         let _ = client
-                            .resize_session(sid, rows.saturating_sub(2), cols)
+                            .resize_session(sid, p_rows, p_cols)
                             .await;
                     }
                 }
@@ -3018,8 +3024,11 @@ pub async fn handle_key(app: &mut App, client: &ApiClient, key: KeyEvent) -> Res
                 if let Some(ref sid) = app.session_detail_id.clone() {
                     load_session_history_if_needed(app, client, sid).await;
                     if let Ok((cols, rows)) = crossterm::terminal::size() {
+                        let p_rows = rows.saturating_sub(2).max(1);
+                        let p_cols = cols.max(1);
+                        app.resize_session_terminals(p_rows, p_cols);
                         let _ = client
-                            .resize_session(sid, rows.saturating_sub(2), cols)
+                            .resize_session(sid, p_rows, p_cols)
                             .await;
                     }
                 }

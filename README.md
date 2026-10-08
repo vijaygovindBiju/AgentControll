@@ -2,7 +2,7 @@
 
 A local-first control plane for coding agents.
 
-> **Status:** Version 1.0.7 released. Fully verified with zero compiler warnings and 100% test pass rate across all workspace test suites.
+> **Status:** Version 1.0.8 released. Fully verified with zero compiler warnings and 100% test pass rate across all workspace test suites.
 
 ---
 

@@ -223,10 +223,29 @@ impl GenericPtyAdapter {
         }
 
         let pty_system = NativePtySystem::default();
+        let (rows, cols) = {
+            let mut r = None;
+            let mut c = None;
+            if let Some(ref cfg) = ctx.agent_config {
+                r = cfg
+                    .get("initial_rows")
+                    .or_else(|| cfg.get("pty_rows"))
+                    .or_else(|| cfg.get("rows"))
+                    .and_then(|v| v.as_u64())
+                    .map(|v| v as u16);
+                c = cfg
+                    .get("initial_cols")
+                    .or_else(|| cfg.get("pty_cols"))
+                    .or_else(|| cfg.get("cols"))
+                    .and_then(|v| v.as_u64())
+                    .map(|v| v as u16);
+            }
+            (r.unwrap_or(24).max(1), c.unwrap_or(80).max(1))
+        };
         let pair = pty_system
             .openpty(PtySize {
-                rows: 24,
-                cols: 80,
+                rows,
+                cols,
                 pixel_width: 0,
                 pixel_height: 0,
             })
@@ -969,5 +988,36 @@ mod tests {
 
         assert!(got_question, "should match question pattern");
         assert!(got_rate_limit, "should match rate limit pattern");
+    }
+
+    #[tokio::test]
+    async fn test_pty_initial_dimensions_from_agent_config() {
+        let (tx, mut rx) = mpsc::channel(32);
+        let mut ctx = SessionContext::new(Id::new(), "size test".into(), "generic-pty".into());
+        ctx.agent_config = Some(serde_json::json!({
+            "initial_rows": 42,
+            "initial_cols": 133,
+        }));
+
+        let config = PtyConfig::new("stty").with_arg("size");
+        let _handle = GenericPtyAdapter::spawn(&ctx, config, tx).unwrap();
+
+        let mut output = String::new();
+        let start = std::time::Instant::now();
+        while start.elapsed() < Duration::from_secs(3) {
+            if let Ok(Some(evt)) = tokio::time::timeout(Duration::from_millis(200), rx.recv()).await {
+                if let AdapterEvent::OutputChunk { text, .. } = evt {
+                    output.push_str(&text);
+                    if output.contains("42 133") {
+                        break;
+                    }
+                }
+            }
+        }
+        assert!(
+            output.contains("42 133"),
+            "PTY should be spawned with 42 rows and 133 cols, got output: {:?}",
+            output
+        );
     }
 }

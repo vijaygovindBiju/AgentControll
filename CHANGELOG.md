@@ -4,6 +4,17 @@ All notable changes to AgentControll are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.8] - 2026-10-08
+
+### Fixed
+- **Terminal buffer input and PTY dimension synchronization**: Fixed visual artifacts and ghost prompt text when running interactive agent CLIs (such as Antigravity `agy` running Bubbletea).
+  - Dynamically allocated PTY instances with the user's actual terminal dimensions (`initial_rows`, `initial_cols`) from frame 0 rather than hardcoded 24×80, preventing startup banners (such as `dismiss` tags) from wrapping and detaching.
+  - Synchronized internal virtual terminal dimensions (`app.resize_session_terminals`) immediately upon entering session views from Dashboard and Sessions tabs.
+  - Enhanced trailing blank space detection (`is_blank_trailing_space`) in `TerminalBuffer` to ensure styled spaces emitted by CLI backspace/erase sequences (`\x08 \x08`) properly wipe erased characters without leaving stale ghost text on the screen.
+
+### Added
+- Automated unit and regression tests for frame-0 PTY dimension allocation and styled trailing space prompt erasure.
+
 ## [1.0.7] - 2026-10-07
 
 ### Fixed

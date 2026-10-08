@@ -668,12 +668,18 @@ async fn try_start(app: &mut App, client: &ApiClient, mut form: Box<StartSession
 pub fn launch_options(app: &App, form: &StartSessionForm) -> Result<AgyLaunchOptions, String> {
     let dir = validate_dir(form)?;
     let (models, _) = model_options(app, form);
+    let (initial_cols, initial_rows) = match crossterm::terminal::size() {
+        Ok((cols, rows)) => (Some(cols.max(1)), Some(rows.saturating_sub(2).max(1))),
+        Err(_) => (None, None),
+    };
     Ok(AgyLaunchOptions {
         execution_mode: form.exec_mode(),
         permission_mode: form.perm_mode(),
         sandbox: false,
         model: models.get(form.model_index).and_then(|(id, _)| id.clone()),
         working_dir: Some(dir.display().to_string()),
+        initial_rows,
+        initial_cols,
     })
 }
 

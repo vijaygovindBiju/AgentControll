@@ -171,7 +171,7 @@ impl TerminalLine {
     /// line simply shortens it, so plain lines never grow trailing padding.
     fn erase(&mut self, from: usize, to: usize, blank: &StyledChar) {
         self.split_wide_at_edges(from, to);
-        let plain = blank.style == Style::default();
+        let plain = blank.style.bg.is_none() || blank.style.bg == Some(Color::Reset);
         if plain && to >= self.chars.len() {
             self.chars.truncate(from);
             self.trim_trailing_spaces();
@@ -188,7 +188,7 @@ impl TerminalLine {
 
     pub fn trim_trailing_spaces(&mut self) {
         while let Some(last) = self.chars.last() {
-            if last.c == ' ' && last.style == Style::default() {
+            if is_blank_trailing_space(last) {
                 self.chars.pop();
             } else {
                 break;
@@ -225,9 +225,19 @@ impl TerminalLine {
     }
 }
 
+/// A space cell is visually blank if it has no background color, no underline, and no inverse video.
+#[inline]
+pub fn is_blank_trailing_space(sc: &StyledChar) -> bool {
+    sc.c == ' '
+        && (sc.style.bg.is_none() || sc.style.bg == Some(Color::Reset))
+        && !sc.style.add_modifier.contains(Modifier::UNDERLINED)
+        && !sc.style.add_modifier.contains(Modifier::REVERSED)
+        && sc.link.is_none()
+}
+
 pub fn chars_to_ratatui_line(chars: &[StyledChar]) -> Line<'static> {
     let mut end = chars.len();
-    while end > 0 && chars[end - 1].c == ' ' && chars[end - 1].style == Style::default() {
+    while end > 0 && chars[end - 1].c == ' ' && is_blank_trailing_space(&chars[end - 1]) {
         end -= 1;
     }
     let chars = &chars[..end];
@@ -364,7 +374,7 @@ pub fn chars_to_ratatui_line_with_search_and_selection(
     }
 
     let mut end = chars.len();
-    while end > 0 && chars[end - 1].c == ' ' && chars[end - 1].style == Style::default() {
+    while end > 0 && chars[end - 1].c == ' ' && is_blank_trailing_space(&chars[end - 1]) {
         end -= 1;
     }
     let chars = &chars[..end];
@@ -1554,7 +1564,7 @@ impl TerminalBuffer {
                             && line
                                 .chars
                                 .last()
-                                .is_some_and(|sc| sc.c == ' ' && sc.style == ratatui::style::Style::default())
+                                .is_some_and(is_blank_trailing_space)
                         {
                             line.trim_trailing_spaces();
                         }

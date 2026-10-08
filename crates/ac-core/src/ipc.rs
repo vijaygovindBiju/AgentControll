@@ -156,12 +156,25 @@ pub fn is_mutating_cmd(cmd: &str) -> bool {
 fn parse_launch(
     params: &serde_json::Value,
 ) -> Result<Option<crate::agy_launch::AgyLaunchOptions>, String> {
-    match params.get("launch") {
-        None | Some(serde_json::Value::Null) => Ok(None),
+    let mut launch: Option<crate::agy_launch::AgyLaunchOptions> = match params.get("launch") {
+        None | Some(serde_json::Value::Null) => None,
         Some(v) => serde_json::from_value(v.clone())
             .map(Some)
-            .map_err(|e| format!("invalid launch options: {e}")),
+            .map_err(|e| format!("invalid launch options: {e}"))?,
+    };
+    let r = params.get("rows").and_then(|v| v.as_u64()).map(|v| v as u16);
+    let c = params.get("cols").and_then(|v| v.as_u64()).map(|v| v as u16);
+    if r.is_some() || c.is_some() {
+        let mut l = launch.unwrap_or_default();
+        if l.initial_rows.is_none() {
+            l.initial_rows = r;
+        }
+        if l.initial_cols.is_none() {
+            l.initial_cols = c;
+        }
+        launch = Some(l);
     }
+    Ok(launch)
 }
 
 /// Unified command dispatcher shared between Unix socket IPC and WebSocket servers.
