@@ -308,6 +308,8 @@ pub enum Modal {
 pub struct App {
     pub current_tab: Tab,
     pub session_detail_id: Option<Id>,
+    /// Full-screen distraction-free terminal mode (removes header and footer)
+    pub fullscreen_terminal: bool,
 
     // Data collections
     pub sessions: Vec<AgentSession>,
@@ -409,6 +411,7 @@ impl App {
         Self {
             current_tab: Tab::Dashboard,
             session_detail_id: None,
+            fullscreen_terminal: false,
             sessions: Vec::new(),
             selected_session: 0,
             interactions: Vec::new(),
@@ -936,6 +939,13 @@ impl App {
 
     pub fn close_session_detail(&mut self) {
         self.session_detail_id = None;
+        self.fullscreen_terminal = false;
+    }
+
+    /// Toggle distraction-free full-screen terminal mode (removes header and footer).
+    pub fn toggle_fullscreen_terminal(&mut self) -> bool {
+        self.fullscreen_terminal = !self.fullscreen_terminal;
+        self.fullscreen_terminal
     }
 
     pub fn remove_session(&mut self, session_id: &str) {

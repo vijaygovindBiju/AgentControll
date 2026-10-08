@@ -87,6 +87,7 @@ AgentControll solves this by operating as a unified local supervisor: it pools a
 
 - **Full-Screen Virtual ANSI & TrueColor Terminal (`TerminalBuffer`):**
   - Dedicated virtual terminal buffer (`crates/ac-tui/src/terminal_buffer.rs`) with 256-color, 24-bit TrueColor (RGB), scrollback history, and alternate screen (`1049h`/`1049l`) emulation.
+  - **Distraction-Free Full Screen (`Ctrl+F`):** Instantly maximizes the terminal to 100% edge-to-edge screen space with no headers or footers; pressing `Ctrl+F` again restores the normal layout.
   - **Non-Destructive Cursor Navigation:** Full arrow key navigation (`Left` / `Right` / `Up` / `Down` / `Home` / `End`) without deleting or corrupting input characters; non-destructive `cub1` (`\x08`) and intelligent trailing whitespace cleanup for terminal echoes (`\x08 \x08`).
   - **Mouse Selection & Edge Autoscrolling:** Click-and-drag text selection with multi-click word/line granularity and automatic edge scrolling when dragging beyond viewport boundaries.
   - **Incremental Scrollback Search (`/`):** Live regex search modal across all historical lines with match count and `n` / `N` navigation.
@@ -429,6 +430,7 @@ Configured per-session or globally in Settings:
 
 | Key | Context | Action |
 |:---|:---|:---|
+| **`Ctrl+F`** | Terminal / Sessions | Toggle full-screen distraction-free terminal (hides header/footer). |
 | **`Left` / `Right`** | Terminal Input | Move cursor backward/forward without deleting input text. |
 | **`Up` / `Down`** | Terminal Input | Traverse multi-line prompt history drafts as complete units. |
 | **`Shift+Up` / `Shift+Down`** | Terminal Buffer | Scroll viewport up/down through scrollback history. |

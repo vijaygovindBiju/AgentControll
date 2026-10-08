@@ -121,7 +121,11 @@ pub async fn run_tui(socket_path: PathBuf) -> Result<()> {
                     }
                     Event::Resize(cols, rows) => {
                         let _ = terminal.clear();
-                        let p_rows = rows.saturating_sub(2).max(1);
+                        let p_rows = if app.fullscreen_terminal {
+                            rows.max(1)
+                        } else {
+                            rows.saturating_sub(2).max(1)
+                        };
                         let p_cols = cols.max(1);
                         app.resize_session_terminals(p_rows, p_cols);
                         if let Some(ref sid) = app.session_detail_id {

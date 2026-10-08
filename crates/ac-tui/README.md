@@ -40,6 +40,7 @@
 ### 1. Full-Fidelity VT100 / xterm-256color & TrueColor Engine
 - **Dedicated Virtual Buffer:** Implemented in `crates/ac-tui/src/terminal_buffer.rs`, emulating a full virtual screen grid with style attributes, hyperlinks, and scrolling margins.
 - **Alternate Screen Buffer (`CSI ? 1049 h` / `l`):** Dedicated buffer switching for full-screen curses/TUI tools (like `vim`, `nano`, `htop`, or `less`). Returning to the main screen restores the complete scrollback history intact.
+- **Distraction-Free Full-Screen Mode (`Ctrl+F`):** Toggles 100% edge-to-edge terminal mode without headers or footers. Pressing `Ctrl+F` again restores the normal layout.
 - **PTY Boundary Decoding (`decode_utf8_stream`):** Multi-byte UTF-8 streams split across raw PTY read chunks are buffered and decoded without emitting replacement glyphs (`U+FFFD`), preserving complex Unicode, emojis, and Braille spinners (`⡿`, `⢿`, `⣻`).
 - **Trailing Echo Hygiene:** Intelligently prunes blank cells from terminal backspace echoes (`\x08 \x08`), preventing phantom wrapped lines upon terminal resize while strictly preserving prompt spacing.
 
@@ -78,6 +79,7 @@
 |:---|:---|:---|
 | **`Esc`** | Attached PTY | Passed directly through to the child agent process. |
 | **`Ctrl+]`** or **`Ctrl+Q`** | Attached PTY | Detach from terminal view back to supervisor dashboard. |
+| **`Ctrl+F`** | Attached PTY | Toggle full-screen distraction-free terminal (hides header/footer). |
 | **`Left` / `Right`** | Terminal Input | Move cursor backward/forward without deleting text. |
 | **`Up` / `Down`** | Terminal Input | Navigate multi-line prompt submission history. |
 | **`Shift+Up` / `Shift+Down`** | Attached PTY | Scroll viewport up/down through scrollback history. |

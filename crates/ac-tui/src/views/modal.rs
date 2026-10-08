@@ -689,6 +689,7 @@ pub fn render(f: &mut Frame, app: &App) {
                 Line::from("  Enter / t      Open selected session detail view"),
                 Line::from("  Ctrl+Q         Detach / Return from session terminal view"),
                 Line::from("  Ctrl+P / F1    Open Command Palette in session terminal"),
+                Line::from("  Ctrl+F         Toggle full-screen distraction-free terminal mode"),
                 Line::from("  PgUp / PgDn    Scroll session output transcript"),
                 Line::from("  ↑ / ↓          Prompt history navigation (in session / steer input)"),
                 Line::from("  Esc            Go back / Close modal dialog (forwarded to session terminal)"),

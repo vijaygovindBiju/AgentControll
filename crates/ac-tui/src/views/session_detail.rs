@@ -32,7 +32,9 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
     };
 
     // ── 3-Row Vertical Layout: Sleek 1-line Header, Full Terminal, Minimal 1-line Footer ──
-    let (header_h, footer_h) = if area.height < 3 {
+    let (header_h, footer_h) = if app.fullscreen_terminal {
+        (0, 0)
+    } else if area.height < 3 {
         (0, 0)
     } else if area.height < 5 {
         (1, 0)
@@ -70,84 +72,86 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
         "Agent Control • Agent Terminal".to_string()
     };
 
-    let header_chunks = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([Constraint::Min(40), Constraint::Length(28)])
-        .split(chunks[0]);
+    if header_h > 0 {
+        let header_chunks = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Min(40), Constraint::Length(28)])
+            .split(chunks[0]);
+
+        let mut left_spans = if term_buf.follow {
+            vec![
+                Span::raw(" "),
+                Span::styled(
+                    "● LIVE ",
+                    Style::default()
+                        .fg(Color::Green)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                session_state_badge(&session.state),
+                Span::raw("  "),
+                Span::styled(
+                    agent_name.clone(),
+                    Style::default()
+                        .fg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD),
+                ),
+            ]
+        } else {
+            vec![
+                Span::raw(" "),
+                Span::styled(
+                    format!("[SCROLL: {} lines up] ", term_buf.scroll_offset),
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                session_state_badge(&session.state),
+                Span::raw("  "),
+                Span::styled(
+                    agent_name.clone(),
+                    Style::default()
+                        .fg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD),
+                ),
+            ]
+        };
+        if chunks[0].width >= 95 && !acct_label.is_empty() && acct_label != "None" {
+            left_spans.push(Span::styled(" • ", Style::default().fg(Color::DarkGray)));
+            left_spans.push(Span::styled(acct_label, Style::default().fg(Color::Yellow)));
+        }
+        if let Some(cwd) = term_buf.cwd() {
+            if chunks[0].width >= 80 {
+                let cwd_display = cwd.display().to_string();
+                let display_str = if cwd_display.len() > 30 {
+                    format!("…{}", &cwd_display[cwd_display.len().saturating_sub(29)..])
+                } else {
+                    cwd_display
+                };
+                left_spans.push(Span::styled(" • ", Style::default().fg(Color::DarkGray)));
+                left_spans.push(Span::styled(display_str, Style::default().fg(Color::LightBlue)));
+            }
+        }
+        f.render_widget(Paragraph::new(Line::from(left_spans)), header_chunks[0]);
+
+        let model_tag = if is_agy {
+            "Gemini 3.8 Flash · medium"
+        } else {
+            &session.agent_type
+        };
+        let right_spans = vec![
+            Span::styled(model_tag, Style::default().fg(Color::LightCyan)),
+            Span::raw(" "),
+        ];
+        f.render_widget(
+            Paragraph::new(Line::from(right_spans)).alignment(Alignment::Right),
+            header_chunks[1],
+        );
+    }
 
     let term_inner_width = chunks[1].width as usize;
     let term_inner_height = chunks[1].height as usize;
     let (visible_lines, scroll_info, cursor_rel) =
         term_buf.get_visible_lines_wrapped(term_inner_height, term_inner_width);
-
-    let mut left_spans = if scroll_info.follow {
-        vec![
-            Span::raw(" "),
-            Span::styled(
-                "● LIVE ",
-                Style::default()
-                    .fg(Color::Green)
-                    .add_modifier(Modifier::BOLD),
-            ),
-            session_state_badge(&session.state),
-            Span::raw("  "),
-            Span::styled(
-                agent_name.clone(),
-                Style::default()
-                    .fg(Color::Cyan)
-                    .add_modifier(Modifier::BOLD),
-            ),
-        ]
-    } else {
-        vec![
-            Span::raw(" "),
-            Span::styled(
-                format!("[SCROLL: {} lines up] ", scroll_info.scroll_offset),
-                Style::default()
-                    .fg(Color::Yellow)
-                    .add_modifier(Modifier::BOLD),
-            ),
-            session_state_badge(&session.state),
-            Span::raw("  "),
-            Span::styled(
-                agent_name.clone(),
-                Style::default()
-                    .fg(Color::Cyan)
-                    .add_modifier(Modifier::BOLD),
-            ),
-        ]
-    };
-    if chunks[0].width >= 95 && !acct_label.is_empty() && acct_label != "None" {
-        left_spans.push(Span::styled(" • ", Style::default().fg(Color::DarkGray)));
-        left_spans.push(Span::styled(acct_label, Style::default().fg(Color::Yellow)));
-    }
-    if let Some(cwd) = term_buf.cwd() {
-        if chunks[0].width >= 80 {
-            let cwd_display = cwd.display().to_string();
-            let display_str = if cwd_display.len() > 30 {
-                format!("…{}", &cwd_display[cwd_display.len().saturating_sub(29)..])
-            } else {
-                cwd_display
-            };
-            left_spans.push(Span::styled(" • ", Style::default().fg(Color::DarkGray)));
-            left_spans.push(Span::styled(display_str, Style::default().fg(Color::LightBlue)));
-        }
-    }
-    f.render_widget(Paragraph::new(Line::from(left_spans)), header_chunks[0]);
-
-    let model_tag = if is_agy {
-        "Gemini 3.8 Flash · medium"
-    } else {
-        &session.agent_type
-    };
-    let right_spans = vec![
-        Span::styled(model_tag, Style::default().fg(Color::LightCyan)),
-        Span::raw(" "),
-    ];
-    f.render_widget(
-        Paragraph::new(Line::from(right_spans)).alignment(Alignment::Right),
-        header_chunks[1],
-    );
 
     let all_blank = visible_lines.iter().all(|l| {
         l.spans.is_empty() || (l.spans.len() == 1 && l.spans[0].content.trim().is_empty())
@@ -196,126 +200,128 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
     }
 
     // ── 3. Minimal Footer ───────────────────────────────────────────────────
-    let footer_chunks = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([Constraint::Min(40), Constraint::Length(20)])
-        .split(chunks[2]);
+    if footer_h > 0 {
+        let footer_chunks = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Min(40), Constraint::Length(20)])
+            .split(chunks[2]);
 
-    let shortcuts_line = if term_buf.search.active {
-        let match_info = if term_buf.search.matches.is_empty() {
-            if term_buf.search.query.is_empty() {
-                "Type to search...".to_string()
+        let shortcuts_line = if term_buf.search.active {
+            let match_info = if term_buf.search.matches.is_empty() {
+                if term_buf.search.query.is_empty() {
+                    "Type to search...".to_string()
+                } else {
+                    "No matches".to_string()
+                }
             } else {
-                "No matches".to_string()
-            }
+                format!("{}/{} matches", term_buf.search.current_idx + 1, term_buf.search.matches.len())
+            };
+            let status_badge = if term_buf.search.editing {
+                Span::styled(" [SEARCH EDIT] ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))
+            } else {
+                Span::styled(" [SEARCH NAV] ", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD))
+            };
+            Line::from(vec![
+                status_badge,
+                Span::styled("Query: ", Style::default().fg(Color::DarkGray)),
+                Span::styled(format!("\"{}\"", term_buf.search.query), Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+                Span::raw("  "),
+                Span::styled(format!("[{}] ", match_info), Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                Span::styled("[n/N]", Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+                Span::styled(" Next/Prev  ", Style::default().fg(Color::DarkGray)),
+                Span::styled("[Enter]", Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+                Span::styled(" Lock  ", Style::default().fg(Color::DarkGray)),
+                Span::styled("[Esc]", Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+                Span::styled(" Exit", Style::default().fg(Color::DarkGray)),
+            ])
+        } else if scroll_info.follow {
+            Line::from(vec![
+                Span::styled(
+                    " [Ctrl+Q]",
+                    Style::default()
+                        .fg(Color::White)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(" Back  ", Style::default().fg(Color::DarkGray)),
+                Span::styled(
+                    "[Ctrl+P]",
+                    Style::default()
+                        .fg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(" Control  ", Style::default().fg(Color::DarkGray)),
+                Span::styled(
+                    "[Ctrl+F]",
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(" Fullscreen  ", Style::default().fg(Color::DarkGray)),
+                Span::styled(
+                    "[Ctrl+O]",
+                    Style::default()
+                        .fg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(" Links  ", Style::default().fg(Color::DarkGray)),
+                Span::styled(
+                    "[F1]",
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(" Help  ", Style::default().fg(Color::DarkGray)),
+                Span::styled("[PgUp/PgDn]", Style::default().fg(Color::White)),
+                Span::styled(" Scroll", Style::default().fg(Color::DarkGray)),
+            ])
+        } else if term_buf.is_selecting() {
+            Line::from(vec![
+                Span::styled(
+                    " [VISUAL MODE: ",
+                    Style::default()
+                        .fg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(
+                    "drag with mouse or move with arrows | [y/Ctrl+Shift+C] Copy | [Esc] Cancel] ",
+                    Style::default()
+                        .fg(Color::White)
+                        .add_modifier(Modifier::BOLD),
+                ),
+            ])
         } else {
-            format!("{}/{} matches", term_buf.search.current_idx + 1, term_buf.search.matches.len())
+            Line::from(vec![
+                Span::styled(
+                    " [SCROLL MODE: ",
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(
+                    format!("{} lines up", scroll_info.scroll_offset),
+                    Style::default()
+                        .fg(Color::White)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(
+                    " | [k/j] Line | [u/d] Page | [v] Select | [/] Search | [o] Links | [Esc/q] Live] ",
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD),
+                ),
+            ])
         };
-        let status_badge = if term_buf.search.editing {
-            Span::styled(" [SEARCH EDIT] ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))
+
+        let conn_span = if app.daemon_connected {
+            Span::styled("● Connected ", Style::default().fg(Color::Green))
         } else {
-            Span::styled(" [SEARCH NAV] ", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD))
+            Span::styled("○ Disconnected ", Style::default().fg(Color::Red))
         };
-        Line::from(vec![
-            status_badge,
-            Span::styled("Query: ", Style::default().fg(Color::DarkGray)),
-            Span::styled(format!("\"{}\"", term_buf.search.query), Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
-            Span::raw("  "),
-            Span::styled(format!("[{}] ", match_info), Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-            Span::styled("[n/N]", Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
-            Span::styled(" Next/Prev  ", Style::default().fg(Color::DarkGray)),
-            Span::styled("[Enter]", Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
-            Span::styled(" Lock  ", Style::default().fg(Color::DarkGray)),
-            Span::styled("[Esc]", Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
-            Span::styled(" Exit", Style::default().fg(Color::DarkGray)),
-        ])
-    } else if scroll_info.follow {
-        Line::from(vec![
-            Span::styled(
-                " [Ctrl+Q]",
-                Style::default()
-                    .fg(Color::White)
-                    .add_modifier(Modifier::BOLD),
-            ),
-            Span::styled(" Back  ", Style::default().fg(Color::DarkGray)),
-            Span::styled(
-                "[Ctrl+P]",
-                Style::default()
-                    .fg(Color::Cyan)
-                    .add_modifier(Modifier::BOLD),
-            ),
-            Span::styled(" Control  ", Style::default().fg(Color::DarkGray)),
-            Span::styled(
-                "[Ctrl+F]",
-                Style::default()
-                    .fg(Color::Yellow)
-                    .add_modifier(Modifier::BOLD),
-            ),
-            Span::styled(" Search  ", Style::default().fg(Color::DarkGray)),
-            Span::styled(
-                "[Ctrl+O]",
-                Style::default()
-                    .fg(Color::Cyan)
-                    .add_modifier(Modifier::BOLD),
-            ),
-            Span::styled(" Links  ", Style::default().fg(Color::DarkGray)),
-            Span::styled(
-                "[F1]",
-                Style::default()
-                    .fg(Color::Yellow)
-                    .add_modifier(Modifier::BOLD),
-            ),
-            Span::styled(" Help  ", Style::default().fg(Color::DarkGray)),
-            Span::styled("[PgUp/PgDn]", Style::default().fg(Color::White)),
-            Span::styled(" Scroll", Style::default().fg(Color::DarkGray)),
-        ])
-    } else if term_buf.is_selecting() {
-        Line::from(vec![
-            Span::styled(
-                " [VISUAL MODE: ",
-                Style::default()
-                    .fg(Color::Cyan)
-                    .add_modifier(Modifier::BOLD),
-            ),
-            Span::styled(
-                "drag with mouse or move with arrows | [y/Ctrl+Shift+C] Copy | [Esc] Cancel] ",
-                Style::default()
-                    .fg(Color::White)
-                    .add_modifier(Modifier::BOLD),
-            ),
-        ])
-    } else {
-        Line::from(vec![
-            Span::styled(
-                " [SCROLL MODE: ",
-                Style::default()
-                    .fg(Color::Yellow)
-                    .add_modifier(Modifier::BOLD),
-            ),
-            Span::styled(
-                format!("{} lines up", scroll_info.scroll_offset),
-                Style::default()
-                    .fg(Color::White)
-                    .add_modifier(Modifier::BOLD),
-            ),
-            Span::styled(
-                " | [k/j] Line | [u/d] Page | [v] Select | [/] Search | [o] Links | [Esc/q] Live] ",
-                Style::default()
-                    .fg(Color::Yellow)
-                    .add_modifier(Modifier::BOLD),
-            ),
-        ])
-    };
 
-    let conn_span = if app.daemon_connected {
-        Span::styled("● Connected ", Style::default().fg(Color::Green))
-    } else {
-        Span::styled("○ Disconnected ", Style::default().fg(Color::Red))
-    };
-
-    f.render_widget(Paragraph::new(shortcuts_line), footer_chunks[0]);
-    f.render_widget(
-        Paragraph::new(Line::from(conn_span)).alignment(Alignment::Right),
-        footer_chunks[1],
-    );
+        f.render_widget(Paragraph::new(shortcuts_line), footer_chunks[0]);
+        f.render_widget(
+            Paragraph::new(Line::from(conn_span)).alignment(Alignment::Right),
+            footer_chunks[1],
+        );
+    }
 }

@@ -3,13 +3,16 @@
 use ratatui::{backend::TestBackend, Terminal};
 use serde_json::json;
 
+use std::path::PathBuf;
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ac_core::types::{
     Account, AgentEvent, AgentSession, EventKind, Id, Interaction, InteractionState, Project,
     SessionState, WorkspacePolicy,
 };
 use ac_tui::{
     app::{AccountOption, App, Modal, StatusType, SwitchModalStep, Tab},
-    ui,
+    client::ApiClient,
+    event, ui,
 };
 
 fn create_sample_app() -> App {
@@ -699,4 +702,58 @@ fn test_agy_session_rendering_flow_and_visual_polish() {
     let reentered_content = format!("{:?}", terminal.backend().buffer());
     assert!(reentered_content.contains("● LIVE"));
     assert!(reentered_content.contains("Gemini 3.8 Flash · medium"));
+}
+
+#[tokio::test]
+async fn test_ctrl_f_fullscreen_distraction_free_terminal_toggle() {
+    let mut app = create_sample_app();
+    let backend = TestBackend::new(100, 30);
+    let mut terminal = Terminal::new(backend).unwrap();
+    let client = ApiClient::new(PathBuf::from("/tmp/nonexistent-ac-test.sock"));
+
+    // 1. Initial state: on Sessions tab
+    app.set_tab(Tab::Sessions);
+    assert_eq!(app.session_detail_id, None);
+    assert_eq!(app.fullscreen_terminal, false);
+
+    // 2. Press Ctrl+F from Sessions tab: opens selected session directly in fullscreen
+    let ctrl_f = KeyEvent::new(KeyCode::Char('f'), KeyModifiers::CONTROL);
+    event::handle_key(&mut app, &client, ctrl_f).await.unwrap();
+
+    assert!(app.session_detail_id.is_some());
+    assert_eq!(app.fullscreen_terminal, true);
+
+    // 3. Render in full-screen distraction-free mode
+    terminal.draw(|f| ui::draw(f, &app)).unwrap();
+    let fs_buffer = terminal.backend().buffer().clone();
+    let fs_content = format!("{:?}", fs_buffer);
+
+    // In full-screen distraction-free mode:
+    // Header bar (LIVE / Agent Terminal / account) is NOT rendered
+    assert!(!fs_content.contains("● LIVE"));
+    // Footer shortcuts line ([Ctrl+Q] Back ...) is NOT rendered
+    assert!(!fs_content.contains("[Ctrl+Q]"));
+    assert!(!fs_content.contains("[Ctrl+P]"));
+
+    // 4. Press Ctrl+F again while in terminal: restores normal mode with header & footer
+    event::handle_key(&mut app, &client, ctrl_f).await.unwrap();
+    assert_eq!(app.fullscreen_terminal, false);
+
+    terminal.draw(|f| ui::draw(f, &app)).unwrap();
+    let normal_buffer = terminal.backend().buffer().clone();
+    let normal_content = format!("{:?}", normal_buffer);
+
+    // Normal mode: Header bar and footer shortcuts are rendered
+    assert!(normal_content.contains("● LIVE") || normal_content.contains("Agent Terminal"));
+    assert!(normal_content.contains("[Ctrl+Q]"));
+    assert!(normal_content.contains("[Ctrl+F]") && normal_content.contains("Fullscreen"));
+
+    // 5. Press Ctrl+F once more: toggles back to full-screen mode
+    event::handle_key(&mut app, &client, ctrl_f).await.unwrap();
+    assert_eq!(app.fullscreen_terminal, true);
+
+    // 6. Close session detail (e.g. via Ctrl+Q or app.close_session_detail)
+    app.close_session_detail();
+    assert_eq!(app.session_detail_id, None);
+    assert_eq!(app.fullscreen_terminal, false);
 }

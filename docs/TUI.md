@@ -45,6 +45,7 @@ Switch between primary supervisor views using number shortcuts or tab cycles:
 | **`r`** / **`c`** | **Resume** a paused agent process (`SIGCONT`). |
 | **`x`** / **`Delete`** | Open confirmation dialog to gracefully stop/terminate the agent session. |
 | **`w`** | Open **Switch Account** modal (controlled hand-off with context preservation). |
+| **`Ctrl+F`** | Toggle full-screen distraction-free terminal mode (hides header/footer for 100% screen edge-to-edge terminal; press again to restore normal layout). |
 | **`Ctrl+]`** / **`Ctrl+Q`** | *(When attached)* Detach from terminal view back to supervisor dashboard. |
 
 ---
@@ -57,6 +58,7 @@ AgentControll's terminal emulator (`crates/ac-tui/src/terminal_buffer.rs`) is de
 
 - **ANSI / TrueColor Graphics:** Supports standard 16 ANSI colors, 256-color palette, and full 24-bit TrueColor (RGB) escape sequences (`\x1b[38;2;R;G;Bm`).
 - **Alternate Screen Buffer (`CSI ? 1049 h` / `l`):** Seamlessly handles full-screen programs (vim, nano, htop, less). While in the alternate screen, scrollback history from the normal screen is safely preserved and restored upon exit.
+- **Distraction-Free Full-Screen Mode (`Ctrl+F`):** Instantly maximizes the terminal to 100% of the display area by hiding the header bar and footer shortcuts. Pressing `Ctrl+F` again restores the normal layout.
 - **PTY Boundary UTF-8 Decoding:** Employs `decode_utf8_stream` to prevent multi-byte UTF-8 glyphs (emojis, complex scripts, Braille spinners) from splitting across PTY read chunks.
 - **Trailing Space & Echo Hygiene:** Intelligently prunes blank cells from terminal backspace echoes (`\x08 \x08`), preventing phantom wrapped lines on terminal resize while keeping intentional trailing spaces.
 

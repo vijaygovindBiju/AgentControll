@@ -26,6 +26,7 @@ On first execution, the runner detects your host operating system and CPU archit
 AgentControll features a built-in virtual terminal engine (`TerminalBuffer`) specifically optimized for interactive AI agent workflows:
 
 - **Full-Fidelity PTY Emulation:** ANSI 16-color, 256-color, 24-bit TrueColor, alternate screen (`1049h`/`1049l`), and stream-safe UTF-8 multi-byte decoding (preserving complex Unicode, Braille spinners, and emojis).
+- **Distraction-Free Full Screen (`Ctrl+F`):** Instantly maximizes the terminal to 100% of the display area with zero headers or footers; pressing `Ctrl+F` again restores the normal layout.
 - **Non-Destructive Cursor Navigation:** Full arrow key (`Left`, `Right`, `Up`, `Down`, `Home`, `End`) navigation without erasing, deleting, or corrupting input characters.
 - **Mouse Selection & Autoscroll:** Click and drag to highlight and select text, double-click for words, triple-click for lines, with automatic edge scrolling when dragging beyond viewport boundaries.
 - **Scrollback Regex Search (`/`):** Instant search modal across all historical lines with live match highlighting and `n` / `N` cycling.

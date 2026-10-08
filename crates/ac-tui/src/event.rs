@@ -2234,13 +2234,20 @@ pub async fn handle_key(app: &mut App, client: &ApiClient, key: KeyEvent) -> Res
             return Ok(());
         }
 
-        // Scrollback Search shortcut: Ctrl+F
+        // Fullscreen toggle shortcut: Ctrl+F (distraction-free edge-to-edge terminal)
         if key.modifiers.contains(KeyModifiers::CONTROL)
             && (key.code == KeyCode::Char('f') || key.code == KeyCode::Char('F'))
         {
-            if let Some(buf) = app.session_terminal_buffers.get_mut(&detail_id.0) {
-                buf.start_search();
-            }
+            let is_full = app.toggle_fullscreen_terminal();
+            let (cols, rows) = crossterm::terminal::size().unwrap_or((80, 24));
+            let p_rows = if is_full {
+                rows.max(1)
+            } else {
+                rows.saturating_sub(2).max(1)
+            };
+            let p_cols = cols.max(1);
+            app.resize_session_terminals(p_rows, p_cols);
+            let _ = client.resize_session(&detail_id, p_rows, p_cols).await;
             return Ok(());
         }
 
@@ -2970,6 +2977,20 @@ pub async fn handle_key(app: &mut App, client: &ApiClient, key: KeyEvent) -> Res
                     }
                 }
             }
+            KeyCode::Char('f') | KeyCode::Char('F')
+                if key.modifiers.contains(KeyModifiers::CONTROL) =>
+            {
+                app.open_selected_session_detail();
+                if let Some(ref sid) = app.session_detail_id.clone() {
+                    app.fullscreen_terminal = true;
+                    load_session_history_if_needed(app, client, sid).await;
+                    let (cols, rows) = crossterm::terminal::size().unwrap_or((80, 24));
+                    let p_rows = rows.max(1);
+                    let p_cols = cols.max(1);
+                    app.resize_session_terminals(p_rows, p_cols);
+                    let _ = client.resize_session(sid, p_rows, p_cols).await;
+                }
+            }
             KeyCode::Char('a') | KeyCode::Char('A') => {
                 open_agy_add_account(app);
             }
@@ -3001,6 +3022,20 @@ pub async fn handle_key(app: &mut App, client: &ApiClient, key: KeyEvent) -> Res
                             .resize_session(sid, rows.saturating_sub(2), cols)
                             .await;
                     }
+                }
+            }
+            KeyCode::Char('f') | KeyCode::Char('F')
+                if key.modifiers.contains(KeyModifiers::CONTROL) =>
+            {
+                app.open_selected_session_detail();
+                if let Some(ref sid) = app.session_detail_id.clone() {
+                    app.fullscreen_terminal = true;
+                    load_session_history_if_needed(app, client, sid).await;
+                    let (cols, rows) = crossterm::terminal::size().unwrap_or((80, 24));
+                    let p_rows = rows.max(1);
+                    let p_cols = cols.max(1);
+                    app.resize_session_terminals(p_rows, p_cols);
+                    let _ = client.resize_session(sid, p_rows, p_cols).await;
                 }
             }
             KeyCode::Char('n') | KeyCode::Char('N') => {
