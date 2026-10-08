@@ -774,21 +774,9 @@ pub async fn handle_paste(app: &mut App, client: &ApiClient, text: &str) -> Resu
             app.set_session_completion_dismissed(&session_key, false);
             let buf = app
                 .session_prompt_buffers
-                .entry(session_key.clone())
+                .entry(session_key)
                 .or_default();
             buf.push_str(text);
-            if text.contains('\n') || text.contains('\r') {
-                let lines: Vec<&str> = text.split(|c| c == '\n' || c == '\r').collect();
-                for &line in &lines[..lines.len().saturating_sub(1)] {
-                    if !line.trim().is_empty() {
-                        app.prompt_history_for_session_mut(&session_key)
-                            .record_submission(line);
-                    }
-                }
-                let trailing = lines.last().copied().unwrap_or("");
-                app.session_prompt_buffers
-                    .insert(session_key, trailing.to_string());
-            }
         }
 
         if bracketed {
@@ -2683,9 +2671,15 @@ pub async fn handle_key(app: &mut App, client: &ApiClient, key: KeyEvent) -> Res
                             app.clear_session_prompt_buffer(&session_key);
                             tp
                         } else {
-                            app.session_prompt_buffers
+                            let buf = app
+                                .session_prompt_buffers
                                 .remove(&session_key)
-                                .unwrap_or_default()
+                                .unwrap_or_default();
+                            if !buf.trim().is_empty() {
+                                buf
+                            } else {
+                                tp
+                            }
                         }
                     } else {
                         app.session_prompt_buffers
@@ -2755,12 +2749,23 @@ pub async fn handle_key(app: &mut App, client: &ApiClient, key: KeyEvent) -> Res
                     if let Some(new_text) = next_prompt {
                         if new_text != current_buf {
                             let char_count = current_buf.chars().count();
-                            let mut seq = String::with_capacity(char_count + new_text.len() + 3);
+                            let mut seq = String::with_capacity(char_count + new_text.len() + 16);
                             seq.push_str("\x1b[F"); // Move cursor to end of line
                             for _ in 0..char_count {
                                 seq.push('\x7f');
                             }
-                            seq.push_str(&new_text);
+                            let bracketed = app
+                                .session_terminal_buffers
+                                .get(&detail_id.0)
+                                .map(|b| b.bracketed_paste_enabled())
+                                .unwrap_or(false);
+                            if bracketed && (new_text.contains('\n') || new_text.contains('\r')) {
+                                seq.push_str("\x1b[200~");
+                                seq.push_str(&new_text);
+                                seq.push_str("\x1b[201~");
+                            } else {
+                                seq.push_str(&new_text);
+                            }
                             let _ = client.send_input(&detail_id, &seq).await;
                             app.set_session_prompt_buffer(&session_key, new_text);
                         }
@@ -2787,12 +2792,23 @@ pub async fn handle_key(app: &mut App, client: &ApiClient, key: KeyEvent) -> Res
                     if let Some(new_text) = next_prompt {
                         if new_text != current_buf {
                             let char_count = current_buf.chars().count();
-                            let mut seq = String::with_capacity(char_count + new_text.len() + 3);
+                            let mut seq = String::with_capacity(char_count + new_text.len() + 16);
                             seq.push_str("\x1b[F"); // Move cursor to end of line
                             for _ in 0..char_count {
                                 seq.push('\x7f');
                             }
-                            seq.push_str(&new_text);
+                            let bracketed = app
+                                .session_terminal_buffers
+                                .get(&detail_id.0)
+                                .map(|b| b.bracketed_paste_enabled())
+                                .unwrap_or(false);
+                            if bracketed && (new_text.contains('\n') || new_text.contains('\r')) {
+                                seq.push_str("\x1b[200~");
+                                seq.push_str(&new_text);
+                                seq.push_str("\x1b[201~");
+                            } else {
+                                seq.push_str(&new_text);
+                            }
                             let _ = client.send_input(&detail_id, &seq).await;
                             app.set_session_prompt_buffer(&session_key, new_text);
                         }

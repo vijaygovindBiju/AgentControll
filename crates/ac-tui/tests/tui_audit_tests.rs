@@ -1694,3 +1694,65 @@ async fn test_mouse_cursor_autoscroll_at_top_boundary() {
     let tb = app.session_terminal_buffers.get(&sid.0).unwrap();
     assert!(tb.scroll_offset > second_scroll_offset, "Expected terminal to keep moving upwards");
 }
+
+#[tokio::test]
+async fn test_multiline_paste_and_prompt_history_cohesion() {
+    let mut app = App::new();
+    let client = create_test_client();
+    let sid = Id::from("sess-multiline-paste-1");
+    app.session_detail_id = Some(sid.clone());
+
+    let multiline_prompt = "Plan for Orion Terminal:\n1. Foundation in Rust\n2. Linux PTY & Systems\n3. Build Terminal Core";
+
+    // 1. Paste multiline prompt into the terminal
+    event::handle_paste(&mut app, &client, multiline_prompt)
+        .await
+        .unwrap();
+
+    // The draft prompt buffer must contain the entire multiline prompt, NOT just the trailing line
+    assert_eq!(app.session_prompt_buffer(&sid.0), multiline_prompt);
+
+    // History must NOT be polluted with intermediate lines before Enter is pressed
+    assert!(
+        app.prompt_history_for_session(&sid.0).is_none()
+            || app.prompt_history_for_session(&sid.0).unwrap().is_empty()
+    );
+
+    // 2. Press Enter to submit the prompt
+    event::handle_key(
+        &mut app,
+        &client,
+        KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+    )
+    .await
+    .unwrap();
+
+    // Exactly 1 history entry should exist containing the complete multiline prompt
+    let history = app.prompt_history_for_session(&sid.0).unwrap();
+    assert_eq!(history.len(), 1);
+    assert_eq!(history.entries()[0], multiline_prompt);
+    assert_eq!(app.session_prompt_buffer(&sid.0), "");
+
+    // 3. Press Up -> recalls the complete multiline prompt, NOT line by line
+    event::handle_key(
+        &mut app,
+        &client,
+        KeyEvent::new(KeyCode::Up, KeyModifiers::NONE),
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(app.session_prompt_buffer(&sid.0), multiline_prompt);
+
+    // 4. Press Down -> restores the original empty draft
+    event::handle_key(
+        &mut app,
+        &client,
+        KeyEvent::new(KeyCode::Down, KeyModifiers::NONE),
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(app.session_prompt_buffer(&sid.0), "");
+}
+
