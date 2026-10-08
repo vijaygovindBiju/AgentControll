@@ -684,7 +684,12 @@ impl TerminalBuffer {
         }
         self.follow = false;
         let total = self.total_lines();
-        let effective_offset = self.scroll_offset.min(total.saturating_sub(1));
+        let max_offset = total.saturating_sub(self.rows);
+        let effective_offset = if max_offset > 0 {
+            self.scroll_offset.min(max_offset)
+        } else {
+            self.scroll_offset.min(total.saturating_sub(1))
+        };
         let row = total.saturating_sub(effective_offset).saturating_sub(1);
         let pos = BufferPos { row, col: 0 };
         self.selection = Some(TerminalSelection::new(pos));
@@ -928,7 +933,7 @@ impl TerminalBuffer {
 
     /// Scroll such that target line is centered in viewport.
     pub fn scroll_to_line(&mut self, target_buf_row: usize, viewport_height: usize) {
-        let total = self.lines.len();
+        let total = self.total_lines();
         if total == 0 {
             return;
         }
@@ -2087,16 +2092,27 @@ impl TerminalBuffer {
     pub fn scroll_up(&mut self, delta: usize) {
         let total = self.total_lines();
         self.follow = false;
-        self.scroll_offset = (self.scroll_offset + delta).min(total.saturating_sub(1));
+        let max_offset = total.saturating_sub(self.rows);
+        if max_offset > 0 {
+            self.scroll_offset = (self.scroll_offset + delta).min(max_offset);
+        } else {
+            self.scroll_offset = (self.scroll_offset + delta).min(total.saturating_sub(1));
+        }
     }
 
     /// User scrolled down by `delta` lines.
     pub fn scroll_down(&mut self, delta: usize) {
-        if self.scroll_offset <= delta {
+        let max_offset = self.total_lines().saturating_sub(self.rows);
+        let current = if max_offset > 0 {
+            self.scroll_offset.min(max_offset)
+        } else {
+            self.scroll_offset
+        };
+        if current <= delta {
             self.scroll_offset = 0;
             self.follow = true;
         } else {
-            self.scroll_offset -= delta;
+            self.scroll_offset = current - delta;
         }
     }
 
@@ -2105,7 +2121,12 @@ impl TerminalBuffer {
         let total = self.total_lines();
         if total > 0 {
             self.follow = false;
-            self.scroll_offset = total.saturating_sub(1);
+            let max_offset = total.saturating_sub(self.rows);
+            if max_offset > 0 {
+                self.scroll_offset = max_offset;
+            } else {
+                self.scroll_offset = total.saturating_sub(1);
+            }
         }
     }
 
@@ -2133,10 +2154,11 @@ impl TerminalBuffer {
             );
         }
 
+        let max_offset = total.saturating_sub(viewport_height);
         let effective_offset = if self.follow {
             0
         } else {
-            self.scroll_offset.min(total.saturating_sub(1))
+            self.scroll_offset.min(max_offset)
         };
 
         let end_line = total.saturating_sub(effective_offset);
@@ -2209,7 +2231,8 @@ impl TerminalBuffer {
             );
         }
 
-        let effective_offset = self.scroll_offset.min(total.saturating_sub(1));
+        let max_offset = total.saturating_sub(viewport_height);
+        let effective_offset = self.scroll_offset.min(max_offset);
         let end_line = total.saturating_sub(effective_offset);
         let start_line = end_line.saturating_sub(viewport_height);
 
@@ -2390,10 +2413,11 @@ impl TerminalBuffer {
         }
 
         let total_visual = visual_lines.len();
+        let max_offset = total_visual.saturating_sub(viewport_height);
         let effective_offset = if self.follow {
             0
         } else {
-            self.scroll_offset.min(total_visual.saturating_sub(1))
+            self.scroll_offset.min(max_offset)
         };
 
         let end_idx = total_visual.saturating_sub(effective_offset);
@@ -3157,9 +3181,21 @@ mod tests {
         assert_eq!(scrolled_lines[0].spans[0].content, "Line 1");
         assert_eq!(scrolled_lines[1].spans[0].content, "Line 2");
 
-        // Scroll to top
+        // Scroll to top: capped at max_offset = 6 - 4 = 2 lines
         buf.scroll_to_top();
-        assert_eq!(buf.scroll_offset, 5);
+        assert_eq!(buf.scroll_offset, 2);
+
+        // Attempting to scroll again past the top does not increase scroll_offset or lose text
+        buf.scroll_up(10);
+        assert_eq!(buf.scroll_offset, 2);
+
+        let (top_lines, top_info, _) = buf.get_visible_lines_wrapped(4, 20);
+        assert_eq!(top_info.scroll_offset, 2);
+        assert_eq!(top_lines.len(), 4);
+        assert_eq!(top_lines[0].spans[0].content, "Line 1");
+        assert_eq!(top_lines[1].spans[0].content, "Line 2");
+        assert_eq!(top_lines[2].spans[0].content, "Line 3");
+        assert_eq!(top_lines[3].spans[0].content, "Line 4");
 
         // Scroll to bottom
         buf.scroll_to_bottom();
