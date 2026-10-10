@@ -668,7 +668,7 @@ pub fn render(f: &mut Frame, app: &App) {
         }
 
         Modal::Help => {
-            let area = centered_rect(65, 60, f.area());
+            let area = centered_rect_min(75, 75, 70, 24, f.area());
             f.render_widget(Clear, area);
 
             let block = Block::default()
@@ -681,38 +681,63 @@ pub fn render(f: &mut Frame, app: &App) {
                         .add_modifier(Modifier::BOLD),
                 ));
 
+            let detach_k = app.user_settings.keybindings.get("detach_session");
+            let split_k = app.user_settings.keybindings.get("toggle_split");
+            let switch_k = app.user_settings.keybindings.get("switch_split_focus");
+            let fs_k = app.user_settings.keybindings.get("toggle_fullscreen");
+            let cmd_k = app.user_settings.keybindings.get("command_palette");
+            let url_k = app.user_settings.keybindings.get("url_picker");
+            let new_k = app.user_settings.keybindings.get("new_session");
+            let ref_k = app.user_settings.keybindings.get("refresh");
+            let quit_k = app.user_settings.keybindings.get("quit");
+
             let lines = vec![
-                Line::from(Span::styled("Navigation:", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))),
-                Line::from("  1 - 6          Switch tabs (1:Dashboard, 2:Sessions, 3:Inbox, 4:Accounts, 5:Projects, 6:Activity)"),
-                Line::from("  Tab / BackTab  Cycle next/previous tab"),
-                Line::from("  ↑ / ↓, j / k   Navigate rows in tables"),
-                Line::from("  Enter / t      Open selected session detail view"),
-                Line::from("  Ctrl+Q         Detach / Return from session terminal view"),
-                Line::from("  Ctrl+P / F1    Open Command Palette in session terminal"),
-                Line::from("  Ctrl+F         Toggle full-screen distraction-free terminal mode"),
-                Line::from("  PgUp / PgDn    Scroll session output transcript"),
-                Line::from("  ↑ / ↓          Prompt history navigation (in session / steer input)"),
-                Line::from("  Esc            Go back / Close modal dialog (forwarded to session terminal)"),
-                Line::from("  q              Quit TUI"),
-                Line::from("  r              Refresh data from daemon"),
+                Line::from(Span::styled("Navigation & Tabs:", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))),
+                Line::from("  1 - 6             Switch tabs (1:Dashboard, 2:Sessions, 3:Accounts, 4:Activity, 5:Agents, 6:Settings)"),
+                Line::from("  Tab / BackTab     Cycle next/previous tab"),
+                Line::from("  ↑ / ↓, j / k      Navigate items / table rows"),
+                Line::from(format!("  {quit_k:<17} Quit Agent Control TUI")),
+                Line::from(format!("  {ref_k:<17} Refresh daemon state and sessions")),
+                Line::from("  ?                 Open this help modal"),
                 Line::from(""),
-                Line::from(Span::styled("Session Actions (in Sessions / Session Detail):", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))),
-                Line::from("  s              Steer session (inject human instruction)"),
-                Line::from("  p              Pause running session"),
-                Line::from("  Space          Resume paused session"),
-                Line::from("  w              Switch account (controlled hand-off or rebind)"),
-                Line::from("  x              Stop session"),
+                Line::from(Span::styled("Session Terminal View:", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))),
+                Line::from(format!("  {detach_k:<17} Detach from terminal view back to tabs")),
+                Line::from(format!("  {split_k:<17} Toggle side-by-side terminal split pane (also Ctrl+\\)")),
+                Line::from(format!("  {switch_k:<17} Switch active focus between split panes")),
+                Line::from(format!("  {fs_k:<17} Toggle edge-to-edge distraction-free fullscreen terminal")),
+                Line::from(format!("  {cmd_k:<17} Open Command Palette in session (also F1)")),
+                Line::from(format!("  {url_k:<17} Extract and browse URLs / hyperlinks")),
+                Line::from("  Shift/Ctrl+Enter  Insert newline in prompt without submitting"),
+                Line::from("  Ctrl+Shift+C      Copy selected text to system clipboard (OSC 52)"),
+                Line::from("  PgUp / PgDn       Scroll session transcript (or Shift/Alt+↑/↓)"),
+                Line::from("  ↑ / ↓             Navigate prompt draft history"),
+                Line::from("  Ctrl+C            Cancel current prompt draft / send SIGINT"),
+                Line::from("  Ctrl+L            Clear virtual terminal buffer"),
                 Line::from(""),
-                Line::from(Span::styled("Inbox Actions (in Inbox view):", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))),
-                Line::from("  a              Approve pending approval request"),
-                Line::from("  d              Deny pending approval request"),
-                Line::from("  r              Reply to pending question/approval with text"),
-                Line::from("  x              Dismiss interaction without decision"),
+                Line::from(Span::styled("Scrollback & Visual Selection Modes:", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))),
+                Line::from("  k / j, u / d      Scroll 1 line / 10 lines up and down"),
+                Line::from("  g / G, Home/End   Jump to top of buffer / snap back to live bottom"),
+                Line::from("  /                 Search scrollback (n/N for next/previous match)"),
+                Line::from("  v                 Start visual text selection (move cursor with hjkl/arrows)"),
+                Line::from("  y                 Yank/copy highlighted selection to clipboard"),
+                Line::from("  Esc / q           Exit scroll/search/selection mode and return to live"),
+                Line::from(""),
+                Line::from(Span::styled("Session Management (in Sessions Tab):", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))),
+                Line::from(format!("  {new_k:<17} Launch new agent or shell session")),
+                Line::from("  Enter / t         Open selected session full terminal"),
+                Line::from("  s                 Steer session (inject instruction modal)"),
+                Line::from("  p / Space         Pause / Resume running session"),
+                Line::from("  w                 Switch account modal"),
+                Line::from("  x                 Stop running session"),
+                Line::from("  d / Delete        Remove session"),
+                Line::from(""),
+                Line::from(Span::styled("Keybinding Remapping:", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))),
+                Line::from("  Go to Settings (Tab 6) ▸ Keybindings to customize any shortcut. Changes persist to settings.json."),
                 Line::from(""),
                 Line::from(Span::styled("Press Esc or Enter to close this help window.", Style::default().fg(Color::DarkGray))),
             ];
 
-            let p = Paragraph::new(lines).block(block);
+            let p = Paragraph::new(lines).block(block).wrap(Wrap { trim: false });
             f.render_widget(p, area);
         }
 
@@ -1896,6 +1921,61 @@ pub fn render(f: &mut Frame, app: &App) {
                 "↑↓/j/k Select   Enter Open browser   y Copy URL   Esc Close",
                 Style::default().fg(Color::DarkGray),
             )));
+
+            let p = Paragraph::new(lines).block(block);
+            f.render_widget(p, area);
+        }
+        Modal::ChangeKeybind {
+            action_name,
+            action_label,
+            current_key,
+        } => {
+            let area = centered_rect_min(50, 30, 56, 12, f.area());
+            f.render_widget(Clear, area);
+
+            let block = Block::default()
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(Color::Yellow))
+                .title(Span::styled(
+                    format!(" ⌨ Remap Keybind: {action_label} "),
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD),
+                ));
+
+            let def = ac_core::settings::KeybindingsConfig::default_for_action(action_name);
+
+            let lines = vec![
+                Line::from(vec![
+                    Span::styled("Action: ", Style::default().fg(Color::DarkGray)),
+                    Span::styled(action_label, Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+                    Span::styled(format!(" ({action_name})"), Style::default().fg(Color::DarkGray)),
+                ]),
+                Line::from(vec![
+                    Span::styled("Current Key: ", Style::default().fg(Color::DarkGray)),
+                    Span::styled(format!(" [{current_key}] "), Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                    Span::styled("  Default: ", Style::default().fg(Color::DarkGray)),
+                    Span::styled(format!("[{def}]"), Style::default().fg(Color::White)),
+                ]),
+                Line::from(""),
+                Line::from(Span::styled(
+                    "▶ Press any key or key combination now (e.g. Ctrl+K, Alt+X, F3, etc.)",
+                    Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+                )),
+                Line::from(""),
+                Line::from(Span::styled(
+                    "Special controls:",
+                    Style::default().fg(Color::DarkGray),
+                )),
+                Line::from(vec![
+                    Span::styled("  • Esc            ", Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+                    Span::styled("Cancel and keep current keybind", Style::default().fg(Color::DarkGray)),
+                ]),
+                Line::from(vec![
+                    Span::styled("  • Backspace/Del  ", Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+                    Span::styled(format!("Reset to default ({def})"), Style::default().fg(Color::DarkGray)),
+                ]),
+            ];
 
             let p = Paragraph::new(lines).block(block);
             f.render_widget(p, area);

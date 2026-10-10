@@ -148,55 +148,45 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
         );
     }
 
-    let term_inner_width = chunks[1].width as usize;
-    let term_inner_height = chunks[1].height as usize;
-    let (visible_lines, scroll_info, cursor_rel) =
-        term_buf.get_visible_lines_wrapped(term_inner_height, term_inner_width);
+    if let Some(ref split_id) = app.split_session_id {
+        let split_chunks = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([
+                Constraint::Percentage(50),
+                Constraint::Length(1),
+                Constraint::Percentage(50),
+            ])
+            .split(chunks[1]);
 
-    let all_blank = visible_lines.iter().all(|l| {
-        l.spans.is_empty() || (l.spans.len() == 1 && l.spans[0].content.trim().is_empty())
-    });
+        // Left pane (primary session)
+        render_single_terminal(
+            f,
+            app,
+            term_buf,
+            split_chunks[0],
+            !app.split_focus_right,
+        );
 
-    if all_blank {
-        let empty_msg = vec![
-            Line::from(""),
-            Line::from(vec![
-                Span::styled(
-                    "  Waiting for agent output... ",
-                    Style::default().fg(Color::DarkGray),
-                ),
-                Span::styled(
-                    "(Type prompts directly into the terminal)",
-                    Style::default().fg(Color::Cyan),
-                ),
-            ]),
-        ];
-        f.render_widget(Paragraph::new(empty_msg), chunks[1]);
+        // Divider column
+        let divider_lines: Vec<Line> = (0..split_chunks[1].height)
+            .map(|_| Line::from(Span::styled("│", Style::default().fg(Color::DarkGray))))
+            .collect();
+        f.render_widget(Paragraph::new(divider_lines), split_chunks[1]);
+
+        // Right pane (split session)
+        let split_buf = app
+            .session_terminal_buffers
+            .get(&split_id.0)
+            .unwrap_or(&default_buf);
+        render_single_terminal(
+            f,
+            app,
+            split_buf,
+            split_chunks[2],
+            app.split_focus_right,
+        );
     } else {
-        f.render_widget(Paragraph::new(visible_lines), chunks[1]);
-    }
-
-    // Set hardware terminal cursor where the agent expects it
-    if scroll_info.follow {
-        if let Some((rel_col, rel_row)) = cursor_rel {
-            let cursor_x = chunks[1].x + rel_col;
-            let cursor_y = chunks[1].y + rel_row;
-            if cursor_x < chunks[1].right() && cursor_y < chunks[1].bottom() {
-                f.set_cursor_position(Position::new(cursor_x, cursor_y));
-
-                let cursor_style = match term_buf.cursor_shape() {
-                    crate::terminal_buffer::CursorShape::Default => {
-                        match app.user_settings.terminal_cursor.to_lowercase().as_str() {
-                            "bar" => crossterm::cursor::SetCursorStyle::SteadyBar,
-                            "underline" => crossterm::cursor::SetCursorStyle::SteadyUnderScore,
-                            _ => crossterm::cursor::SetCursorStyle::SteadyBlock,
-                        }
-                    }
-                    shape => shape.to_crossterm(),
-                };
-                let _ = crossterm::execute!(std::io::stdout(), cursor_style);
-            }
-        }
+        render_single_terminal(f, app, term_buf, chunks[1], true);
     }
 
     // ── 3. Minimal Footer ───────────────────────────────────────────────────
@@ -234,31 +224,66 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
                 Span::styled("[Esc]", Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
                 Span::styled(" Exit", Style::default().fg(Color::DarkGray)),
             ])
-        } else if scroll_info.follow {
-            Line::from(vec![
+        } else if term_buf.follow {
+            let detach_k = app.user_settings.keybindings.get("detach_session");
+            let cmd_k = app.user_settings.keybindings.get("command_palette");
+            let split_k = app.user_settings.keybindings.get("toggle_split");
+            let switch_k = app.user_settings.keybindings.get("switch_split_focus");
+            let fs_k = app.user_settings.keybindings.get("toggle_fullscreen");
+            let url_k = app.user_settings.keybindings.get("url_picker");
+
+            let mut shortcuts = vec![
                 Span::styled(
-                    " [Ctrl+Q]",
+                    format!(" [{detach_k}]"),
                     Style::default()
                         .fg(Color::White)
                         .add_modifier(Modifier::BOLD),
                 ),
                 Span::styled(" Back  ", Style::default().fg(Color::DarkGray)),
                 Span::styled(
-                    "[Ctrl+P]",
+                    format!("[{cmd_k}]"),
                     Style::default()
                         .fg(Color::Cyan)
                         .add_modifier(Modifier::BOLD),
                 ),
                 Span::styled(" Control  ", Style::default().fg(Color::DarkGray)),
+            ];
+
+            if app.split_session_id.is_some() {
+                shortcuts.push(Span::styled(
+                    format!("[{switch_k}]"),
+                    Style::default()
+                        .fg(Color::Magenta)
+                        .add_modifier(Modifier::BOLD),
+                ));
+                shortcuts.push(Span::styled(" Switch  ", Style::default().fg(Color::DarkGray)));
+                shortcuts.push(Span::styled(
+                    format!("[{split_k}]"),
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD),
+                ));
+                shortcuts.push(Span::styled(" Close Split  ", Style::default().fg(Color::DarkGray)));
+            } else {
+                shortcuts.push(Span::styled(
+                    format!("[{split_k}]"),
+                    Style::default()
+                        .fg(Color::White)
+                        .add_modifier(Modifier::BOLD),
+                ));
+                shortcuts.push(Span::styled(" Split  ", Style::default().fg(Color::DarkGray)));
+            }
+
+            shortcuts.extend(vec![
                 Span::styled(
-                    "[Ctrl+F]",
+                    format!("[{fs_k}]"),
                     Style::default()
                         .fg(Color::Yellow)
                         .add_modifier(Modifier::BOLD),
                 ),
                 Span::styled(" Fullscreen  ", Style::default().fg(Color::DarkGray)),
                 Span::styled(
-                    "[Ctrl+O]",
+                    format!("[{url_k}]"),
                     Style::default()
                         .fg(Color::Cyan)
                         .add_modifier(Modifier::BOLD),
@@ -273,7 +298,8 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
                 Span::styled(" Help  ", Style::default().fg(Color::DarkGray)),
                 Span::styled("[PgUp/PgDn]", Style::default().fg(Color::White)),
                 Span::styled(" Scroll", Style::default().fg(Color::DarkGray)),
-            ])
+            ]);
+            Line::from(shortcuts)
         } else if term_buf.is_selecting() {
             Line::from(vec![
                 Span::styled(
@@ -298,7 +324,7 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
                         .add_modifier(Modifier::BOLD),
                 ),
                 Span::styled(
-                    format!("{} lines up", scroll_info.scroll_offset),
+                    format!("{} lines up", term_buf.scroll_offset),
                     Style::default()
                         .fg(Color::White)
                         .add_modifier(Modifier::BOLD),
@@ -323,5 +349,64 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
             Paragraph::new(Line::from(conn_span)).alignment(Alignment::Right),
             footer_chunks[1],
         );
+    }
+}
+
+fn render_single_terminal(
+    f: &mut Frame,
+    app: &App,
+    term_buf: &TerminalBuffer,
+    area: Rect,
+    is_focused: bool,
+) {
+    let term_inner_width = area.width as usize;
+    let term_inner_height = area.height as usize;
+    let (visible_lines, scroll_info, cursor_rel) =
+        term_buf.get_visible_lines_wrapped(term_inner_height, term_inner_width);
+
+    let all_blank = visible_lines.iter().all(|l| {
+        l.spans.is_empty() || (l.spans.len() == 1 && l.spans[0].content.trim().is_empty())
+    });
+
+    if all_blank {
+        let empty_msg = vec![
+            Line::from(""),
+            Line::from(vec![
+                Span::styled(
+                    "  Waiting for agent output... ",
+                    Style::default().fg(Color::DarkGray),
+                ),
+                Span::styled(
+                    "(Type prompts directly into the terminal)",
+                    Style::default().fg(Color::Cyan),
+                ),
+            ]),
+        ];
+        f.render_widget(Paragraph::new(empty_msg), area);
+    } else {
+        f.render_widget(Paragraph::new(visible_lines), area);
+    }
+
+    // Set hardware terminal cursor where the agent expects it (only if this pane is focused)
+    if is_focused && scroll_info.follow {
+        if let Some((rel_col, rel_row)) = cursor_rel {
+            let cursor_x = area.x + rel_col;
+            let cursor_y = area.y + rel_row;
+            if cursor_x < area.right() && cursor_y < area.bottom() {
+                f.set_cursor_position(Position::new(cursor_x, cursor_y));
+
+                let cursor_style = match term_buf.cursor_shape() {
+                    crate::terminal_buffer::CursorShape::Default => {
+                        match app.user_settings.terminal_cursor.to_lowercase().as_str() {
+                            "bar" => crossterm::cursor::SetCursorStyle::SteadyBar,
+                            "underline" => crossterm::cursor::SetCursorStyle::SteadyUnderScore,
+                            _ => crossterm::cursor::SetCursorStyle::SteadyBlock,
+                        }
+                    }
+                    shape => shape.to_crossterm(),
+                };
+                let _ = crossterm::execute!(std::io::stdout(), cursor_style);
+            }
+        }
     }
 }

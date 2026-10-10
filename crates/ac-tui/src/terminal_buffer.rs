@@ -530,6 +530,8 @@ pub struct TerminalBuffer {
     pub selection: Option<TerminalSelection>,
     /// Preserved scrollback history for lines scrolled off the top of the alternate screen.
     pub alt_scrollback: Vec<TerminalLine>,
+    /// Last text copied or received via OSC 52 clipboard sequence.
+    pub last_clipboard: Option<String>,
 }
 
 impl Default for TerminalBuffer {
@@ -573,6 +575,7 @@ impl TerminalBuffer {
             pending_notifications: Vec::new(),
             selection: None,
             alt_scrollback: Vec::new(),
+            last_clipboard: None,
         }
     }
 
@@ -1242,6 +1245,11 @@ impl TerminalBuffer {
         self.bracketed_paste
     }
 
+    /// Last text received via OSC 52 clipboard sequence.
+    pub fn last_clipboard(&self) -> Option<&str> {
+        self.last_clipboard.as_deref()
+    }
+
     /// Whether a full-screen program currently owns the (alternate) screen.
     pub fn in_alt_screen(&self) -> bool {
         self.alt.is_some()
@@ -1741,6 +1749,20 @@ impl TerminalBuffer {
                             });
                         }
                     }
+                    "52" => {
+                        // OSC 52: Clipboard handling (`\x1b]52;c;<base64>\x07` or `\x1b]52;c;<base64>\x1b\`)
+                        let (_clip, b64_data) = payload.split_once(';').unwrap_or(("", payload));
+                        if b64_data != "?" && !b64_data.is_empty() {
+                            if let Some(decoded_bytes) = crate::clipboard::decode_base64(b64_data) {
+                                if let Ok(text) = String::from_utf8(decoded_bytes) {
+                                    if !text.is_empty() {
+                                        crate::clipboard::copy(&text);
+                                        self.last_clipboard = Some(text);
+                                    }
+                                }
+                            }
+                        }
+                    }
                     _ => {}
                 }
             }
@@ -1819,7 +1841,7 @@ impl TerminalBuffer {
 
         if last_char == 'm' {
             // SGR - Select Graphic Rendition (Colors and styling)
-            self.parse_sgr(&params_str.replace(':', ";"));
+            self.parse_sgr(params_str);
             return;
         }
 
@@ -2138,26 +2160,77 @@ impl TerminalBuffer {
         }
     }
 
-    /// Parse ANSI SGR parameters (e.g. "1;32;40") and apply to current_style.
+    /// Parse ANSI SGR parameters (e.g. "1;32;40" or "4:3;58:2::255:0:0") and apply to current_style.
     fn parse_sgr(&mut self, params_str: &str) {
         if params_str.is_empty() {
             self.current_style = Style::default();
             return;
         }
 
-        let parts: Vec<u32> = params_str
-            .split(';')
-            .filter_map(|s| s.parse::<u32>().ok())
-            .collect();
-
-        if parts.is_empty() {
+        let tokens: Vec<&str> = params_str.split(';').collect();
+        if tokens.is_empty() {
             self.current_style = Style::default();
             return;
         }
 
         let mut idx = 0;
-        while idx < parts.len() {
-            match parts[idx] {
+        while idx < tokens.len() {
+            let token = tokens[idx];
+            if token.contains(':') {
+                let subparts: Vec<&str> = token.split(':').collect();
+                let code = subparts[0].parse::<u32>().unwrap_or(0);
+                match code {
+                    4 => {
+                        // Extended underline styles (CSI 4:x m)
+                        // 4:0 = none, 4:1 = single, 4:2 = double, 4:3 = curly (undercurl),
+                        // 4:4 = dotted, 4:5 = dashed
+                        let style_type = subparts
+                            .get(1)
+                            .and_then(|s| s.parse::<u32>().ok())
+                            .unwrap_or(1);
+                        if style_type == 0 {
+                            self.current_style =
+                                self.current_style.remove_modifier(Modifier::UNDERLINED);
+                        } else {
+                            self.current_style =
+                                self.current_style.add_modifier(Modifier::UNDERLINED);
+                        }
+                    }
+                    38 => {
+                        if let Some(col) = parse_subpart_color(&subparts[1..]) {
+                            self.current_style = self.current_style.fg(col);
+                        }
+                    }
+                    48 => {
+                        if let Some(col) = parse_subpart_color(&subparts[1..]) {
+                            self.current_style = self.current_style.bg(col);
+                        }
+                    }
+                    58 => {
+                        // Extended underline color (CSI 58:2::r:g:b m or CSI 58:5:idx m)
+                        if let Some(col) = parse_subpart_color(&subparts[1..]) {
+                            self.current_style = self.current_style.underline_color(col);
+                        }
+                    }
+                    59 => {
+                        // Reset underline color
+                        self.current_style.underline_color = None;
+                    }
+                    _ => {}
+                }
+                idx += 1;
+                continue;
+            }
+
+            let code = match token.parse::<u32>() {
+                Ok(c) => c,
+                Err(_) => {
+                    idx += 1;
+                    continue;
+                }
+            };
+
+            match code {
                 0 => {
                     self.current_style = Style::default();
                     idx += 1;
@@ -2241,18 +2314,11 @@ impl TerminalBuffer {
                     self.current_style = self.current_style.fg(Color::Gray);
                     idx += 1;
                 }
-                // Extended Foreground Color
+                // Extended Foreground Color (CSI 38;5;idx m or CSI 38;2;r;g;b m)
                 38 => {
-                    if idx + 2 < parts.len() && parts[idx + 1] == 5 {
-                        let color_val = parts[idx + 2] as u8;
-                        self.current_style = self.current_style.fg(Color::Indexed(color_val));
-                        idx += 3;
-                    } else if idx + 4 < parts.len() && parts[idx + 1] == 2 {
-                        let r = parts[idx + 2] as u8;
-                        let g = parts[idx + 3] as u8;
-                        let b = parts[idx + 4] as u8;
-                        self.current_style = self.current_style.fg(Color::Rgb(r, g, b));
-                        idx += 5;
+                    if let Some((col, consumed)) = parse_semicolon_color(&tokens[idx + 1..]) {
+                        self.current_style = self.current_style.fg(col);
+                        idx += 1 + consumed;
                     } else {
                         idx += 1;
                     }
@@ -2294,24 +2360,31 @@ impl TerminalBuffer {
                     self.current_style = self.current_style.bg(Color::Gray);
                     idx += 1;
                 }
-                // Extended Background Color
+                // Extended Background Color (CSI 48;5;idx m or CSI 48;2;r;g;b m)
                 48 => {
-                    if idx + 2 < parts.len() && parts[idx + 1] == 5 {
-                        let color_val = parts[idx + 2] as u8;
-                        self.current_style = self.current_style.bg(Color::Indexed(color_val));
-                        idx += 3;
-                    } else if idx + 4 < parts.len() && parts[idx + 1] == 2 {
-                        let r = parts[idx + 2] as u8;
-                        let g = parts[idx + 3] as u8;
-                        let b = parts[idx + 4] as u8;
-                        self.current_style = self.current_style.bg(Color::Rgb(r, g, b));
-                        idx += 5;
+                    if let Some((col, consumed)) = parse_semicolon_color(&tokens[idx + 1..]) {
+                        self.current_style = self.current_style.bg(col);
+                        idx += 1 + consumed;
                     } else {
                         idx += 1;
                     }
                 }
                 49 => {
                     self.current_style = self.current_style.bg(Color::Reset);
+                    idx += 1;
+                }
+                // Extended Underline Color (CSI 58;5;idx m or CSI 58;2;r;g;b m)
+                58 => {
+                    if let Some((col, consumed)) = parse_semicolon_color(&tokens[idx + 1..]) {
+                        self.current_style = self.current_style.underline_color(col);
+                        idx += 1 + consumed;
+                    } else {
+                        idx += 1;
+                    }
+                }
+                // Reset Underline Color (CSI 59 m)
+                59 => {
+                    self.current_style.underline_color = None;
                     idx += 1;
                 }
                 // Bright Foreground Colors
@@ -2386,6 +2459,58 @@ impl TerminalBuffer {
             }
         }
     }
+}
+
+fn parse_subpart_color(subs: &[&str]) -> Option<Color> {
+    if subs.is_empty() {
+        return None;
+    }
+    match subs[0] {
+        "5" => subs.get(1).and_then(|s| s.parse::<u8>().ok()).map(Color::Indexed),
+        "2" => {
+            let nums: Vec<u8> = subs[1..]
+                .iter()
+                .filter(|s| !s.is_empty())
+                .filter_map(|s| s.parse::<u8>().ok())
+                .collect();
+            if nums.len() >= 3 {
+                Some(Color::Rgb(nums[0], nums[1], nums[2]))
+            } else {
+                None
+            }
+        }
+        _ => None,
+    }
+}
+
+fn parse_semicolon_color(tokens: &[&str]) -> Option<(Color, usize)> {
+    if tokens.is_empty() {
+        return None;
+    }
+    match tokens[0] {
+        "5" => {
+            if tokens.len() >= 2 {
+                let idx = tokens[1].parse::<u8>().ok()?;
+                Some((Color::Indexed(idx), 2))
+            } else {
+                None
+            }
+        }
+        "2" => {
+            if tokens.len() >= 4 {
+                let r = tokens[1].parse::<u8>().ok()?;
+                let g = tokens[2].parse::<u8>().ok()?;
+                let b = tokens[3].parse::<u8>().ok()?;
+                Some((Color::Rgb(r, g, b), 4))
+            } else {
+                None
+            }
+        }
+        _ => None,
+    }
+}
+
+impl TerminalBuffer {
 
     /// Total number of lines currently buffered.
     pub fn total_lines(&self) -> usize {
@@ -3552,5 +3677,60 @@ mod tests {
         // Triple click selects entire line
         buf.select_line_at(0);
         assert_eq!(buf.extract_selected_text(), Some("Hello world".to_string()));
+    }
+
+    #[test]
+    fn test_extended_underline_styles_and_colors() {
+        let mut buf = TerminalBuffer::new(100);
+
+        // 1. Curly underline (undercurl): \x1b[4:3m
+        // Must set UNDERLINED and must NOT set ITALIC
+        buf.push_str("\x1b[4:3mCurly\x1b[0m");
+        let line0 = &buf.lines[0];
+        let cell = &line0.chars[0];
+        assert!(cell.style.add_modifier.contains(Modifier::UNDERLINED));
+        assert!(!cell.style.add_modifier.contains(Modifier::ITALIC));
+
+        // 2. Underline styles: 4:0 (none), 4:1 (single), 4:2 (double), 4:4 (dotted), 4:5 (dashed)
+        let mut buf2 = TerminalBuffer::new(100);
+        buf2.push_str("\x1b[4:1mSingle \x1b[4:0mNone \x1b[4:2mDouble \x1b[4:4mDotted \x1b[4:5mDashed\x1b[0m");
+        let chars = &buf2.lines[0].chars;
+        // 'S' in Single has underline
+        assert!(chars[0].style.add_modifier.contains(Modifier::UNDERLINED));
+        // 'N' in None does NOT have underline
+        assert!(!chars[7].style.add_modifier.contains(Modifier::UNDERLINED));
+        // 'D' in Double has underline
+        assert!(chars[12].style.add_modifier.contains(Modifier::UNDERLINED));
+
+        // 3. Extended Underline Color: semicolon RGB CSI 58;2;255;100;50m
+        let mut buf3 = TerminalBuffer::new(100);
+        buf3.push_str("\x1b[4m\x1b[58;2;255;100;50mColored\x1b[59mReset\x1b[0m");
+        let chars3 = &buf3.lines[0].chars;
+        assert_eq!(chars3[0].style.underline_color, Some(Color::Rgb(255, 100, 50)));
+        // After 59, underline color is reset to None
+        assert_eq!(chars3[7].style.underline_color, None);
+
+        // 4. Extended Underline Color: colon RGB CSI 58:2::12;34;56m and 256-color CSI 58:5:42m
+        let mut buf4 = TerminalBuffer::new(100);
+        buf4.push_str("\x1b[58:2::12:34:56mColonRGB\x1b[58:5:42mIndexCol\x1b[0m");
+        let chars4 = &buf4.lines[0].chars;
+        assert_eq!(chars4[0].style.underline_color, Some(Color::Rgb(12, 34, 56)));
+        assert_eq!(chars4[8].style.underline_color, Some(Color::Indexed(42)));
+    }
+
+    #[test]
+    fn test_osc52_clipboard_parsing() {
+        let mut buf = TerminalBuffer::new(100);
+
+        // Send OSC 52 sequence with base64 "Hello, Ghostty!"
+        let payload = crate::clipboard::base64(b"Hello, Ghostty!");
+        let seq = format!("\x1b]52;c;{}\x07", payload);
+        buf.push_str(&seq);
+
+        assert_eq!(buf.last_clipboard(), Some("Hello, Ghostty!"));
+
+        // Query sequence (?) should be safely ignored
+        buf.push_str("\x1b]52;c;?\x07");
+        assert_eq!(buf.last_clipboard(), Some("Hello, Ghostty!"));
     }
 }

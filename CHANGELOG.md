@@ -4,6 +4,17 @@ All notable changes to AgentControll are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.9] - 2026-10-10
+
+### Added
+- **Configurable Keybindings**: Introduced customizable keybindings across the TUI with persistence in user settings (`KeybindingsConfig`). Users can view, rebind via interactive modal key-capture, or reset bindings to default for actions including detach, fullscreen toggle, split pane focus, command palette, URL picker, session steer, resume, and account switching.
+- **Interactive Shell Agent Providers**: Added native support for `shell`, `bash`, and `zsh` agent types within the composite adapter factory to run standard shell sessions alongside coding agents.
+- **Scriptable Plain CLI Output**: Added `--plain` (`-p`) flag to `ac` CLI for clean, tab-delimited output without decorative headers or borders, automatically enabled when stdout is redirected to non-terminal unix pipes.
+- **OSC 52 Clipboard Integration**: Supported OSC 52 ANSI clipboard escape sequences in `TerminalBuffer` with automatic base64 decoding and system clipboard synchronization.
+
+### Changed
+- Refactored settings view into an interactive multi-tab configuration interface with real-time keybinding remapping.
+
 ## [1.0.8] - 2026-10-08
 
 ### Fixed

@@ -107,6 +107,8 @@ fn render_section_content(f: &mut Frame, app: &App, area: Rect) {
         SettingsSection::Authentication => render_authentication_section(f, app, area),
         SettingsSection::Terminal => render_terminal_section(f, app, area),
         SettingsSection::Security => render_security_section(f, app, area),
+        SettingsSection::Keybindings => render_keybindings_section(f, app, area),
+        SettingsSection::About => render_about_section(f, app, area),
     }
 }
 
@@ -1131,6 +1133,404 @@ fn render_security_section(f: &mut Frame, app: &App, area: Rect) {
         Line::from(vec![
             Span::styled(" [T4] Permission Gatekeeper:    ", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
             Span::styled("Dangerous permission overrides require explicit human confirmation dialog", Style::default().fg(Color::White)),
+        ]),
+    ];
+
+    f.render_widget(
+        Paragraph::new(lines)
+            .block(block)
+            .wrap(Wrap { trim: false }),
+        area,
+    );
+}
+
+// ── 10. Keybindings Section ───────────────────────────────────────────────────
+
+fn render_keybindings_section(f: &mut Frame, app: &App, area: Rect) {
+    let is_focused = app.settings_focus_panel;
+    let border_color = if is_focused {
+        Color::Cyan
+    } else {
+        Color::DarkGray
+    };
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(border_color))
+        .title(Span::styled(
+            if is_focused {
+                " ▸ Keybindings & Shortcuts "
+            } else {
+                " Keybindings & Shortcuts "
+            },
+            Style::default()
+                .fg(if is_focused {
+                    Color::Cyan
+                } else {
+                    Color::White
+                })
+                .add_modifier(Modifier::BOLD),
+        ));
+
+    let inner = block.inner(area);
+    f.render_widget(block, area);
+
+    if inner.height < 4 {
+        return;
+    }
+
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(2), // Header explanation
+            Constraint::Min(4),    // Table of keybindings
+            Constraint::Length(2), // Bottom hints
+        ])
+        .split(inner);
+
+    let header_text = vec![
+        Line::from(vec![
+            Span::styled(
+                "Configure and remap global shortcuts & session hotkeys. ",
+                Style::default().fg(Color::DarkGray),
+            ),
+            Span::styled(
+                "Changes are persisted to ~/.config/agentcontrol/settings.json",
+                Style::default().fg(Color::Cyan),
+            ),
+        ]),
+    ];
+    f.render_widget(Paragraph::new(header_text), chunks[0]);
+
+    let rows: Vec<Row> = ac_core::settings::KeybindingsConfig::ACTION_LIST
+        .iter()
+        .enumerate()
+        .map(|(idx, &(action_name, action_label, action_desc))| {
+            let is_selected = is_focused && app.settings_keybind_selected == idx;
+            let current_key = app.user_settings.keybindings.get(action_name);
+            let default_key =
+                ac_core::settings::KeybindingsConfig::default_for_action(action_name);
+            let is_custom = app.user_settings.keybindings.is_custom(action_name);
+
+            let prefix = if is_selected { " ▸ " } else { "   " };
+            let row_style = if is_selected {
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(Color::White)
+            };
+
+            let status_cell = if is_custom {
+                Cell::from(Span::styled(
+                    "CUSTOM",
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD),
+                ))
+            } else {
+                Cell::from(Span::styled(
+                    "DEFAULT",
+                    Style::default().fg(Color::DarkGray),
+                ))
+            };
+
+            Row::new(vec![
+                Cell::from(Span::styled(
+                    format!("{prefix}{action_label}"),
+                    row_style,
+                )),
+                Cell::from(Span::styled(
+                    format!(" [{current_key}] "),
+                    if is_selected {
+                        Style::default()
+                            .fg(Color::Black)
+                            .bg(Color::Cyan)
+                            .add_modifier(Modifier::BOLD)
+                    } else {
+                        Style::default()
+                            .fg(Color::Cyan)
+                            .add_modifier(Modifier::BOLD)
+                    },
+                )),
+                Cell::from(Span::styled(
+                    default_key,
+                    Style::default().fg(Color::DarkGray),
+                )),
+                status_cell,
+                Cell::from(Span::styled(action_desc, Style::default().fg(Color::Gray))),
+            ])
+        })
+        .collect();
+
+    let widths = [
+        Constraint::Length(24),
+        Constraint::Length(16),
+        Constraint::Length(12),
+        Constraint::Length(10),
+        Constraint::Min(30),
+    ];
+
+    let header = Row::new(vec![
+        Cell::from(Span::styled(
+            "   Action",
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        )),
+        Cell::from(Span::styled(
+            "Current Key",
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        )),
+        Cell::from(Span::styled(
+            "Default",
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        )),
+        Cell::from(Span::styled(
+            "Status",
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        )),
+        Cell::from(Span::styled(
+            "Description",
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        )),
+    ])
+    .bottom_margin(1);
+
+    let table = Table::new(rows, widths).header(header);
+    f.render_widget(table, chunks[1]);
+
+    let footer_hints = if is_focused {
+        Line::from(vec![
+            Span::styled(
+                "Enter/e/c",
+                Style::default()
+                    .fg(Color::White)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(" Change Keybind  ", Style::default().fg(Color::DarkGray)),
+            Span::styled(
+                "d/Backspace",
+                Style::default()
+                    .fg(Color::White)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                " Reset to Default  ",
+                Style::default().fg(Color::DarkGray),
+            ),
+            Span::styled(
+                "R",
+                Style::default()
+                    .fg(Color::White)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                " Reset All Defaults  ",
+                Style::default().fg(Color::DarkGray),
+            ),
+            Span::styled(
+                "Esc/←",
+                Style::default()
+                    .fg(Color::White)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(" Sections List", Style::default().fg(Color::DarkGray)),
+        ])
+    } else {
+        Line::from(Span::styled(
+            "Enter/→ Focus table to rebind hotkeys",
+            Style::default().fg(Color::DarkGray),
+        ))
+    };
+    f.render_widget(Paragraph::new(footer_hints), chunks[2]);
+}
+
+// ── 11. About Section ──────────────────────────────────────────────────────────
+
+fn render_about_section(f: &mut Frame, app: &App, area: Rect) {
+    let is_focused = app.settings_focus_panel;
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(if is_focused {
+            Color::Cyan
+        } else {
+            Color::DarkGray
+        }))
+        .title(Span::styled(
+            if is_focused {
+                " ▸ About AgentControll "
+            } else {
+                " About AgentControll "
+            },
+            Style::default()
+                .fg(if is_focused {
+                    Color::Cyan
+                } else {
+                    Color::White
+                })
+                .add_modifier(Modifier::BOLD),
+        ));
+
+    let pkg_version = env!("CARGO_PKG_VERSION");
+    let active_sessions_count = app.sessions.len();
+    let accounts_count = app.accounts.len();
+    let projects_count = app.projects.len();
+
+    let daemon_state = if app.daemon_connected {
+        Span::styled(
+            format!("● Connected ({active_sessions_count} active sessions)"),
+            Style::default()
+                .fg(Color::Green)
+                .add_modifier(Modifier::BOLD),
+        )
+    } else {
+        Span::styled(
+            "○ Disconnected",
+            Style::default()
+                .fg(Color::Red)
+                .add_modifier(Modifier::BOLD),
+        )
+    };
+
+    let lines = vec![
+        Line::from(""),
+        Line::from(vec![
+            Span::styled(
+                " ⚡ AGENTCONTROLL",
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                format!(" v{pkg_version}"),
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                " — Multi-Agent Supervisor & Control Plane",
+                Style::default().fg(Color::White),
+            ),
+        ]),
+        Line::from(Span::styled(
+            "    Terminal-first orchestrator for AI coding agents, shells, and human supervisory control.",
+            Style::default().fg(Color::DarkGray),
+        )),
+        Line::from(""),
+        Line::from(Span::styled(
+            " Architecture & Components:",
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        )),
+        Line::from(vec![
+            Span::styled(
+                "   • Daemon (agentcontrold):   ",
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                "Local UNIX socket daemon, PTY supervisor, ring buffer & SQLite event store",
+                Style::default().fg(Color::White),
+            ),
+        ]),
+        Line::from(vec![
+            Span::styled(
+                "   • CLI (ac):                 ",
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                "Unix-composable CLI with pipe purity, --plain tab-separated output & script automation",
+                Style::default().fg(Color::White),
+            ),
+        ]),
+        Line::from(vec![
+            Span::styled(
+                "   • TUI (agentcontrol):       ",
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                "Edge-to-edge terminal dashboard with split panes, Kitty progressive keyboard & OSC 52",
+                Style::default().fg(Color::White),
+            ),
+        ]),
+        Line::from(""),
+        Line::from(Span::styled(
+            " Runtime & System Environment:",
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        )),
+        Line::from(vec![
+            Span::styled("   • Daemon Status:            ", Style::default().fg(Color::Cyan)),
+            daemon_state,
+        ]),
+        Line::from(vec![
+            Span::styled("   • Config Directory:         ", Style::default().fg(Color::Cyan)),
+            Span::styled(
+                "~/.config/agentcontrol/ (honors XDG_CONFIG_HOME)",
+                Style::default().fg(Color::White),
+            ),
+        ]),
+        Line::from(vec![
+            Span::styled("   • Settings Persistence:     ", Style::default().fg(Color::Cyan)),
+            Span::styled(
+                "~/.config/agentcontrol/settings.json",
+                Style::default().fg(Color::White),
+            ),
+        ]),
+        Line::from(vec![
+            Span::styled("   • Accounts & Projects:      ", Style::default().fg(Color::Cyan)),
+            Span::styled(
+                format!("{accounts_count} accounts configured, {projects_count} projects registered"),
+                Style::default().fg(Color::White),
+            ),
+        ]),
+        Line::from(vec![
+            Span::styled("   • Default Agent / Shell:    ", Style::default().fg(Color::Cyan)),
+            Span::styled(
+                format!("{} (Fallback Shell: $SHELL)", app.user_settings.default_agent),
+                Style::default().fg(Color::White),
+            ),
+        ]),
+        Line::from(""),
+        Line::from(Span::styled(
+            " Terminal Parity & Standards:",
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        )),
+        Line::from(vec![
+            Span::styled("   • Terminal Protocols:       ", Style::default().fg(Color::Green)),
+            Span::styled(
+                "Kitty progressive keyboard disambiguation, OSC 52 sync, Undercurl SGR 4:3, RGB Truecolor",
+                Style::default().fg(Color::White),
+            ),
+        ]),
+        Line::from(vec![
+            Span::styled("   • Multi-Pane Layout:        ", Style::default().fg(Color::Green)),
+            Span::styled(
+                "Side-by-side terminal splits with focus routing & hardware cursor tracking",
+                Style::default().fg(Color::White),
+            ),
+        ]),
+        Line::from(vec![
+            Span::styled("   • License:                  ", Style::default().fg(Color::Green)),
+            Span::styled("Apache-2.0 / MIT", Style::default().fg(Color::White)),
         ]),
     ];
 

@@ -4,6 +4,7 @@ pub mod app;
 pub mod client;
 pub mod clipboard;
 pub mod event;
+pub mod keybinding;
 pub mod launch;
 pub mod prompt_history;
 pub mod terminal_buffer;
@@ -15,10 +16,14 @@ use crossterm::{
     cursor::Show,
     event::{
         DisableBracketedPaste, DisableMouseCapture, EnableBracketedPaste, EnableMouseCapture,
-        Event, EventStream,
+        Event, EventStream, KeyboardEnhancementFlags, PopKeyboardEnhancementFlags,
+        PushKeyboardEnhancementFlags,
     },
     execute,
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+    terminal::{
+        disable_raw_mode, enable_raw_mode, supports_keyboard_enhancement, EnterAlternateScreen,
+        LeaveAlternateScreen,
+    },
 };
 use ratatui::{backend::CrosstermBackend, Terminal};
 use std::{io::stdout, path::PathBuf, time::Duration};
@@ -35,6 +40,7 @@ impl Drop for TerminalGuard {
         let _ = disable_raw_mode();
         let _ = execute!(
             stdout(),
+            PopKeyboardEnhancementFlags,
             DisableBracketedPaste,
             DisableMouseCapture,
             LeaveAlternateScreen,
@@ -55,6 +61,12 @@ pub async fn run_tui(socket_path: PathBuf) -> Result<()> {
         EnableBracketedPaste,
         EnableMouseCapture
     )?;
+    if supports_keyboard_enhancement().unwrap_or(false) {
+        let _ = execute!(
+            out,
+            PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES)
+        );
+    }
     let _guard = TerminalGuard;
 
     // Install panic hook to restore terminal before printing panics
@@ -63,6 +75,7 @@ pub async fn run_tui(socket_path: PathBuf) -> Result<()> {
         let _ = disable_raw_mode();
         let _ = execute!(
             stdout(),
+            PopKeyboardEnhancementFlags,
             DisableBracketedPaste,
             DisableMouseCapture,
             LeaveAlternateScreen,

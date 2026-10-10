@@ -136,7 +136,9 @@ impl AdapterFactory for CompositeAdapterFactory {
     fn capabilities(&self, agent_type: &str) -> ProviderCapabilities {
         match agent_type {
             "claude-code" | "claude" => claude::ClaudeAdapter::capabilities(),
-            "generic-pty" | "pty" | "agy" | "antigravity" => pty::GenericPtyAdapter::capabilities(),
+            "generic-pty" | "pty" | "shell" | "bash" | "zsh" | "agy" | "antigravity" => {
+                pty::GenericPtyAdapter::capabilities()
+            }
             "mock" => {
                 if let Some(ref mock) = self.mock_factory {
                     mock.capabilities(agent_type)
@@ -163,6 +165,24 @@ impl AdapterFactory for CompositeAdapterFactory {
             }
             "generic-pty" | "pty" => {
                 pty::GenericPtyAdapter::spawn(&ctx, self.pty_config.clone(), event_tx)
+            }
+            "shell" | "bash" | "zsh" => {
+                let mut shell_cfg = self.pty_config.clone();
+                let user_shell = if ctx.agent_type == "bash" {
+                    "/bin/bash".to_string()
+                } else if ctx.agent_type == "zsh" {
+                    "/bin/zsh".to_string()
+                } else {
+                    std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string())
+                };
+                shell_cfg.program = user_shell;
+                if !ctx.task_description.is_empty()
+                    && ctx.task_description != "shell"
+                    && ctx.task_description != "Interactive Shell"
+                {
+                    shell_cfg.args = vec!["-c".to_string(), ctx.task_description.clone()];
+                }
+                pty::GenericPtyAdapter::spawn(&ctx, shell_cfg, event_tx)
             }
             "agy" | "antigravity" => {
                 let mut agy_cfg = self.pty_config.clone();

@@ -757,3 +757,108 @@ async fn test_ctrl_f_fullscreen_distraction_free_terminal_toggle() {
     assert_eq!(app.session_detail_id, None);
     assert_eq!(app.fullscreen_terminal, false);
 }
+
+#[tokio::test]
+async fn test_split_session_pane_and_focus_switching() {
+    let mut app = create_sample_app();
+    let backend = TestBackend::new(120, 40);
+    let mut terminal = Terminal::new(backend).unwrap();
+
+    let s1_id = Id::from("01HXYZ00000000000000000001");
+    let s2_id = Id::from("01HXYZ00000000000000000002");
+
+    app.session_detail_id = Some(s1_id.clone());
+    assert_eq!(app.focused_session_id(), Some(s1_id.clone()));
+    assert!(app.split_session_id.is_none());
+
+    // Toggle split
+    app.toggle_split_session();
+    assert_eq!(app.split_session_id, Some(s2_id.clone()));
+    assert!(!app.split_focus_right);
+    assert_eq!(app.focused_session_id(), Some(s1_id.clone()));
+
+    // Render in split mode
+    terminal.draw(|f| ui::draw(f, &app)).unwrap();
+    let buffer = terminal.backend().buffer().clone();
+    let content = format!("{:?}", buffer);
+    assert!(content.contains("│"));
+    assert!(content.contains("[Alt+W]") && content.contains("Switch"));
+
+    // Switch focus to right pane
+    app.switch_split_focus();
+    assert!(app.split_focus_right);
+    assert_eq!(app.focused_session_id(), Some(s2_id.clone()));
+
+    // Toggle split off
+    app.toggle_split_session();
+    assert!(app.split_session_id.is_none());
+    assert_eq!(app.focused_session_id(), Some(s1_id));
+}
+
+#[tokio::test]
+async fn test_settings_keybindings_and_about_rendering() {
+    let mut app = create_sample_app();
+    let backend = TestBackend::new(120, 40);
+    let mut terminal = Terminal::new(backend).unwrap();
+
+    app.set_tab(Tab::Settings);
+
+    // 1. Keybindings Section
+    app.settings_section_index = ac_tui::app::SettingsSection::Keybindings.to_index();
+    app.settings_focus_panel = true;
+    terminal.draw(|f| ui::draw(f, &app)).unwrap();
+    let kb_content = format!("{:?}", terminal.backend().buffer());
+    assert!(kb_content.contains("Keybindings & Shortcuts"));
+    assert!(kb_content.contains("Detach Session"));
+    assert!(kb_content.contains("DEFAULT"));
+
+    // 2. About Section
+    app.settings_section_index = ac_tui::app::SettingsSection::About.to_index();
+    terminal.draw(|f| ui::draw(f, &app)).unwrap();
+    let about_content = format!("{:?}", terminal.backend().buffer());
+    assert!(about_content.contains("About AgentControll"));
+    assert!(about_content.contains("Architecture & Components"));
+    assert!(about_content.contains("agentcontrold"));
+}
+
+#[tokio::test]
+async fn test_settings_change_keybinding_modal_and_remap() {
+    let mut app = create_sample_app();
+    let client = ApiClient::new("http://localhost:9999");
+
+    // Initially detach_session is default "Ctrl+Q"
+    assert_eq!(app.user_settings.keybindings.detach_session, "Ctrl+Q");
+
+    // Open ChangeKeybind modal
+    app.active_modal = Some(Modal::ChangeKeybind {
+        action_name: "detach_session".to_string(),
+        action_label: "Detach Session".to_string(),
+        current_key: "Ctrl+Q".to_string(),
+    });
+
+    // Remap to Ctrl+D
+    let ctrl_d = KeyEvent::new(KeyCode::Char('d'), KeyModifiers::CONTROL);
+    event::handle_key(&mut app, &client, ctrl_d).await.unwrap();
+
+    assert_eq!(app.active_modal, None);
+    assert_eq!(app.user_settings.keybindings.detach_session, "Ctrl+D");
+    assert!(ac_tui::keybinding::matches_action(&ctrl_d, "detach_session", &app.user_settings));
+
+    let ctrl_q = KeyEvent::new(KeyCode::Char('q'), KeyModifiers::CONTROL);
+    assert!(!ac_tui::keybinding::matches_action(&ctrl_q, "detach_session", &app.user_settings));
+
+    // Open modal again and reset with Backspace
+    app.active_modal = Some(Modal::ChangeKeybind {
+        action_name: "detach_session".to_string(),
+        action_label: "Detach Session".to_string(),
+        current_key: "Ctrl+D".to_string(),
+    });
+    let backspace = KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE);
+    event::handle_key(&mut app, &client, backspace).await.unwrap();
+
+    assert_eq!(app.active_modal, None);
+    assert_eq!(app.user_settings.keybindings.detach_session, "Ctrl+Q");
+    assert!(ac_tui::keybinding::matches_action(&ctrl_q, "detach_session", &app.user_settings));
+}
+
+

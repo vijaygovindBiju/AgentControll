@@ -6,6 +6,7 @@
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use serde_json::json;
+use std::io::IsTerminal;
 use std::path::PathBuf;
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
@@ -35,6 +36,10 @@ struct Cli {
     /// Output raw JSON responses (default: pretty-printed).
     #[arg(long)]
     json: bool,
+
+    /// Output plain tab-delimited text without headers or dividers (ideal for unix pipes and scripts).
+    #[arg(long, short = 'p')]
+    plain: bool,
 
     #[command(subcommand)]
     command: Commands,
@@ -589,10 +594,12 @@ async fn main() -> Result<()> {
 
     let resp = send_command(&cli.socket, &cmd, params).await?;
 
+    let plain = cli.plain || !std::io::stdout().is_terminal();
+
     if cli.json {
         println!("{}", serde_json::to_string(&resp)?);
     } else {
-        print_response(&resp);
+        print_response(&resp, plain);
     }
 
     if !resp.ok {
@@ -990,13 +997,27 @@ async fn subscribe_events(socket_path: &PathBuf) -> Result<()> {
 
 // ── Output formatting ─────────────────────────────────────────────────────────
 
-fn print_response(resp: &ApiResponse) {
+fn print_response(resp: &ApiResponse, plain: bool) {
     if resp.ok {
         if let Some(result) = &resp.result {
             // Sessions list
             if let Some(sessions) = result.get("sessions").and_then(|s| s.as_array()) {
                 if sessions.is_empty() {
-                    println!("No sessions.");
+                    if !plain {
+                        println!("No sessions.");
+                    }
+                    return;
+                }
+                if plain {
+                    for s in sessions {
+                        println!(
+                            "{}\t{}\t{}\t{}",
+                            s["id"].as_str().unwrap_or("?"),
+                            s["state"].as_str().unwrap_or("?"),
+                            s["agent_type"].as_str().unwrap_or("?"),
+                            s["task_description"].as_str().unwrap_or("?"),
+                        );
+                    }
                     return;
                 }
                 println!(
@@ -1018,7 +1039,25 @@ fn print_response(resp: &ApiResponse) {
             // Accounts list
             if let Some(accounts) = result.get("accounts").and_then(|a| a.as_array()) {
                 if accounts.is_empty() {
-                    println!("No accounts.");
+                    if !plain {
+                        println!("No accounts.");
+                    }
+                    return;
+                }
+                if plain {
+                    for a in accounts {
+                        println!(
+                            "{}\t{}\t{}\t{}\t{}",
+                            a["id"]
+                                .as_str()
+                                .or_else(|| a["account_id"].as_str())
+                                .unwrap_or("?"),
+                            a["state"].as_str().unwrap_or("?"),
+                            a["provider"].as_str().unwrap_or("?"),
+                            a["concurrency_cap"].as_u64().unwrap_or(0),
+                            a["label"].as_str().unwrap_or("?"),
+                        );
+                    }
                     return;
                 }
                 println!(
@@ -1044,7 +1083,20 @@ fn print_response(resp: &ApiResponse) {
             // Projects list
             if let Some(projects) = result.get("projects").and_then(|p| p.as_array()) {
                 if projects.is_empty() {
-                    println!("No projects.");
+                    if !plain {
+                        println!("No projects.");
+                    }
+                    return;
+                }
+                if plain {
+                    for p in projects {
+                        println!(
+                            "{}\t{}\t{}",
+                            p["id"].as_str().unwrap_or("?"),
+                            p["name"].as_str().unwrap_or("?"),
+                            p["repo_path"].as_str().unwrap_or("?"),
+                        );
+                    }
                     return;
                 }
                 println!("{:<26}  {:<20}  {}", "PROJECT ID", "NAME", "REPO");
@@ -1062,7 +1114,26 @@ fn print_response(resp: &ApiResponse) {
             // Interactions list
             if let Some(interactions) = result.get("interactions").and_then(|i| i.as_array()) {
                 if interactions.is_empty() {
-                    println!("No interactions.");
+                    if !plain {
+                        println!("No interactions.");
+                    }
+                    return;
+                }
+                if plain {
+                    for i in interactions {
+                        let details = i["tool_name"]
+                            .as_str()
+                            .or_else(|| i["prompt"].as_str())
+                            .unwrap_or("");
+                        println!(
+                            "{}\t{}\t{}\t{}\t{}",
+                            i["id"].as_str().unwrap_or("?"),
+                            i["session_id"].as_str().unwrap_or("?"),
+                            i["kind"].as_str().unwrap_or("?"),
+                            i["state"].as_str().unwrap_or("?"),
+                            details,
+                        );
+                    }
                     return;
                 }
                 println!(
@@ -1089,7 +1160,22 @@ fn print_response(resp: &ApiResponse) {
             // Policies list
             if let Some(policies) = result.get("policies").and_then(|p| p.as_array()) {
                 if policies.is_empty() {
-                    println!("No policies.");
+                    if !plain {
+                        println!("No policies.");
+                    }
+                    return;
+                }
+                if plain {
+                    for p in policies {
+                        println!(
+                            "{}\t{}\t{}\t{}\t{}",
+                            p["id"].as_str().unwrap_or("?"),
+                            p["priority"].as_i64().unwrap_or(0),
+                            p["decision"].as_str().unwrap_or("?"),
+                            p["scope"].as_str().unwrap_or("?"),
+                            p["name"].as_str().unwrap_or("?"),
+                        );
+                    }
                     return;
                 }
                 println!(
@@ -1112,7 +1198,21 @@ fn print_response(resp: &ApiResponse) {
             // Audit entries list
             if let Some(entries) = result.get("audit_entries").and_then(|e| e.as_array()) {
                 if entries.is_empty() {
-                    println!("No audit entries.");
+                    if !plain {
+                        println!("No audit entries.");
+                    }
+                    return;
+                }
+                if plain {
+                    for e in entries {
+                        println!(
+                            "{}\t{}\t{}\t{}",
+                            e["timestamp"].as_str().unwrap_or("?"),
+                            e["actor"].as_str().unwrap_or("?"),
+                            e["action"].as_str().unwrap_or("?"),
+                            e["rationale"].as_str().unwrap_or(""),
+                        );
+                    }
                     return;
                 }
                 println!(

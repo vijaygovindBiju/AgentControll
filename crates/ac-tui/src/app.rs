@@ -73,10 +73,12 @@ pub enum SettingsSection {
     Authentication = 6,
     Terminal = 7,
     Security = 8,
+    Keybindings = 9,
+    About = 10,
 }
 
 impl SettingsSection {
-    pub const ALL: [Self; 9] = [
+    pub const ALL: [Self; 11] = [
         Self::General,
         Self::Accounts,
         Self::Projects,
@@ -86,6 +88,8 @@ impl SettingsSection {
         Self::Authentication,
         Self::Terminal,
         Self::Security,
+        Self::Keybindings,
+        Self::About,
     ];
 
     pub fn from_index(index: usize) -> Self {
@@ -99,6 +103,8 @@ impl SettingsSection {
             6 => Self::Authentication,
             7 => Self::Terminal,
             8 => Self::Security,
+            9 => Self::Keybindings,
+            10 => Self::About,
             _ => Self::General,
         }
     }
@@ -118,6 +124,8 @@ impl SettingsSection {
             Self::Authentication => "Authentication",
             Self::Terminal => "Terminal",
             Self::Security => "Security",
+            Self::Keybindings => "Keybindings",
+            Self::About => "About",
         }
     }
 }
@@ -302,6 +310,11 @@ pub enum Modal {
         urls: Vec<String>,
         selected_index: usize,
     },
+    ChangeKeybind {
+        action_name: String,
+        action_label: String,
+        current_key: String,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -310,6 +323,10 @@ pub struct App {
     pub session_detail_id: Option<Id>,
     /// Full-screen distraction-free terminal mode (removes header and footer)
     pub fullscreen_terminal: bool,
+    /// Second session ID displayed side-by-side in split pane mode
+    pub split_session_id: Option<Id>,
+    /// Which pane has keyboard focus in split mode (false = left, true = right)
+    pub split_focus_right: bool,
 
     // Data collections
     pub sessions: Vec<AgentSession>,
@@ -384,6 +401,7 @@ pub struct App {
     pub settings_account_selected: usize,
     pub settings_project_selected: usize,
     pub settings_model_selected: usize,
+    pub settings_keybind_selected: usize,
 
     // Mouse selection tracking
     pub mouse_selection: MouseSelectionState,
@@ -412,6 +430,8 @@ impl App {
             current_tab: Tab::Dashboard,
             session_detail_id: None,
             fullscreen_terminal: false,
+            split_session_id: None,
+            split_focus_right: false,
             sessions: Vec::new(),
             selected_session: 0,
             interactions: Vec::new(),
@@ -452,6 +472,7 @@ impl App {
             settings_account_selected: 0,
             settings_project_selected: 0,
             settings_model_selected: 0,
+            settings_keybind_selected: 0,
             mouse_selection: MouseSelectionState::default(),
         }
     }
@@ -611,6 +632,10 @@ impl App {
                             self.settings_model_selected =
                                 self.settings_model_selected.saturating_add(1);
                         }
+                        SettingsSection::Keybindings => {
+                            self.settings_keybind_selected =
+                                (self.settings_keybind_selected + 1) % ac_core::settings::KeybindingsConfig::ACTION_COUNT;
+                        }
                         _ => {}
                     }
                 } else {
@@ -700,6 +725,14 @@ impl App {
                         SettingsSection::Models => {
                             self.settings_model_selected =
                                 self.settings_model_selected.saturating_sub(1);
+                        }
+                        SettingsSection::Keybindings => {
+                            let total = ac_core::settings::KeybindingsConfig::ACTION_COUNT;
+                            self.settings_keybind_selected = if self.settings_keybind_selected == 0 {
+                                total.saturating_sub(1)
+                            } else {
+                                self.settings_keybind_selected - 1
+                            };
                         }
                         _ => {}
                     }
@@ -831,6 +864,7 @@ impl App {
                         }
                         SettingsSection::Agents => self.selected_agent = 0,
                         SettingsSection::Models => self.settings_model_selected = 0,
+                        SettingsSection::Keybindings => self.settings_keybind_selected = 0,
                         _ => {}
                     }
                 } else {
@@ -876,6 +910,10 @@ impl App {
                             }
                         }
                         SettingsSection::Agents => self.selected_agent = 2,
+                        SettingsSection::Keybindings => {
+                            self.settings_keybind_selected =
+                                ac_core::settings::KeybindingsConfig::ACTION_COUNT.saturating_sub(1);
+                        }
                         _ => {}
                     }
                 } else {
@@ -939,7 +977,45 @@ impl App {
 
     pub fn close_session_detail(&mut self) {
         self.session_detail_id = None;
+        self.split_session_id = None;
+        self.split_focus_right = false;
         self.fullscreen_terminal = false;
+    }
+
+    /// Toggle side-by-side split pane mode.
+    pub fn toggle_split_session(&mut self) -> bool {
+        if self.split_session_id.is_some() {
+            self.split_session_id = None;
+            self.split_focus_right = false;
+            false
+        } else if let Some(current_id) = &self.session_detail_id {
+            if let Some(other) = self.sessions.iter().find(|s| &s.id != current_id) {
+                self.split_session_id = Some(other.id.clone());
+                true
+            } else {
+                false
+            }
+        } else {
+            false
+        }
+    }
+
+    /// Switch active focus between left and right split panes.
+    pub fn switch_split_focus(&mut self) {
+        if self.split_session_id.is_some() {
+            self.split_focus_right = !self.split_focus_right;
+        }
+    }
+
+    /// Return the session ID currently receiving keyboard input.
+    pub fn focused_session_id(&self) -> Option<Id> {
+        if self.split_focus_right {
+            self.split_session_id
+                .clone()
+                .or_else(|| self.session_detail_id.clone())
+        } else {
+            self.session_detail_id.clone()
+        }
     }
 
     /// Toggle distraction-free full-screen terminal mode (removes header and footer).
@@ -957,6 +1033,14 @@ impl App {
         if let Some(detail_id) = &self.session_detail_id {
             if detail_id.0 == session_id {
                 self.session_detail_id = None;
+                self.split_session_id = None;
+                self.split_focus_right = false;
+            }
+        }
+        if let Some(split_id) = &self.split_session_id {
+            if split_id.0 == session_id {
+                self.split_session_id = None;
+                self.split_focus_right = false;
             }
         }
         self.clamp_selections();

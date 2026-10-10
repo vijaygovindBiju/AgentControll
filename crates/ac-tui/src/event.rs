@@ -2195,6 +2195,44 @@ pub async fn handle_key(app: &mut App, client: &ApiClient, key: KeyEvent) -> Res
                     });
                 }
             },
+            Modal::ChangeKeybind {
+                action_name,
+                action_label,
+                current_key: _,
+            } => {
+                if key.code == KeyCode::Esc {
+                    app.active_modal = None;
+                    return Ok(());
+                }
+                if matches!(key.code, KeyCode::Backspace | KeyCode::Delete) {
+                    let default_key =
+                        ac_core::settings::KeybindingsConfig::default_for_action(&action_name);
+                    app.user_settings
+                        .keybindings
+                        .set(&action_name, default_key.to_string());
+                    let _ = app.user_settings.save();
+                    app.set_status(
+                        format!("Reset keybind for '{action_label}' to default ({default_key})"),
+                        StatusType::Success,
+                    );
+                    app.active_modal = None;
+                    return Ok(());
+                }
+
+                let new_key = crate::keybinding::key_event_to_string(&key);
+                if !new_key.is_empty() {
+                    app.user_settings
+                        .keybindings
+                        .set(&action_name, new_key.clone());
+                    let _ = app.user_settings.save();
+                    app.set_status(
+                        format!("Keybind for '{action_label}' updated to '{new_key}'"),
+                        StatusType::Success,
+                    );
+                    app.active_modal = None;
+                    return Ok(());
+                }
+            }
         }
         return Ok(());
     }
@@ -2211,13 +2249,41 @@ pub async fn handle_key(app: &mut App, client: &ApiClient, key: KeyEvent) -> Res
             return Ok(());
         }
 
-        // Detach / Return from session view: Ctrl+Q
-        if key.modifiers.contains(KeyModifiers::CONTROL)
-            && (key.code == KeyCode::Char('q') || key.code == KeyCode::Char('Q'))
-        {
+        // Detach / Return from session view: default Ctrl+Q (or user configured)
+        if crate::keybinding::matches_action(&key, "detach_session", &app.user_settings) {
             app.close_session_detail();
             return Ok(());
         }
+
+        // Split Pane Toggle: default Ctrl+\ or Alt+S (or user configured)
+        if crate::keybinding::matches_action(&key, "toggle_split", &app.user_settings) {
+            let is_split = app.toggle_split_session();
+            if is_split {
+                app.set_status(
+                    format!(
+                        "Split mode enabled: {} switches focus, {} exits split",
+                        app.user_settings.keybindings.get("switch_split_focus"),
+                        app.user_settings.keybindings.get("toggle_split"),
+                    ),
+                    StatusType::Info,
+                );
+            } else {
+                app.set_status("Split mode disabled (single view)", StatusType::Info);
+            }
+            return Ok(());
+        }
+
+        // Focus Switch between Split Panes: default Alt+W (or user configured)
+        if crate::keybinding::matches_action(&key, "switch_split_focus", &app.user_settings) {
+            if app.split_session_id.is_some() {
+                app.switch_split_focus();
+                let pane_name = if app.split_focus_right { "right" } else { "left" };
+                app.set_status(format!("Focused {pane_name} split pane"), StatusType::Info);
+                return Ok(());
+            }
+        }
+
+        let detail_id = app.focused_session_id().unwrap_or(detail_id);
 
         let in_scroll_mode = app
             .session_terminal_buffers
@@ -2225,11 +2291,8 @@ pub async fn handle_key(app: &mut App, client: &ApiClient, key: KeyEvent) -> Res
             .map(|b| !b.follow)
             .unwrap_or(false);
 
-        // Command palette shortcut: Ctrl+P or F1
-        if (key.modifiers.contains(KeyModifiers::CONTROL)
-            && (key.code == KeyCode::Char('p') || key.code == KeyCode::Char('P')))
-            || key.code == KeyCode::F(1)
-        {
+        // Command palette shortcut: default Ctrl+P or F1 (or user configured)
+        if crate::keybinding::matches_action(&key, "command_palette", &app.user_settings) {
             app.active_modal = Some(Modal::CommandPalette {
                 session_id: detail_id,
                 selected_index: 0,
@@ -2237,10 +2300,8 @@ pub async fn handle_key(app: &mut App, client: &ApiClient, key: KeyEvent) -> Res
             return Ok(());
         }
 
-        // Fullscreen toggle shortcut: Ctrl+F (distraction-free edge-to-edge terminal)
-        if key.modifiers.contains(KeyModifiers::CONTROL)
-            && (key.code == KeyCode::Char('f') || key.code == KeyCode::Char('F'))
-        {
+        // Fullscreen toggle shortcut: default Ctrl+F (or user configured)
+        if crate::keybinding::matches_action(&key, "toggle_fullscreen", &app.user_settings) {
             let is_full = app.toggle_fullscreen_terminal();
             let (cols, rows) = crossterm::terminal::size().unwrap_or((80, 24));
             let p_rows = if is_full {
@@ -2254,10 +2315,8 @@ pub async fn handle_key(app: &mut App, client: &ApiClient, key: KeyEvent) -> Res
             return Ok(());
         }
 
-        // URL Quick-Open Palette shortcut: Ctrl+O
-        if key.modifiers.contains(KeyModifiers::CONTROL)
-            && (key.code == KeyCode::Char('o') || key.code == KeyCode::Char('O'))
-        {
+        // URL Quick-Open Palette shortcut: default Ctrl+O (or user configured)
+        if crate::keybinding::matches_action(&key, "url_picker", &app.user_settings) {
             let urls = if let Some(buf) = app.session_terminal_buffers.get(&detail_id.0) {
                 buf.extract_all_urls()
             } else {
@@ -2448,29 +2507,32 @@ pub async fn handle_key(app: &mut App, client: &ApiClient, key: KeyEvent) -> Res
                 .unwrap_or(false);
 
             if is_selecting {
+                if crate::keybinding::matches_action(&key, "yank_selection", &app.user_settings)
+                    || matches!(key.code, KeyCode::Char('y') | KeyCode::Char('Y'))
+                {
+                    if let Some(buf) = app.session_terminal_buffers.get_mut(&detail_id.0) {
+                        if let Some(text) = buf.extract_selected_text() {
+                            let line_count = text.lines().count();
+                            let char_count = text.len();
+                            crate::clipboard::copy(&text);
+                            buf.clear_selection();
+                            app.set_status(
+                                format!("Yanked {line_count} line(s), {char_count} char(s) to clipboard"),
+                                StatusType::Success,
+                            );
+                        } else {
+                            buf.clear_selection();
+                        }
+                    }
+                    return Ok(());
+                }
+
                 match key.code {
                     KeyCode::Esc | KeyCode::Char('v') | KeyCode::Char('V') => {
                         if let Some(buf) = app.session_terminal_buffers.get_mut(&detail_id.0) {
                             buf.clear_selection();
                         }
                         app.set_status("Visual selection cancelled", StatusType::Info);
-                        return Ok(());
-                    }
-                    KeyCode::Char('y') | KeyCode::Char('Y') => {
-                        if let Some(buf) = app.session_terminal_buffers.get_mut(&detail_id.0) {
-                            if let Some(text) = buf.extract_selected_text() {
-                                let line_count = text.lines().count();
-                                let char_count = text.len();
-                                crate::clipboard::copy(&text);
-                                buf.clear_selection();
-                                app.set_status(
-                                    format!("Yanked {line_count} line(s), {char_count} char(s) to clipboard"),
-                                    StatusType::Success,
-                                );
-                            } else {
-                                buf.clear_selection();
-                            }
-                        }
                         return Ok(());
                     }
                     KeyCode::Up | KeyCode::Char('k') => {
@@ -2529,23 +2591,29 @@ pub async fn handle_key(app: &mut App, client: &ApiClient, key: KeyEvent) -> Res
                 }
             }
 
+            if crate::keybinding::matches_action(&key, "visual_mode", &app.user_settings)
+                || matches!(key.code, KeyCode::Char('v') | KeyCode::Char('V'))
+            {
+                if let Some(buf) = app.session_terminal_buffers.get_mut(&detail_id.0) {
+                    buf.start_selection();
+                }
+                app.set_status(
+                    "Visual mode: move with hjkl/arrows, [y] to yank, [Esc/v] cancel",
+                    StatusType::Info,
+                );
+                return Ok(());
+            }
+
+            if crate::keybinding::matches_action(&key, "search_scrollback", &app.user_settings)
+                || key.code == KeyCode::Char('/')
+            {
+                if let Some(buf) = app.session_terminal_buffers.get_mut(&detail_id.0) {
+                    buf.start_search();
+                }
+                return Ok(());
+            }
+
             match key.code {
-                KeyCode::Char('v') | KeyCode::Char('V') => {
-                    if let Some(buf) = app.session_terminal_buffers.get_mut(&detail_id.0) {
-                        buf.start_selection();
-                    }
-                    app.set_status(
-                        "Visual mode: move with hjkl/arrows, [y] to yank, [Esc/v] cancel",
-                        StatusType::Info,
-                    );
-                    return Ok(());
-                }
-                KeyCode::Char('/') => {
-                    if let Some(buf) = app.session_terminal_buffers.get_mut(&detail_id.0) {
-                        buf.start_search();
-                    }
-                    return Ok(());
-                }
                 KeyCode::Char('o') | KeyCode::Char('O') => {
                     let urls = if let Some(buf) = app.session_terminal_buffers.get(&detail_id.0) {
                         buf.extract_all_urls()
@@ -2672,6 +2740,21 @@ pub async fn handle_key(app: &mut App, client: &ApiClient, key: KeyEvent) -> Res
                 let _ = client.send_input(&detail_id, &c.to_string()).await;
             }
             KeyCode::Enter => {
+                // Shift+Enter / Ctrl+Enter: insert a literal newline instead of submitting prompt
+                if key.modifiers.contains(KeyModifiers::SHIFT)
+                    || key.modifiers.contains(KeyModifiers::CONTROL)
+                {
+                    if !app.session_in_alt_screen(&detail_id.0) {
+                        let session_key = detail_id.0.clone();
+                        app.session_prompt_buffers
+                            .entry(session_key)
+                            .or_default()
+                            .push('\n');
+                    }
+                    let _ = client.send_input(&detail_id, "\n").await;
+                    return Ok(());
+                }
+
                 if !app.session_in_alt_screen(&detail_id.0) {
                     let session_key = detail_id.0.clone();
                     app.set_session_completion_dismissed(&session_key, true);
@@ -2873,11 +2956,21 @@ pub async fn handle_key(app: &mut App, client: &ApiClient, key: KeyEvent) -> Res
         return Ok(());
     }
 
+    if crate::keybinding::matches_action(&key, "quit", &app.user_settings) {
+        app.should_quit = true;
+        return Ok(());
+    }
+    if crate::keybinding::matches_action(&key, "open_help", &app.user_settings) {
+        app.active_modal = Some(Modal::Help);
+        return Ok(());
+    }
+    if crate::keybinding::matches_action(&key, "refresh", &app.user_settings) {
+        refresh_data(app, client).await;
+        app.set_status("Refreshed state from daemon", StatusType::Info);
+        return Ok(());
+    }
+
     match key.code {
-        KeyCode::Char('q') => {
-            app.should_quit = true;
-            return Ok(());
-        }
         KeyCode::PageUp => {
             app.page_up(10);
             return Ok(());
@@ -2892,15 +2985,6 @@ pub async fn handle_key(app: &mut App, client: &ApiClient, key: KeyEvent) -> Res
         }
         KeyCode::End => {
             app.last_row();
-            return Ok(());
-        }
-        KeyCode::Char('?') => {
-            app.active_modal = Some(Modal::Help);
-            return Ok(());
-        }
-        KeyCode::Char('r') => {
-            refresh_data(app, client).await;
-            app.set_status("Refreshed state from daemon", StatusType::Info);
             return Ok(());
         }
         KeyCode::Tab => {
@@ -2966,76 +3050,24 @@ pub async fn handle_key(app: &mut App, client: &ApiClient, key: KeyEvent) -> Res
 
     // Otherwise handle by active tab
     match app.current_tab {
-        Tab::Dashboard => match key.code {
-            KeyCode::Up | KeyCode::Char('k') => app.prev_row(),
-            KeyCode::Down | KeyCode::Char('j') => app.next_row(),
-            KeyCode::Enter | KeyCode::Char('t') => {
-                app.open_selected_session_detail();
-                if let Some(ref sid) = app.session_detail_id.clone() {
-                    load_session_history_if_needed(app, client, sid).await;
-                    if let Ok((cols, rows)) = crossterm::terminal::size() {
-                        let p_rows = rows.saturating_sub(2).max(1);
-                        let p_cols = cols.max(1);
-                        app.resize_session_terminals(p_rows, p_cols);
-                        let _ = client
-                            .resize_session(sid, p_rows, p_cols)
-                            .await;
-                    }
-                }
-            }
-            KeyCode::Char('f') | KeyCode::Char('F')
-                if key.modifiers.contains(KeyModifiers::CONTROL) =>
-            {
-                app.open_selected_session_detail();
-                if let Some(ref sid) = app.session_detail_id.clone() {
-                    app.fullscreen_terminal = true;
-                    load_session_history_if_needed(app, client, sid).await;
-                    let (cols, rows) = crossterm::terminal::size().unwrap_or((80, 24));
-                    let p_rows = rows.max(1);
-                    let p_cols = cols.max(1);
-                    app.resize_session_terminals(p_rows, p_cols);
-                    let _ = client.resize_session(sid, p_rows, p_cols).await;
-                }
-            }
-            KeyCode::Char('a') | KeyCode::Char('A') => {
+        Tab::Dashboard => {
+            if crate::keybinding::matches_action(&key, "add_account", &app.user_settings) {
                 open_agy_add_account(app);
+                return Ok(());
             }
-            KeyCode::Char('s') | KeyCode::Char('S') => {
-                app.set_tab(Tab::Sessions);
-            }
-            KeyCode::Char('n') | KeyCode::Char('N') => {
+            if crate::keybinding::matches_action(&key, "new_session", &app.user_settings) {
                 crate::launch::open_new_session(app);
+                return Ok(());
             }
-            KeyCode::Char('d') | KeyCode::Char('D') | KeyCode::Delete => {
+            if crate::keybinding::matches_action(&key, "remove_session", &app.user_settings) {
                 if let Some(s) = app.selected_session() {
                     app.active_modal = Some(Modal::ConfirmRemoveSession {
                         session_id: s.id.clone(),
                     });
                 }
+                return Ok(());
             }
-            _ => {}
-        },
-
-        Tab::Sessions => match key.code {
-            KeyCode::Up | KeyCode::Char('k') => app.prev_row(),
-            KeyCode::Down | KeyCode::Char('j') => app.next_row(),
-            KeyCode::Enter | KeyCode::Char('t') => {
-                app.open_selected_session_detail();
-                if let Some(ref sid) = app.session_detail_id.clone() {
-                    load_session_history_if_needed(app, client, sid).await;
-                    if let Ok((cols, rows)) = crossterm::terminal::size() {
-                        let p_rows = rows.saturating_sub(2).max(1);
-                        let p_cols = cols.max(1);
-                        app.resize_session_terminals(p_rows, p_cols);
-                        let _ = client
-                            .resize_session(sid, p_rows, p_cols)
-                            .await;
-                    }
-                }
-            }
-            KeyCode::Char('f') | KeyCode::Char('F')
-                if key.modifiers.contains(KeyModifiers::CONTROL) =>
-            {
+            if crate::keybinding::matches_action(&key, "toggle_fullscreen", &app.user_settings) {
                 app.open_selected_session_detail();
                 if let Some(ref sid) = app.session_detail_id.clone() {
                     app.fullscreen_terminal = true;
@@ -3046,19 +3078,48 @@ pub async fn handle_key(app: &mut App, client: &ApiClient, key: KeyEvent) -> Res
                     app.resize_session_terminals(p_rows, p_cols);
                     let _ = client.resize_session(sid, p_rows, p_cols).await;
                 }
+                return Ok(());
             }
-            KeyCode::Char('n') | KeyCode::Char('N') => {
+
+            match key.code {
+                KeyCode::Up | KeyCode::Char('k') => app.prev_row(),
+                KeyCode::Down | KeyCode::Char('j') => app.next_row(),
+                KeyCode::Enter | KeyCode::Char('t') => {
+                    app.open_selected_session_detail();
+                    if let Some(ref sid) = app.session_detail_id.clone() {
+                        load_session_history_if_needed(app, client, sid).await;
+                        if let Ok((cols, rows)) = crossterm::terminal::size() {
+                            let p_rows = rows.saturating_sub(2).max(1);
+                            let p_cols = cols.max(1);
+                            app.resize_session_terminals(p_rows, p_cols);
+                            let _ = client
+                                .resize_session(sid, p_rows, p_cols)
+                                .await;
+                        }
+                    }
+                }
+                KeyCode::Char('s') | KeyCode::Char('S') => {
+                    app.set_tab(Tab::Sessions);
+                }
+                _ => {}
+            }
+        }
+
+        Tab::Sessions => {
+            if crate::keybinding::matches_action(&key, "new_session", &app.user_settings) {
                 crate::launch::open_new_session(app);
+                return Ok(());
             }
-            KeyCode::Char('s') => {
+            if crate::keybinding::matches_action(&key, "steer_session", &app.user_settings) {
                 if let Some(s) = app.selected_session() {
                     app.active_modal = Some(Modal::Steer {
                         session_id: s.id.clone(),
                         input: String::new(),
                     });
                 }
+                return Ok(());
             }
-            KeyCode::Char('p') => {
+            if crate::keybinding::matches_action(&key, "pause_session", &app.user_settings) {
                 if let Some(s) = app.selected_session() {
                     let sid = s.id.clone();
                     match client.pause_session(&sid).await {
@@ -3070,62 +3131,103 @@ pub async fn handle_key(app: &mut App, client: &ApiClient, key: KeyEvent) -> Res
                         }
                     }
                 }
+                return Ok(());
             }
-            KeyCode::Char(' ') | KeyCode::Char('u') => {
+            if crate::keybinding::matches_action(&key, "resume_session", &app.user_settings) {
                 if let Some(s) = app.selected_session().cloned() {
                     handle_session_resume_or_run(app, client, &s).await;
                 }
+                return Ok(());
             }
-            KeyCode::Char('x') => {
+            if crate::keybinding::matches_action(&key, "stop_session", &app.user_settings) {
                 if let Some(s) = app.selected_session() {
                     app.active_modal = Some(Modal::ConfirmStop {
                         session_id: s.id.clone(),
                     });
                 }
+                return Ok(());
             }
-            KeyCode::Char('d') | KeyCode::Char('D') | KeyCode::Delete => {
+            if crate::keybinding::matches_action(&key, "remove_session", &app.user_settings) {
                 if let Some(s) = app.selected_session() {
                     app.active_modal = Some(Modal::ConfirmRemoveSession {
                         session_id: s.id.clone(),
                     });
                 }
+                return Ok(());
             }
-            KeyCode::Char('w') => {
+            if crate::keybinding::matches_action(&key, "switch_account", &app.user_settings) {
                 open_switch_account_modal(app, client).await;
+                return Ok(());
             }
-            _ => {}
-        },
+            if crate::keybinding::matches_action(&key, "toggle_fullscreen", &app.user_settings) {
+                app.open_selected_session_detail();
+                if let Some(ref sid) = app.session_detail_id.clone() {
+                    app.fullscreen_terminal = true;
+                    load_session_history_if_needed(app, client, sid).await;
+                    let (cols, rows) = crossterm::terminal::size().unwrap_or((80, 24));
+                    let p_rows = rows.max(1);
+                    let p_cols = cols.max(1);
+                    app.resize_session_terminals(p_rows, p_cols);
+                    let _ = client.resize_session(sid, p_rows, p_cols).await;
+                }
+                return Ok(());
+            }
 
-        Tab::Accounts => match key.code {
-            KeyCode::Up | KeyCode::Char('k') => app.prev_row(),
-            KeyCode::Down | KeyCode::Char('j') => app.next_row(),
-            KeyCode::Char('a') | KeyCode::Char('A') => {
+            match key.code {
+                KeyCode::Up | KeyCode::Char('k') => app.prev_row(),
+                KeyCode::Down | KeyCode::Char('j') => app.next_row(),
+                KeyCode::Enter | KeyCode::Char('t') => {
+                    app.open_selected_session_detail();
+                    if let Some(ref sid) = app.session_detail_id.clone() {
+                        load_session_history_if_needed(app, client, sid).await;
+                        if let Ok((cols, rows)) = crossterm::terminal::size() {
+                            let p_rows = rows.saturating_sub(2).max(1);
+                            let p_cols = cols.max(1);
+                            app.resize_session_terminals(p_rows, p_cols);
+                            let _ = client
+                                .resize_session(sid, p_rows, p_cols)
+                                .await;
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        Tab::Accounts => {
+            if crate::keybinding::matches_action(&key, "add_account", &app.user_settings) {
                 open_agy_add_account(app);
+                return Ok(());
             }
-            KeyCode::Char('d') | KeyCode::Char('D') | KeyCode::Delete => {
-                if let Some(acct) = app.selected_account().cloned() {
-                    let active = active_sessions_for_account(app, &acct.id)
-                        .max(acct.active_session_count as usize);
-                    app.active_modal = Some(Modal::ConfirmRemoveAccount {
-                        account_id: acct.id,
-                        label: acct.label,
-                        provider: acct.provider,
-                        active_sessions: active,
-                    });
+
+            match key.code {
+                KeyCode::Up | KeyCode::Char('k') => app.prev_row(),
+                KeyCode::Down | KeyCode::Char('j') => app.next_row(),
+                KeyCode::Char('d') | KeyCode::Char('D') | KeyCode::Delete => {
+                    if let Some(acct) = app.selected_account().cloned() {
+                        let active = active_sessions_for_account(app, &acct.id)
+                            .max(acct.active_session_count as usize);
+                        app.active_modal = Some(Modal::ConfirmRemoveAccount {
+                            account_id: acct.id,
+                            label: acct.label,
+                            provider: acct.provider,
+                            active_sessions: active,
+                        });
+                    }
                 }
-            }
-            KeyCode::Char('s') | KeyCode::Char('S') => {
-                if let Some(label) = app.selected_account().map(|a| a.label.clone()) {
-                    app.user_settings.default_account = Some(label.clone());
-                    let _ = app.user_settings.save();
-                    app.set_status(
-                        format!("Default account set to: {}", label),
-                        StatusType::Success,
-                    );
+                KeyCode::Char('s') | KeyCode::Char('S') => {
+                    if let Some(label) = app.selected_account().map(|a| a.label.clone()) {
+                        app.user_settings.default_account = Some(label.clone());
+                        let _ = app.user_settings.save();
+                        app.set_status(
+                            format!("Default account set to: {}", label),
+                            StatusType::Success,
+                        );
+                    }
                 }
+                _ => {}
             }
-            _ => {}
-        },
+        }
 
         Tab::Activity => match key.code {
             KeyCode::Up | KeyCode::Char('k') => app.prev_row(),
@@ -3480,6 +3582,53 @@ pub async fn handle_key(app: &mut App, client: &ApiClient, key: KeyEvent) -> Res
                                     StatusType::Success,
                                 );
                             }
+                            _ => {}
+                        },
+                        crate::app::SettingsSection::Keybindings => match key.code {
+                            KeyCode::Up | KeyCode::Char('k') => app.prev_row(),
+                            KeyCode::Down | KeyCode::Char('j') => app.next_row(),
+                            KeyCode::Enter | KeyCode::Char('e') | KeyCode::Char('c') => {
+                                let (action_name, action_label, _) =
+                                    ac_core::settings::KeybindingsConfig::ACTION_LIST
+                                        [app.settings_keybind_selected];
+                                let current_key =
+                                    app.user_settings.keybindings.get(action_name).to_string();
+                                app.active_modal = Some(Modal::ChangeKeybind {
+                                    action_name: action_name.to_string(),
+                                    action_label: action_label.to_string(),
+                                    current_key,
+                                });
+                            }
+                            KeyCode::Char('d') | KeyCode::Backspace | KeyCode::Delete => {
+                                let (action_name, action_label, _) =
+                                    ac_core::settings::KeybindingsConfig::ACTION_LIST
+                                        [app.settings_keybind_selected];
+                                let def = ac_core::settings::KeybindingsConfig::default_for_action(
+                                    action_name,
+                                );
+                                app.user_settings
+                                    .keybindings
+                                    .set(action_name, def.to_string());
+                                let _ = app.user_settings.save();
+                                app.set_status(
+                                    format!("Reset keybind for '{action_label}' to default ({def})"),
+                                    StatusType::Success,
+                                );
+                            }
+                            KeyCode::Char('R') => {
+                                app.user_settings.keybindings =
+                                    ac_core::settings::KeybindingsConfig::default();
+                                let _ = app.user_settings.save();
+                                app.set_status(
+                                    "Reset all keybindings to defaults",
+                                    StatusType::Success,
+                                );
+                            }
+                            _ => {}
+                        },
+                        crate::app::SettingsSection::About => match key.code {
+                            KeyCode::Up | KeyCode::Char('k') => app.prev_row(),
+                            KeyCode::Down | KeyCode::Char('j') => app.next_row(),
                             _ => {}
                         },
                         _ => {}

@@ -495,10 +495,34 @@ pub fn render_footer(f: &mut Frame, app: &App, area: Rect) {
             ]));
             f.render_widget(status_p, chunks[0]);
         } else {
+            let active_count = app
+                .sessions
+                .iter()
+                .filter(|s| {
+                    matches!(
+                        s.state,
+                        ac_core::types::SessionState::Working
+                            | ac_core::types::SessionState::Starting
+                            | ac_core::types::SessionState::WaitingForHuman
+                    )
+                })
+                .count();
+            let session_info = if active_count == 1 {
+                " 1 active session".to_string()
+            } else if active_count > 1 {
+                format!(" {active_count} active sessions")
+            } else {
+                " Daemon ready (idle)".to_string()
+            };
+            let left_span = Span::styled(session_info, Style::default().fg(Color::DarkGray));
+            let right_span = Span::styled("● Connected ", Style::default().fg(Color::Green));
+            let pad = area
+                .width
+                .saturating_sub(left_span.width() as u16 + right_span.width() as u16);
             let ready_line = Line::from(vec![
-                Span::styled(" Ready", Style::default().fg(Color::DarkGray)),
-                Span::raw(" ".repeat(area.width.saturating_sub(15) as usize)),
-                Span::styled("● Ready", Style::default().fg(Color::Green)),
+                left_span,
+                Span::raw(" ".repeat(pad as usize)),
+                right_span,
             ]);
             f.render_widget(Paragraph::new(ready_line), chunks[0]);
         }
@@ -508,68 +532,50 @@ pub fn render_footer(f: &mut Frame, app: &App, area: Rect) {
         // Line 1: Tag pills for shortcuts
         let shortcut_pills: Vec<Span> = match (&app.current_tab, app.session_detail_id.is_some()) {
             (_, true) => vec![
+                tag_pill("Ctrl+Q", "Back"),
+                tag_pill("Ctrl+F", "Full Screen"),
                 tag_pill("s", "Steer"),
                 tag_pill("p", "Pause"),
-                tag_pill("r", "Resume"),
                 tag_pill("x", "Stop"),
-                tag_pill("a", "Switch Account"),
-                tag_pill("Ctrl+Q", "Back"),
-                tag_pill("↑↓", "Scroll"),
-                tag_pill("End", "Follow"),
             ],
             (Tab::Dashboard, false) => vec![
                 tag_pill("↑↓", "Select"),
                 tag_pill("Enter", "Open"),
-                tag_pill("a", "Add Account"),
-                tag_pill("n", "New Agent"),
+                tag_pill(app.user_settings.keybindings.get("new_session"), "New Agent"),
                 tag_pill("s", "Sessions"),
-                tag_pill("e", "Events"),
-                tag_pill("/", "Search"),
-                tag_pill("?", "Help"),
-                tag_pill("q", "Quit"),
+                tag_pill(app.user_settings.keybindings.get("quit"), "Quit"),
             ],
             (Tab::Sessions, false) => vec![
-                tag_pill("↑↓", "Navigate"),
-                tag_pill("Enter", "Detail"),
+                tag_pill("↑↓", "Select"),
+                tag_pill("Enter", "Terminal"),
                 tag_pill("Space", "Run"),
-                tag_pill("w", "Switch Acct"),
-                tag_pill("s", "Steer"),
-                tag_pill("p", "Pause"),
                 tag_pill("x", "Stop"),
-                tag_pill("q", "Quit"),
+                tag_pill(app.user_settings.keybindings.get("quit"), "Quit"),
             ],
             (Tab::Accounts, false) => vec![
-                tag_pill("↑↓", "Navigate"),
+                tag_pill("↑↓", "Select"),
                 tag_pill("a", "Add Account"),
-                tag_pill("d", "Delete Account"),
+                tag_pill("d", "Remove"),
                 tag_pill("s", "Set Default"),
-                tag_pill("r", "Refresh"),
-                tag_pill("?", "Help"),
-                tag_pill("q", "Quit"),
+                tag_pill(app.user_settings.keybindings.get("quit"), "Quit"),
             ],
             (Tab::Activity, false) => vec![
-                tag_pill("↑↓", "Navigate"),
+                tag_pill("↑↓", "Scroll"),
                 tag_pill("/", "Filter"),
-                tag_pill("c", "Clear Filter"),
-                tag_pill("r", "Refresh"),
-                tag_pill("q", "Quit"),
+                tag_pill("c", "Clear"),
+                tag_pill(app.user_settings.keybindings.get("quit"), "Quit"),
             ],
             (Tab::Agents, false) => vec![
                 tag_pill("↑↓", "Select"),
                 tag_pill("Enter", "New Session"),
                 tag_pill("1-6", "Tabs"),
-                tag_pill("?", "Help"),
-                tag_pill("q", "Quit"),
+                tag_pill(app.user_settings.keybindings.get("quit"), "Quit"),
             ],
             (Tab::Settings, false) => vec![
                 tag_pill("↑↓", "Select"),
-                tag_pill("Enter/→", "Focus Panel"),
-                tag_pill("Esc/←", "Sections"),
-                tag_pill("a", "Add/Register"),
-                tag_pill("d", "Remove"),
-                tag_pill("s", "Set Default"),
-                tag_pill("1-6", "Tabs"),
-                tag_pill("q", "Quit"),
+                tag_pill("Enter", "Focus/Edit"),
+                tag_pill("Esc", "Back"),
+                tag_pill(app.user_settings.keybindings.get("quit"), "Quit"),
             ],
         };
 
@@ -578,9 +584,11 @@ pub fn render_footer(f: &mut Frame, app: &App, area: Rect) {
     }
 }
 
-fn tag_pill(key: &'static str, action: &'static str) -> Span<'static> {
+fn tag_pill(key: impl AsRef<str>, action: impl AsRef<str>) -> Span<'static> {
+    let k = key.as_ref();
+    let a = action.as_ref();
     Span::styled(
-        format!(" [{key}] {action} "),
+        format!(" [{k}] {a} "),
         Style::default().fg(Color::Yellow),
     )
 }
