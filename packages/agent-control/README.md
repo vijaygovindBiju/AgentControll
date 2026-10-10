@@ -31,7 +31,8 @@ AgentControll features a built-in virtual terminal engine (`TerminalBuffer`) spe
 - **Mouse Selection & Autoscroll:** Click and drag to highlight and select text, double-click for words, triple-click for lines, with automatic edge scrolling when dragging beyond viewport boundaries.
 - **Scrollback Regex Search (`/`):** Instant search modal across all historical lines with live match highlighting and `n` / `N` cycling.
 - **Interactive URL Picker (`o`):** Automatically extracts web links and OSC 8 hyperlinks into a searchable menu to open (`Enter`) or copy (`c`).
-- **Visual Mode (`v`):** Keyboard-driven visual text selection and yank (`y`) to clipboard.
+- **Visual Mode (`v`) & OSC 52 Clipboard:** Keyboard-driven visual text selection and yank (`y`) to system clipboard, plus native handling of OSC 52 ANSI clipboard escapes.
+- **Customizable Keybindings:** Remap any supervisor hotkey interactively via Settings (`6`) or `~/.config/agentcontrol/settings.json`.
 - **Multi-Line Prompt History:** Recalls multi-line prompt drafts as atomic units.
 - **Transparent Signal Passing:** `Esc` is forwarded directly to the child agent (for vi, nano, fzf, CLI prompts), while `Ctrl+]` or `Ctrl+Q` safely detaches back to the supervisor dashboard.
 

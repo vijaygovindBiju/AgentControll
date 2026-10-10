@@ -113,13 +113,23 @@ AgentControll solves this by operating as a unified local supervisor: it pools a
   - Declarative policy rules with a hardcoded never-auto-approve boundary (`sudo`, `rm`, `curl`, `git push --force`).
   - Append-only SQLite event store recording every state change, approval, and command.
 
+- **Configurable Keybindings & Interactive Settings:**
+  - Fully customizable hotkeys across all supervisor navigation and terminal actions (`KeybindingsConfig`).
+  - Interactive key capture modal in Settings view (`6`) to rebind any shortcut on the fly with instant persistence to `~/.config/agentcontrol/settings.json`.
+- **Native Interactive Shell & CLI Adapters:**
+  - Direct support for `shell`, `bash`, and `zsh` agent types in addition to AI coding agents, allowing supervised multi-terminal execution with session history, split views, and full PTY control.
+- **OSC 52 ANSI Clipboard Synchronization:**
+  - Terminal emulator automatically intercepts OSC 52 clipboard sequences (`\x1b]52;c;<base64>\x07`) emitted by agents, decoding and synchronizing text directly with the system clipboard.
+- **Scriptable Plain CLI Mode (`ac --plain` / `-p`):**
+  - High-performance, tab-delimited plain text output for all `ac` CLI subcommands (`sessions`, `accounts`, `projects`, `doctor`) without decorative Unicode borders, automatically enabled when standard output is piped to unix scripts or tools.
+
 ---
 
 ## Installation
 
 ### npm / NPX — Recommended
 
-The official npm package [`agentcontroll`](https://www.npmjs.com/package/agentcontroll) (v1.0.5) is the recommended distribution method for Linux and macOS. It requires Node.js (>= 18) and automatically fetches the prebuilt, SHA256-verified binary for your platform.
+The official npm package [`agentcontroll`](https://www.npmjs.com/package/agentcontroll) (v1.0.9) is the recommended distribution method for Linux and macOS. It requires Node.js (>= 18) and automatically fetches the prebuilt, SHA256-verified binary for your platform.
 
 **Run immediately without global installation:**
 ```bash
@@ -141,7 +151,7 @@ Installing `agentcontroll` globally provides four CLI entry points in your envir
 | `agentcontroll` | Primary interactive terminal UI dashboard and supervisor launcher. |
 | `agent-control` | Backward-compatible alias for `agentcontroll`. |
 | `agentcontrold` | Background supervisor daemon service (runs headless or as a system service). |
-| `ac` | Universal agent control plane CLI (sessions, projects, and daemon IPC). |
+| `ac` | Universal agent control plane CLI (sessions, projects, and daemon IPC; supports `--json` and `--plain` / `-p` for shell scripts). |
 | `agentcontroll doctor` | Run automated, non-destructive health and account isolation diagnostics (`--deep`, `--json`). |
 | `ac doctor` | Direct doctor command invocation via the `ac` CLI tool. |
 
@@ -246,6 +256,7 @@ AgentControll provides precompiled native release binaries for the following tar
 | **Claude Code** | `ClaudeAdapter` | Structured NDJSON / PTY fallback | `--output-format stream-json`, tool approvals, rate-limit back-off, terminal interaction. |
 | **Generic CLI Agent** | `PtyAdapter` | Pseudo-Terminal (`portable-pty`) | Regex pattern matching for prompts; POSIX signal controls (`SIGSTOP`, `SIGCONT`, `SIGTERM`, `SIGKILL`). |
 | **Codex / Devin CLI** | `PtyAdapter` | Pseudo-Terminal | Interactive session supervision, ANSI terminal streaming, and workspace binding. |
+| **Interactive Shells (`shell`, `bash`, `zsh`)** | `PtyAdapter` | Native Shell PTY | Launch arbitrary bash/zsh shell sessions under supervision with split-pane support and session history. |
 | **Mock Agent** | `MockAdapter` | In-Memory Event Simulation | Deterministic testing of state machines, crashes, and policy escalations without external APIs. |
 
 For detailed adapter architecture, see [docs/AGENTS.md](docs/AGENTS.md) and [docs/ADAPTERS.md](docs/ADAPTERS.md).
@@ -408,27 +419,34 @@ Configured per-session or globally in Settings:
 
 ## TUI Controls
 
+> [!TIP]
+> **Customizable Keybindings:** All primary hotkeys can be customized directly in the **Settings tab (`6`)** by selecting a keybinding and pressing **`Enter`** to capture a new key combination, or by editing `~/.config/agentcontrol/settings.json`.
+
 ### Top-Level Navigation & Session Management
 
-| Key | Tab View | Action |
+| Key (Default) | Tab View | Action |
 |:---|:---|:---|
 | **`1`–`6`** | Top Bar | Jump to tab: Dashboard (`1`), Sessions (`2`), Accounts (`3`), Activity (`4`), Agents (`5`), Settings (`6`). |
 | **`Tab` / `Shift+Tab`** | Top Bar | Cycle forward / backward through tabs. |
 | **`Enter`** | Sessions | Attach to the full-screen virtual terminal of the selected session. |
+| **`Alt+S`** / **`Ctrl+\`** | Sessions | Toggle **Split View** to supervise two active sessions side-by-side. |
+| **`Tab`** | Split View | Switch focus between left and right split panes. |
+| **`Ctrl+P`** / **`F1`** | Global | Open **Command Palette** to search and trigger actions. |
 | **`Esc`** | Attached PTY | Passed directly through to the agent child process. |
 | **`Ctrl+]`** / **`Ctrl+Q`** | Attached PTY | Detach from the session terminal back to the dashboard. |
 | **`n`** | Sessions / Agents | Open **Start Session Modal** (directory completion, account, mode). |
 | **`s`** | Sessions | Open **Steer Modal** to inject instructions into running agent. |
 | **`p`** | Sessions | **Pause** running agent process (`SIGSTOP`). |
-| **`r`** / **`c`** | Sessions | **Resume** paused agent process (`SIGCONT`). |
-| **`x`** / **`Delete`** | Sessions | **Stop** agent process gracefully. |
+| **`r`** / **`c`** / **`Space`** | Sessions | **Resume** paused agent process (`SIGCONT`). |
+| **`x`** | Sessions | **Stop** agent process gracefully. |
+| **`d`** / **`Delete`** | Sessions | **Remove** stopped session from list (with confirmation). |
 | **`w`** | Sessions | Open **Switch Account Modal** (controlled hand-off). |
 | **`?`** | Global | Toggle Help & Keybindings modal. |
 | **`q`** | Global | Exit TUI application (sessions continue running in background). |
 
 ### Virtual Terminal Controls (When Attached)
 
-| Key | Context | Action |
+| Key (Default) | Context | Action |
 |:---|:---|:---|
 | **`Ctrl+F`** | Terminal / Sessions | Toggle full-screen distraction-free terminal (hides header/footer). |
 | **`Left` / `Right`** | Terminal Input | Move cursor backward/forward without deleting input text. |
@@ -439,7 +457,7 @@ Configured per-session or globally in Settings:
 | **`o`** | Terminal Buffer | Open interactive URL picker palette to copy (`c`) or open in browser (`Enter`). |
 | **`v`** | Terminal Buffer | Toggle keyboard visual selection mode (`y` to yank to clipboard). |
 | **Mouse Drag** | Terminal Buffer | Highlight text selection across cells with automatic edge autoscrolling. |
-| **`Ctrl+Shift+C`** | Terminal Selection | Copy active text selection to system clipboard. |
+| **`Ctrl+Shift+C`** / **OSC 52** | Terminal Selection | Copy active text selection or received OSC 52 sequence directly to system clipboard. |
 
 For detailed terminal emulator architecture and specifications, see [`crates/ac-tui/README.md`](crates/ac-tui/README.md) and [`docs/TUI.md`](docs/TUI.md).
 
