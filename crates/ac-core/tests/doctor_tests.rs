@@ -382,4 +382,3 @@ async fn test_doctor_keyring_isolation_check() {
         assert!(check.summary.contains("DBUS_SESSION_BUS_ADDRESS=disabled:"));
     }
 }
-

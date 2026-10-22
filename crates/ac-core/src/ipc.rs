@@ -162,8 +162,14 @@ fn parse_launch(
             .map(Some)
             .map_err(|e| format!("invalid launch options: {e}"))?,
     };
-    let r = params.get("rows").and_then(|v| v.as_u64()).map(|v| v as u16);
-    let c = params.get("cols").and_then(|v| v.as_u64()).map(|v| v as u16);
+    let r = params
+        .get("rows")
+        .and_then(|v| v.as_u64())
+        .map(|v| v as u16);
+    let c = params
+        .get("cols")
+        .and_then(|v| v.as_u64())
+        .map(|v| v as u16);
     if r.is_some() || c.is_some() {
         let mut l = launch.unwrap_or_default();
         if l.initial_rows.is_none() {
@@ -453,6 +459,10 @@ pub async fn handle_session_cmd(req: &ApiRequest, mgr: &SessionManagerHandle) ->
             }
         }
         "session.list" => match mgr.list().await {
+            Ok(sessions) => ApiResponse::ok(&req.id, json!({"sessions": sessions})),
+            Err(e) => ApiResponse::err(&req.id, "InternalError", e.to_string()),
+        },
+        "session.discover" | "conversation.discover" => match mgr.discover().await {
             Ok(sessions) => ApiResponse::ok(&req.id, json!({"sessions": sessions})),
             Err(e) => ApiResponse::err(&req.id, "InternalError", e.to_string()),
         },

@@ -157,6 +157,8 @@ enum SessionCmd {
     },
     /// List all sessions.
     List,
+    /// Discover and index Antigravity conversations from host and account profiles.
+    Discover,
     /// Get details for a specific session.
     Get {
         /// Session ID.
@@ -666,6 +668,7 @@ fn build_request(commands: &Commands) -> Result<(String, serde_json::Value)> {
                 json!({ "session_id": session_id }),
             ),
             SessionCmd::List => ("session.list".to_owned(), json!({})),
+            SessionCmd::Discover => ("session.discover".to_owned(), json!({})),
             SessionCmd::Get { session_id } => (
                 "session.get".to_owned(),
                 json!({ "session_id": session_id }),
@@ -1010,11 +1013,14 @@ fn print_response(resp: &ApiResponse, plain: bool) {
                 }
                 if plain {
                     for s in sessions {
+                        let is_ext = s["is_external"].as_bool().unwrap_or(false);
+                        let ext_tag = if is_ext { "[EXT] " } else { "" };
                         println!(
-                            "{}\t{}\t{}\t{}",
+                            "{}\t{}\t{}\t{}{}",
                             s["id"].as_str().unwrap_or("?"),
                             s["state"].as_str().unwrap_or("?"),
                             s["agent_type"].as_str().unwrap_or("?"),
+                            ext_tag,
                             s["task_description"].as_str().unwrap_or("?"),
                         );
                     }
@@ -1026,11 +1032,15 @@ fn print_response(resp: &ApiResponse, plain: bool) {
                 );
                 println!("{}", "-".repeat(80));
                 for s in sessions {
+                    let is_ext = s["is_external"].as_bool().unwrap_or(false);
+                    let ext_badge = if is_ext { " [EXT]" } else { "" };
+                    let agent_str =
+                        format!("{}{}", s["agent_type"].as_str().unwrap_or("?"), ext_badge);
                     println!(
                         "{:<26}  {:<12}  {:<20}  {}",
                         s["id"].as_str().unwrap_or("?"),
                         s["state"].as_str().unwrap_or("?"),
-                        s["agent_type"].as_str().unwrap_or("?"),
+                        agent_str,
                         s["task_description"].as_str().unwrap_or("?"),
                     );
                 }

@@ -126,10 +126,22 @@ mod tests {
 
     #[test]
     fn base64_roundtrip_decoding() {
-        assert_eq!(super::decode_base64("Zg==").as_deref(), Some(b"f".as_slice()));
-        assert_eq!(super::decode_base64("Zm8=").as_deref(), Some(b"fo".as_slice()));
-        assert_eq!(super::decode_base64("Zm9v").as_deref(), Some(b"foo".as_slice()));
-        assert_eq!(super::decode_base64("aGk=").as_deref(), Some(b"hi".as_slice()));
+        assert_eq!(
+            super::decode_base64("Zg==").as_deref(),
+            Some(b"f".as_slice())
+        );
+        assert_eq!(
+            super::decode_base64("Zm8=").as_deref(),
+            Some(b"fo".as_slice())
+        );
+        assert_eq!(
+            super::decode_base64("Zm9v").as_deref(),
+            Some(b"foo".as_slice())
+        );
+        assert_eq!(
+            super::decode_base64("aGk=").as_deref(),
+            Some(b"hi".as_slice())
+        );
         assert_eq!(
             super::decode_base64("SGVsbG8sIHdvcmxkIQ==").as_deref(),
             Some(b"Hello, world!".as_slice())

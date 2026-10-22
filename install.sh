@@ -4,14 +4,14 @@
 #   curl -fsSL https://raw.githubusercontent.com/vijaygovindBiju/AgentControll/main/install.sh | sh
 #
 # Environment variables:
-#   AGENTCONTROL_VERSION   Target version to install (defaults to "1.0.0")
+#   AGENTCONTROL_VERSION   Target version to install (defaults to latest stable: 1.0.10)
 #   BIN_DIR                Installation directory (defaults to ~/.local/bin or /usr/local/bin)
 #   NO_MODIFY_PATH         Set to 1 to skip PATH guidance
 
 set -e
 
 REPO="vijaygovindBiju/AgentControll"
-VERSION="${AGENTCONTROL_VERSION:-1.0.0}"
+VERSION="${AGENTCONTROL_VERSION:-1.0.10}"
 
 # Color output helpers if terminal supports colors
 if [ -t 1 ]; then

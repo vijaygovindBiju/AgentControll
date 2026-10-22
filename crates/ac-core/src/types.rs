@@ -127,6 +127,9 @@ pub struct AgentSession {
     /// Per-session launch options (permission mode, model, working directory).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub launch: Option<crate::agy_launch::AgyLaunchOptions>,
+    /// Whether this session was discovered from external Antigravity history.
+    #[serde(default)]
+    pub is_external: bool,
 }
 
 impl AgentSession {
@@ -149,6 +152,7 @@ impl AgentSession {
             started_at: None,
             stopped_at: None,
             launch: None,
+            is_external: false,
         }
     }
 }

@@ -514,4 +514,3 @@ async fn test_url_picker_modal_navigation_and_actions() {
     let (msg, _, _) = app.status_message.unwrap();
     assert!(msg.contains("https://github.com/agentcontrol"));
 }
-

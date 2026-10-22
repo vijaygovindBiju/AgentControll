@@ -115,6 +115,15 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
                 ),
             ]
         };
+        if session.is_external {
+            left_spans.push(Span::raw(" "));
+            left_spans.push(Span::styled(
+                "[EXT]",
+                Style::default()
+                    .fg(Color::Magenta)
+                    .add_modifier(Modifier::BOLD),
+            ));
+        }
         if chunks[0].width >= 95 && !acct_label.is_empty() && acct_label != "None" {
             left_spans.push(Span::styled(" • ", Style::default().fg(Color::DarkGray)));
             left_spans.push(Span::styled(acct_label, Style::default().fg(Color::Yellow)));
@@ -128,7 +137,10 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
                     cwd_display
                 };
                 left_spans.push(Span::styled(" • ", Style::default().fg(Color::DarkGray)));
-                left_spans.push(Span::styled(display_str, Style::default().fg(Color::LightBlue)));
+                left_spans.push(Span::styled(
+                    display_str,
+                    Style::default().fg(Color::LightBlue),
+                ));
             }
         }
         f.render_widget(Paragraph::new(Line::from(left_spans)), header_chunks[0]);
@@ -159,13 +171,7 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
             .split(chunks[1]);
 
         // Left pane (primary session)
-        render_single_terminal(
-            f,
-            app,
-            term_buf,
-            split_chunks[0],
-            !app.split_focus_right,
-        );
+        render_single_terminal(f, app, term_buf, split_chunks[0], !app.split_focus_right);
 
         // Divider column
         let divider_lines: Vec<Line> = (0..split_chunks[1].height)
@@ -178,13 +184,7 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
             .session_terminal_buffers
             .get(&split_id.0)
             .unwrap_or(&default_buf);
-        render_single_terminal(
-            f,
-            app,
-            split_buf,
-            split_chunks[2],
-            app.split_focus_right,
-        );
+        render_single_terminal(f, app, split_buf, split_chunks[2], app.split_focus_right);
     } else {
         render_single_terminal(f, app, term_buf, chunks[1], true);
     }
@@ -204,24 +204,63 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
                     "No matches".to_string()
                 }
             } else {
-                format!("{}/{} matches", term_buf.search.current_idx + 1, term_buf.search.matches.len())
+                format!(
+                    "{}/{} matches",
+                    term_buf.search.current_idx + 1,
+                    term_buf.search.matches.len()
+                )
             };
             let status_badge = if term_buf.search.editing {
-                Span::styled(" [SEARCH EDIT] ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))
+                Span::styled(
+                    " [SEARCH EDIT] ",
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD),
+                )
             } else {
-                Span::styled(" [SEARCH NAV] ", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD))
+                Span::styled(
+                    " [SEARCH NAV] ",
+                    Style::default()
+                        .fg(Color::Green)
+                        .add_modifier(Modifier::BOLD),
+                )
             };
             Line::from(vec![
                 status_badge,
                 Span::styled("Query: ", Style::default().fg(Color::DarkGray)),
-                Span::styled(format!("\"{}\"", term_buf.search.query), Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+                Span::styled(
+                    format!("\"{}\"", term_buf.search.query),
+                    Style::default()
+                        .fg(Color::White)
+                        .add_modifier(Modifier::BOLD),
+                ),
                 Span::raw("  "),
-                Span::styled(format!("[{}] ", match_info), Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-                Span::styled("[n/N]", Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+                Span::styled(
+                    format!("[{}] ", match_info),
+                    Style::default()
+                        .fg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(
+                    "[n/N]",
+                    Style::default()
+                        .fg(Color::White)
+                        .add_modifier(Modifier::BOLD),
+                ),
                 Span::styled(" Next/Prev  ", Style::default().fg(Color::DarkGray)),
-                Span::styled("[Enter]", Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+                Span::styled(
+                    "[Enter]",
+                    Style::default()
+                        .fg(Color::White)
+                        .add_modifier(Modifier::BOLD),
+                ),
                 Span::styled(" Lock  ", Style::default().fg(Color::DarkGray)),
-                Span::styled("[Esc]", Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+                Span::styled(
+                    "[Esc]",
+                    Style::default()
+                        .fg(Color::White)
+                        .add_modifier(Modifier::BOLD),
+                ),
                 Span::styled(" Exit", Style::default().fg(Color::DarkGray)),
             ])
         } else if term_buf.follow {
@@ -256,14 +295,20 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
                         .fg(Color::Magenta)
                         .add_modifier(Modifier::BOLD),
                 ));
-                shortcuts.push(Span::styled(" Switch  ", Style::default().fg(Color::DarkGray)));
+                shortcuts.push(Span::styled(
+                    " Switch  ",
+                    Style::default().fg(Color::DarkGray),
+                ));
                 shortcuts.push(Span::styled(
                     format!("[{split_k}]"),
                     Style::default()
                         .fg(Color::Yellow)
                         .add_modifier(Modifier::BOLD),
                 ));
-                shortcuts.push(Span::styled(" Close Split  ", Style::default().fg(Color::DarkGray)));
+                shortcuts.push(Span::styled(
+                    " Close Split  ",
+                    Style::default().fg(Color::DarkGray),
+                ));
             } else {
                 shortcuts.push(Span::styled(
                     format!("[{split_k}]"),
@@ -271,7 +316,10 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
                         .fg(Color::White)
                         .add_modifier(Modifier::BOLD),
                 ));
-                shortcuts.push(Span::styled(" Split  ", Style::default().fg(Color::DarkGray)));
+                shortcuts.push(Span::styled(
+                    " Split  ",
+                    Style::default().fg(Color::DarkGray),
+                ));
             }
 
             shortcuts.extend(vec![

@@ -67,4 +67,5 @@ pub fn draw(f: &mut Frame, app: &App) {
 
     // 4. Modal Dialog (if active, rendered on top)
     views::modal::render(f, app);
+    views::apply_theme_to_frame(f, app);
 }

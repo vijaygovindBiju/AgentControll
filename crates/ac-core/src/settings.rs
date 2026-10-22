@@ -6,16 +6,34 @@
 
 use std::path::PathBuf;
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::agy_launch::{AgyExecutionMode, AgyPermissionMode};
+use crate::theme::Theme;
 
 fn default_agent() -> String {
     "Antigravity".into()
 }
 
-fn default_theme() -> String {
-    "Default".into()
+fn default_theme() -> Theme {
+    Theme::default()
+}
+
+fn deserialize_theme<'de, D>(deserializer: D) -> Result<Theme, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum ThemeConfig {
+        Palette(Theme),
+        LegacyName(String),
+    }
+
+    Ok(match ThemeConfig::deserialize(deserializer)? {
+        ThemeConfig::Palette(theme) => theme,
+        ThemeConfig::LegacyName(name) => Theme::by_name(&name).unwrap_or_default(),
+    })
 }
 
 fn default_scrollback() -> usize {
@@ -57,9 +75,9 @@ pub struct UserSettings {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_model: Option<String>,
 
-    /// Terminal theme name (e.g. "Default", "Dark", "High-Contrast").
-    #[serde(default = "default_theme")]
-    pub terminal_theme: String,
+    /// Terminal theme (color palette and styling).
+    #[serde(default = "default_theme", deserialize_with = "deserialize_theme")]
+    pub terminal_theme: Theme,
 
     /// Terminal scrollback buffer line count.
     #[serde(default = "default_scrollback")]
@@ -138,26 +156,66 @@ pub struct KeybindingsConfig {
     pub quit: String,
 }
 
-fn default_detach_session() -> String { "Ctrl+Q".into() }
-fn default_toggle_split() -> String { "Alt+S".into() }
-fn default_switch_split_focus() -> String { "Alt+W".into() }
-fn default_toggle_fullscreen() -> String { "Ctrl+F".into() }
-fn default_command_palette() -> String { "Ctrl+P".into() }
-fn default_url_picker() -> String { "Ctrl+O".into() }
-fn default_new_session() -> String { "n".into() }
-fn default_steer_session() -> String { "s".into() }
-fn default_pause_session() -> String { "p".into() }
-fn default_resume_session() -> String { "Space".into() }
-fn default_stop_session() -> String { "x".into() }
-fn default_switch_account() -> String { "w".into() }
-fn default_remove_session() -> String { "d".into() }
-fn default_add_account() -> String { "a".into() }
-fn default_search_scrollback() -> String { "/".into() }
-fn default_visual_mode() -> String { "v".into() }
-fn default_yank_selection() -> String { "y".into() }
-fn default_refresh() -> String { "r".into() }
-fn default_open_help() -> String { "?".into() }
-fn default_quit() -> String { "q".into() }
+fn default_detach_session() -> String {
+    "Ctrl+Q".into()
+}
+fn default_toggle_split() -> String {
+    "Alt+S".into()
+}
+fn default_switch_split_focus() -> String {
+    "Alt+W".into()
+}
+fn default_toggle_fullscreen() -> String {
+    "Ctrl+F".into()
+}
+fn default_command_palette() -> String {
+    "Ctrl+P".into()
+}
+fn default_url_picker() -> String {
+    "Ctrl+O".into()
+}
+fn default_new_session() -> String {
+    "n".into()
+}
+fn default_steer_session() -> String {
+    "s".into()
+}
+fn default_pause_session() -> String {
+    "p".into()
+}
+fn default_resume_session() -> String {
+    "Space".into()
+}
+fn default_stop_session() -> String {
+    "x".into()
+}
+fn default_switch_account() -> String {
+    "w".into()
+}
+fn default_remove_session() -> String {
+    "d".into()
+}
+fn default_add_account() -> String {
+    "a".into()
+}
+fn default_search_scrollback() -> String {
+    "/".into()
+}
+fn default_visual_mode() -> String {
+    "v".into()
+}
+fn default_yank_selection() -> String {
+    "y".into()
+}
+fn default_refresh() -> String {
+    "r".into()
+}
+fn default_open_help() -> String {
+    "?".into()
+}
+fn default_quit() -> String {
+    "q".into()
+}
 
 impl Default for KeybindingsConfig {
     fn default() -> Self {
@@ -190,25 +248,101 @@ impl KeybindingsConfig {
     pub const ACTION_COUNT: usize = 20;
 
     pub const ACTION_LIST: [(&'static str, &'static str, &'static str); 20] = [
-        ("detach_session", "Detach Session", "Exit session terminal view back to tabs"),
-        ("toggle_split", "Toggle Split Pane", "Side-by-side terminal split toggle"),
-        ("switch_split_focus", "Switch Split Focus", "Switch active focus between split panes"),
-        ("toggle_fullscreen", "Toggle Fullscreen", "Distraction-free edge-to-edge terminal"),
-        ("command_palette", "Command Palette", "Open command palette / actions in terminal"),
-        ("url_picker", "URL & Link Picker", "Extract & open hyperlinks from terminal"),
-        ("new_session", "New Session", "Open session launch dialog in main tabs"),
-        ("steer_session", "Steer Session", "Inject steering instruction into session"),
-        ("pause_session", "Pause Session", "Pause working session in Sessions tab"),
-        ("resume_session", "Resume Session", "Resume paused session in Sessions tab"),
-        ("stop_session", "Stop Session", "Stop running session in Sessions tab"),
-        ("switch_account", "Switch Account", "Switch session account / handoff dialog"),
-        ("remove_session", "Remove Session", "Open session remove confirmation dialog"),
-        ("add_account", "Add Account", "Add Antigravity account (browser/import)"),
-        ("search_scrollback", "Search History", "Search terminal scrollback buffer"),
-        ("visual_mode", "Visual Mode", "Start visual text selection in terminal"),
-        ("yank_selection", "Yank / Copy", "Copy visual text selection to clipboard"),
-        ("refresh", "Refresh Daemon", "Force re-sync daemon state and sessions"),
-        ("open_help", "Open Help", "Open keyboard shortcut help dialog"),
+        (
+            "detach_session",
+            "Detach Session",
+            "Exit session terminal view back to tabs",
+        ),
+        (
+            "toggle_split",
+            "Toggle Split Pane",
+            "Side-by-side terminal split toggle",
+        ),
+        (
+            "switch_split_focus",
+            "Switch Split Focus",
+            "Switch active focus between split panes",
+        ),
+        (
+            "toggle_fullscreen",
+            "Toggle Fullscreen",
+            "Distraction-free edge-to-edge terminal",
+        ),
+        (
+            "command_palette",
+            "Command Palette",
+            "Open command palette / actions in terminal",
+        ),
+        (
+            "url_picker",
+            "URL & Link Picker",
+            "Extract & open hyperlinks from terminal",
+        ),
+        (
+            "new_session",
+            "New Session",
+            "Open session launch dialog in main tabs",
+        ),
+        (
+            "steer_session",
+            "Steer Session",
+            "Inject steering instruction into session",
+        ),
+        (
+            "pause_session",
+            "Pause Session",
+            "Pause working session in Sessions tab",
+        ),
+        (
+            "resume_session",
+            "Resume Session",
+            "Resume paused session in Sessions tab",
+        ),
+        (
+            "stop_session",
+            "Stop Session",
+            "Stop running session in Sessions tab",
+        ),
+        (
+            "switch_account",
+            "Switch Account",
+            "Switch session account / handoff dialog",
+        ),
+        (
+            "remove_session",
+            "Remove Session",
+            "Open session remove confirmation dialog",
+        ),
+        (
+            "add_account",
+            "Add Account",
+            "Add Antigravity account (browser/import)",
+        ),
+        (
+            "search_scrollback",
+            "Search History",
+            "Search terminal scrollback buffer",
+        ),
+        (
+            "visual_mode",
+            "Visual Mode",
+            "Start visual text selection in terminal",
+        ),
+        (
+            "yank_selection",
+            "Yank / Copy",
+            "Copy visual text selection to clipboard",
+        ),
+        (
+            "refresh",
+            "Refresh Daemon",
+            "Force re-sync daemon state and sessions",
+        ),
+        (
+            "open_help",
+            "Open Help",
+            "Open keyboard shortcut help dialog",
+        ),
         ("quit", "Quit Application", "Exit Agent Control TUI"),
     ];
 
@@ -291,7 +425,8 @@ impl KeybindingsConfig {
     }
 
     pub fn is_custom(&self, action: &str) -> bool {
-        self.get(action).trim().to_lowercase() != Self::default_for_action(action).trim().to_lowercase()
+        self.get(action).trim().to_lowercase()
+            != Self::default_for_action(action).trim().to_lowercase()
     }
 }
 
@@ -338,5 +473,29 @@ impl UserSettings {
         }
         let json = serde_json::to_string_pretty(self).map_err(|e| e.to_string())?;
         std::fs::write(&p, json).map_err(|e| e.to_string())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::UserSettings;
+    use crate::theme::Theme;
+
+    #[test]
+    fn legacy_theme_name_migrates_without_losing_other_settings() {
+        let settings: UserSettings =
+            serde_json::from_str(r#"{"default_agent":"Claude Code","terminal_theme":"Dracula"}"#)
+                .unwrap();
+
+        assert_eq!(settings.default_agent, "Claude Code");
+        assert_eq!(settings.terminal_theme, Theme::dracula_theme());
+    }
+
+    #[test]
+    fn unknown_legacy_theme_name_falls_back_to_default() {
+        let settings: UserSettings =
+            serde_json::from_str(r#"{"terminal_theme":"missing-theme"}"#).unwrap();
+
+        assert_eq!(settings.terminal_theme, Theme::default_theme());
     }
 }

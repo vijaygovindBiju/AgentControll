@@ -118,6 +118,9 @@ async fn main() -> Result<()> {
     .with_interaction_hub(hub_handle.clone());
 
     manager.recover_from_store()?;
+    if let Err(e) = manager.discover_conversations() {
+        warn!("External conversation discovery encountered warning: {e}");
+    }
 
     let mgr_handle = SessionManagerHandle::new(cmd_tx);
     tokio::spawn(async move { manager.run().await });

@@ -1005,7 +1005,8 @@ mod tests {
         let mut output = String::new();
         let start = std::time::Instant::now();
         while start.elapsed() < Duration::from_secs(3) {
-            if let Ok(Some(evt)) = tokio::time::timeout(Duration::from_millis(200), rx.recv()).await {
+            if let Ok(Some(evt)) = tokio::time::timeout(Duration::from_millis(200), rx.recv()).await
+            {
                 if let AdapterEvent::OutputChunk { text, .. } = evt {
                     output.push_str(&text);
                     if output.contains("42 133") {

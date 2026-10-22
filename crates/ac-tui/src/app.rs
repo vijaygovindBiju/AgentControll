@@ -174,10 +174,12 @@ pub enum AgyAddStep {
         browser_opened: bool,
         deadline: Instant,
     },
-    /// Shareable login link. `paste` holds the redirect address the user pastes
-    /// back after signing in on another device; `notice` reports rejections.
+    /// Shareable login link & phone sign-in portal. `paste` holds the redirect address
+    /// the user pastes back after signing in on another device; `notice` reports rejections.
     Link {
         url: String,
+        phone_url: Option<String>,
+        show_qr: bool,
         deadline: Instant,
         paste: String,
         notice: Option<String>,
@@ -198,9 +200,10 @@ pub enum AgyLoginUpdate {
         url: String,
         browser_opened: bool,
     },
-    /// A login link was generated (nothing was opened locally).
+    /// A login link and optional phone sign-in portal was generated (nothing was opened locally).
     LinkReady {
         url: String,
+        phone_url: Option<String>,
     },
     /// A pasted redirect address was rejected; the login keeps waiting.
     PasteRejected {
@@ -633,8 +636,8 @@ impl App {
                                 self.settings_model_selected.saturating_add(1);
                         }
                         SettingsSection::Keybindings => {
-                            self.settings_keybind_selected =
-                                (self.settings_keybind_selected + 1) % ac_core::settings::KeybindingsConfig::ACTION_COUNT;
+                            self.settings_keybind_selected = (self.settings_keybind_selected + 1)
+                                % ac_core::settings::KeybindingsConfig::ACTION_COUNT;
                         }
                         _ => {}
                     }
@@ -728,7 +731,8 @@ impl App {
                         }
                         SettingsSection::Keybindings => {
                             let total = ac_core::settings::KeybindingsConfig::ACTION_COUNT;
-                            self.settings_keybind_selected = if self.settings_keybind_selected == 0 {
+                            self.settings_keybind_selected = if self.settings_keybind_selected == 0
+                            {
                                 total.saturating_sub(1)
                             } else {
                                 self.settings_keybind_selected - 1
@@ -912,7 +916,8 @@ impl App {
                         SettingsSection::Agents => self.selected_agent = 2,
                         SettingsSection::Keybindings => {
                             self.settings_keybind_selected =
-                                ac_core::settings::KeybindingsConfig::ACTION_COUNT.saturating_sub(1);
+                                ac_core::settings::KeybindingsConfig::ACTION_COUNT
+                                    .saturating_sub(1);
                         }
                         _ => {}
                     }

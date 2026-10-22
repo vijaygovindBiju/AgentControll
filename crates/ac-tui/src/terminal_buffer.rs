@@ -83,7 +83,11 @@ pub struct StyledChar {
 
 impl StyledChar {
     pub fn new(c: char, style: Style) -> Self {
-        Self { c, style, link: None }
+        Self {
+            c,
+            style,
+            link: None,
+        }
     }
 
     pub fn with_link(c: char, style: Style, link: Option<std::sync::Arc<str>>) -> Self {
@@ -403,7 +407,11 @@ pub fn chars_to_ratatui_line_with_search_and_selection(
     let mut current_style = Style::default();
     let mut first = true;
 
-    for (i, sc) in chars.iter().enumerate().filter(|(_, sc)| sc.c != WIDE_SPACER) {
+    for (i, sc) in chars
+        .iter()
+        .enumerate()
+        .filter(|(_, sc)| sc.c != WIDE_SPACER)
+    {
         let abs_col = start_col + i;
         let mut cell_style = sc.style;
         if sc.link.is_some() {
@@ -630,9 +638,9 @@ impl TerminalBuffer {
 
     /// Retrieve hyperlink URL at specific line and column, if any.
     pub fn get_link_at(&self, row: usize, col: usize) -> Option<&str> {
-        self.lines.get(row).and_then(|line| {
-            line.chars.get(col).and_then(|sc| sc.link.as_deref())
-        })
+        self.lines
+            .get(row)
+            .and_then(|line| line.chars.get(col).and_then(|sc| sc.link.as_deref()))
     }
 
     /// Extract all distinct hyperlink URLs present in the terminal buffer in order.
@@ -758,11 +766,7 @@ impl TerminalBuffer {
                     .collect()
             }
         } else {
-            self.lines[pos.row]
-                .chars
-                .iter()
-                .map(|sc| sc.c)
-                .collect()
+            self.lines[pos.row].chars.iter().map(|sc| sc.c).collect()
         };
 
         if line_chars.is_empty() {
@@ -1146,7 +1150,12 @@ impl TerminalBuffer {
         let q_chars: Vec<char> = query.chars().collect();
         let q_len = q_chars.len();
 
-        for (r_idx, line) in self.alt_scrollback.iter().chain(self.lines.iter()).enumerate() {
+        for (r_idx, line) in self
+            .alt_scrollback
+            .iter()
+            .chain(self.lines.iter())
+            .enumerate()
+        {
             let mut plain_to_cell = Vec::new();
             let mut text_chars = Vec::new();
             for (cell_idx, sc) in line.chars.iter().enumerate() {
@@ -1569,10 +1578,7 @@ impl TerminalBuffer {
                     if !self.in_alt_screen() && self.cursor_row < self.lines.len() {
                         let line = &mut self.lines[self.cursor_row];
                         if old_col >= line.chars.len()
-                            && line
-                                .chars
-                                .last()
-                                .is_some_and(is_blank_trailing_space)
+                            && line.chars.last().is_some_and(is_blank_trailing_space)
                         {
                             line.trim_trailing_spaces();
                         }
@@ -1784,10 +1790,7 @@ impl TerminalBuffer {
 
         // Handle DECSCUSR: Set Cursor Style (`CSI Ps SP q` or `CSI Ps q`)
         if last_char == 'q'
-            && (params_str.is_empty()
-                || params_str
-                    .chars()
-                    .all(|c| c.is_ascii_digit() || c == ' '))
+            && (params_str.is_empty() || params_str.chars().all(|c| c.is_ascii_digit() || c == ' '))
         {
             let mode = params_str.trim().parse::<u32>().unwrap_or(0);
             self.cursor_shape = match mode {
@@ -2466,7 +2469,10 @@ fn parse_subpart_color(subs: &[&str]) -> Option<Color> {
         return None;
     }
     match subs[0] {
-        "5" => subs.get(1).and_then(|s| s.parse::<u8>().ok()).map(Color::Indexed),
+        "5" => subs
+            .get(1)
+            .and_then(|s| s.parse::<u8>().ok())
+            .map(Color::Indexed),
         "2" => {
             let nums: Vec<u8> = subs[1..]
                 .iter()
@@ -2511,7 +2517,6 @@ fn parse_semicolon_color(tokens: &[&str]) -> Option<(Color, usize)> {
 }
 
 impl TerminalBuffer {
-
     /// Total number of lines currently buffered.
     pub fn total_lines(&self) -> usize {
         if self.in_alt_screen() {
@@ -3361,7 +3366,11 @@ mod tests {
             .spans
             .iter()
             .find(|span| span.content == "127.0.0.1");
-        assert!(match_span.is_some(), "Match span '127.0.0.1' not found in spans: {:?}", server_line.spans);
+        assert!(
+            match_span.is_some(),
+            "Match span '127.0.0.1' not found in spans: {:?}",
+            server_line.spans
+        );
         let span = match_span.unwrap();
         assert_eq!(span.style.bg, Some(Color::Rgb(0, 220, 255))); // Focused match style
     }
@@ -3410,16 +3419,16 @@ mod tests {
             .find(|s| s.content == " is awesome!")
             .expect("Span for ' is awesome!' must exist");
         assert!(
-            !unlinked_span.style.add_modifier.contains(Modifier::UNDERLINED),
+            !unlinked_span
+                .style
+                .add_modifier
+                .contains(Modifier::UNDERLINED),
             "Unlinked span must not have underline modifier"
         );
 
         // Also test OSC 8 with BEL terminator
         buf.push_str("\x1b]8;;https://docs.agentcontrol.dev\x07Documentation\x1b]8;;\x07\n");
-        assert_eq!(
-            buf.get_link_at(1, 0),
-            Some("https://docs.agentcontrol.dev")
-        );
+        assert_eq!(buf.get_link_at(1, 0), Some("https://docs.agentcontrol.dev"));
         let links_total = buf.extract_hyperlinks();
         assert_eq!(
             links_total,
@@ -3568,7 +3577,10 @@ mod tests {
             .iter()
             .filter(|s| s.style.bg == Some(Color::Rgb(60, 95, 145)))
             .collect();
-        assert!(!selected_spans.is_empty(), "Expected selection background on row 1");
+        assert!(
+            !selected_spans.is_empty(),
+            "Expected selection background on row 1"
+        );
 
         // Clear selection
         buf.clear_selection();
@@ -3693,7 +3705,9 @@ mod tests {
 
         // 2. Underline styles: 4:0 (none), 4:1 (single), 4:2 (double), 4:4 (dotted), 4:5 (dashed)
         let mut buf2 = TerminalBuffer::new(100);
-        buf2.push_str("\x1b[4:1mSingle \x1b[4:0mNone \x1b[4:2mDouble \x1b[4:4mDotted \x1b[4:5mDashed\x1b[0m");
+        buf2.push_str(
+            "\x1b[4:1mSingle \x1b[4:0mNone \x1b[4:2mDouble \x1b[4:4mDotted \x1b[4:5mDashed\x1b[0m",
+        );
         let chars = &buf2.lines[0].chars;
         // 'S' in Single has underline
         assert!(chars[0].style.add_modifier.contains(Modifier::UNDERLINED));
@@ -3706,7 +3720,10 @@ mod tests {
         let mut buf3 = TerminalBuffer::new(100);
         buf3.push_str("\x1b[4m\x1b[58;2;255;100;50mColored\x1b[59mReset\x1b[0m");
         let chars3 = &buf3.lines[0].chars;
-        assert_eq!(chars3[0].style.underline_color, Some(Color::Rgb(255, 100, 50)));
+        assert_eq!(
+            chars3[0].style.underline_color,
+            Some(Color::Rgb(255, 100, 50))
+        );
         // After 59, underline color is reset to None
         assert_eq!(chars3[7].style.underline_color, None);
 
@@ -3714,7 +3731,10 @@ mod tests {
         let mut buf4 = TerminalBuffer::new(100);
         buf4.push_str("\x1b[58:2::12:34:56mColonRGB\x1b[58:5:42mIndexCol\x1b[0m");
         let chars4 = &buf4.lines[0].chars;
-        assert_eq!(chars4[0].style.underline_color, Some(Color::Rgb(12, 34, 56)));
+        assert_eq!(
+            chars4[0].style.underline_color,
+            Some(Color::Rgb(12, 34, 56))
+        );
         assert_eq!(chars4[8].style.underline_color, Some(Color::Indexed(42)));
     }
 

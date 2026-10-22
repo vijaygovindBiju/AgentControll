@@ -529,6 +529,7 @@ async fn login_link_screen_masks_pasted_address_and_forwards_it() {
     app.agy_login_paste = Some(tx);
     updates.lock().unwrap().push(AgyLoginUpdate::LinkReady {
         url: "https://accounts.google.com/o/oauth2/v2/auth?client_id=x&state=S".into(),
+        phone_url: None,
     });
     poll_agy_login(&mut app, &client).await;
     let screen = render(&app);
@@ -562,4 +563,56 @@ async fn login_link_screen_masks_pasted_address_and_forwards_it() {
     assert!(app.agy_login.is_none() && app.agy_login_paste.is_none());
     assert!(task.await.unwrap_err().is_cancelled());
     assert!(rx.recv().await.is_none(), "paste channel closed");
+}
+
+#[tokio::test]
+async fn login_link_screen_displays_phone_portal_and_toggles_qr_code() {
+    let (mut app, client, _) = setup(Path::new("/"));
+    app.active_modal = Some(Modal::AgyAddAccount {
+        label: "Phone".into(),
+        step: AgyAddStep::Method,
+    });
+    let updates: std::sync::Arc<std::sync::Mutex<Vec<AgyLoginUpdate>>> = Default::default();
+    let task = tokio::spawn(async { tokio::time::sleep(std::time::Duration::from_secs(60)).await });
+    app.agy_login = Some(AgyLoginTask {
+        abort: task.abort_handle(),
+        updates: updates.clone(),
+    });
+    let (tx, _rx) = tokio::sync::mpsc::channel(4);
+    app.agy_login_paste = Some(tx);
+    updates.lock().unwrap().push(AgyLoginUpdate::LinkReady {
+        url: "https://accounts.google.com/o/oauth2/v2/auth?client_id=x&state=S".into(),
+        phone_url: Some("http://10.0.0.5:45678/phone".into()),
+    });
+    poll_agy_login(&mut app, &client).await;
+
+    // By default, displays Phone Portal, link, and Show QR Code button
+    let screen = render(&app);
+    assert!(screen.contains("Phone Sign-in Portal"), "{screen}");
+    assert!(screen.contains("http://10.0.0.5:45678/phone"), "{screen}");
+    assert!(screen.contains("Show QR Code"), "{screen}");
+
+    // Tab key toggles QR code view
+    keys(&mut app, &client, &[KeyCode::Tab]).await;
+    let screen_qr = render(&app);
+    assert!(
+        screen_qr.contains("Scan with your phone camera to sign in:"),
+        "{screen_qr}"
+    );
+    assert!(screen_qr.contains("Phone Portal:"), "{screen_qr}");
+
+    // Tab key again toggles back to details
+    keys(&mut app, &client, &[KeyCode::Tab]).await;
+    let screen_details = render(&app);
+    assert!(
+        screen_details.contains("Phone Sign-in Portal"),
+        "{screen_details}"
+    );
+    assert!(
+        !screen_details.contains("Scan with your phone camera"),
+        "{screen_details}"
+    );
+
+    // Clean up
+    keys(&mut app, &client, &[KeyCode::Esc]).await;
 }

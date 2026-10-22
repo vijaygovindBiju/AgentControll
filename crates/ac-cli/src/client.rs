@@ -215,6 +215,22 @@ impl DaemonClient {
         Ok(sessions)
     }
 
+    /// Discover Antigravity conversations and return all indexed sessions.
+    pub async fn discover_sessions(&self) -> Result<Vec<AgentSession>> {
+        let resp = self.send_command("session.discover", json!({})).await?;
+        if !resp.ok {
+            let msg = resp
+                .error
+                .map(|e| e.message)
+                .unwrap_or_else(|| "Unknown error".into());
+            anyhow::bail!("Failed to discover sessions: {msg}");
+        }
+        let result = resp.result.unwrap_or(json!({}));
+        let sessions: Vec<AgentSession> =
+            serde_json::from_value(result["sessions"].clone()).unwrap_or_default();
+        Ok(sessions)
+    }
+
     /// Get session details by ID.
     pub async fn get_session(&self, session_id: &Id) -> Result<Option<AgentSession>> {
         let resp = self

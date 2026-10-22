@@ -167,6 +167,10 @@ pub struct AgyLaunchOptions {
     /// Initial terminal columns for the agent PTY; None = 80 default.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub initial_cols: Option<u16>,
+
+    /// Conversation ID to resume (passed via `--conversation <id>`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub conversation_id: Option<String>,
 }
 
 impl AgyLaunchOptions {
@@ -188,6 +192,11 @@ impl AgyLaunchOptions {
                 ));
             }
         }
+        if let Some(c) = &self.conversation_id {
+            if !is_valid_conversation_id(c) {
+                return Err(format!("invalid conversation id: {c}"));
+            }
+        }
         Ok(())
     }
 
@@ -206,6 +215,14 @@ impl AgyLaunchOptions {
         if let Some(m) = self.model.as_ref().filter(|m| is_valid_model_id(m)) {
             args.push("--model".into());
             args.push(m.clone());
+        }
+        if let Some(cid) = self
+            .conversation_id
+            .as_ref()
+            .filter(|c| is_valid_conversation_id(c))
+        {
+            args.push("--conversation".into());
+            args.push(cid.clone());
         }
         args
     }
@@ -267,8 +284,22 @@ impl AgyLaunchOptions {
             opts.working_dir = Some(d.to_string());
         }
 
+        if let Some(c) = v.get("conversation_id").and_then(|s| s.as_str()) {
+            if is_valid_conversation_id(c) {
+                opts.conversation_id = Some(c.to_string());
+            }
+        }
+
         opts
     }
+}
+
+pub fn is_valid_conversation_id(c: &str) -> bool {
+    !c.is_empty()
+        && c.len() <= 128
+        && !c.starts_with('-')
+        && c.chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_'))
 }
 
 fn is_valid_model_id(m: &str) -> bool {

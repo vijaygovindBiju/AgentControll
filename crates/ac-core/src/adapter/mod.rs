@@ -203,13 +203,18 @@ impl AdapterFactory for CompositeAdapterFactory {
                     "Removed ambient auth env vars: {:?}",
                     crate::agy_auth::AMBIENT_AUTH_ENV
                 );
-                agy_cfg.args.extend(
-                    crate::agy_launch::AgyLaunchOptions::from_agent_config(
-                        ctx.agent_config.as_ref(),
-                    )
-                    .args(),
+                let launch_opts = crate::agy_launch::AgyLaunchOptions::from_agent_config(
+                    ctx.agent_config.as_ref(),
                 );
-                agy_cfg.args.extend(agy_task_args(&ctx.task_description));
+                if let Some(cid) = &launch_opts.conversation_id {
+                    if let Some(aid) = &ctx.account_id {
+                        crate::agy_discovery::link_conversation_to_profile(aid, cid, None)?;
+                    }
+                }
+                agy_cfg.args.extend(launch_opts.args());
+                if launch_opts.conversation_id.is_none() {
+                    agy_cfg.args.extend(agy_task_args(&ctx.task_description));
+                }
                 pty::GenericPtyAdapter::spawn(&ctx, agy_cfg, event_tx).map_err(|e| {
                     crate::agy_auth::AgyAuthError::LaunchFailure {
                         label: ctx
@@ -250,6 +255,11 @@ impl CompositeAdapterFactory {
             return Err(crate::agy_auth::AgyAuthError::NoAccountSelected.into());
         };
         crate::agy_auth::validate_credential(cref, &aid.0)?;
+        let launch_opts =
+            crate::agy_launch::AgyLaunchOptions::from_agent_config(ctx.agent_config.as_ref());
+        if let Some(cid) = &launch_opts.conversation_id {
+            crate::agy_discovery::link_conversation_to_profile(aid, cid, None)?;
+        }
         Ok(())
     }
 }

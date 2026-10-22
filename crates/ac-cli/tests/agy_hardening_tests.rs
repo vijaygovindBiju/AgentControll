@@ -1622,3 +1622,110 @@ async fn login_link_also_accepts_the_local_callback_and_expires() {
         before
     );
 }
+
+fn url_encode(s: &str) -> String {
+    let mut out = String::new();
+    for b in s.bytes() {
+        if b.is_ascii_alphanumeric() || b == b'-' || b == b'_' || b == b'.' || b == b'~' {
+            out.push(b as char);
+        } else {
+            out.push_str(&format!("%{b:02X}"));
+        }
+    }
+    out
+}
+
+async fn raw_http(addr: &str, method: &str, path: &str, body: Option<&str>) -> String {
+    let mut s = tokio::net::TcpStream::connect(addr).await.unwrap();
+    let req = match body {
+        Some(b) => format!(
+            "{method} {path} HTTP/1.1\r\nHost: {addr}\r\nContent-Type: application/x-www-form-urlencoded\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{b}",
+            b.len()
+        ),
+        None => format!("{method} {path} HTTP/1.1\r\nHost: {addr}\r\nConnection: close\r\n\r\n"),
+    };
+    s.write_all(req.as_bytes()).await.unwrap();
+    let mut resp = Vec::new();
+    let _ = s.read_to_end(&mut resp).await;
+    String::from_utf8_lossy(&resp).to_string()
+}
+
+#[tokio::test]
+async fn login_link_serves_phone_portal_and_completes_from_phone_submission() {
+    let _env = Env::new();
+    let body = r#"{"access_token":"AT-PHONE","refresh_token":"RT-PHONE","expires_in":3599,"token_type":"Bearer","id_token":"h.eyJlbWFpbCI6InBob25lQHguY29tIn0.s"}"#;
+    let (url, captured) = fake_token_endpoint("200 OK", body).await;
+    let login = BrowserLogin::start_with(OAuthClient::new("c", "s"), "127.0.0.1:0", &url)
+        .await
+        .unwrap();
+
+    let addr = login
+        .redirect_uri()
+        .trim_start_matches("http://")
+        .split('/')
+        .next()
+        .unwrap()
+        .to_string();
+
+    let good_code = format!(
+        "{}?code=4%2F0MOBILE&state={}",
+        login.redirect_uri(),
+        state_of(&login)
+    );
+    let good_form = format!("url={}", url_encode(&good_code));
+    let addr_clone = addr.clone();
+
+    let client_task = tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        let portal = raw_http(&addr_clone, "GET", "/phone", None).await;
+        assert!(portal.starts_with("HTTP/1.1 200 OK"), "{portal}");
+        assert!(portal.contains("Antigravity Sign-in"));
+        assert!(portal.contains("Cross-Device"));
+        assert!(portal.contains("Sign in with Google"));
+        assert!(portal.contains("action=\"/submit\""));
+
+        let root_portal = raw_http(&addr_clone, "GET", "/", None).await;
+        assert!(root_portal.starts_with("HTTP/1.1 200 OK"), "{root_portal}");
+        assert!(root_portal.contains("Cross-Device"));
+
+        let device_portal = raw_http(&addr_clone, "GET", "/device", None).await;
+        assert!(
+            device_portal.starts_with("HTTP/1.1 200 OK"),
+            "{device_portal}"
+        );
+
+        let bad_target = "http://127.0.0.1:1/oauth2callback?code=4%2F0BAD&state=WRONG".to_string();
+        let bad_form = format!("url={}", url_encode(&bad_target));
+        let bad_resp = raw_http(&addr_clone, "POST", "/submit", Some(&bad_form)).await;
+        assert!(bad_resp.starts_with("HTTP/1.1 200 OK"), "{bad_resp}");
+        assert!(bad_resp.contains("Verification Failed"));
+
+        let good_resp = raw_http(&addr_clone, "POST", "/submit", Some(&good_form)).await;
+        assert!(good_resp.contains("Sign-in Complete"));
+    });
+
+    let (_ptx, mut prx) = tokio::sync::mpsc::channel::<String>(1);
+    let (cref, tok) = agy_auth::finish_login_with_handoff(
+        &login,
+        "Mobile Account",
+        Duration::from_secs(5),
+        &mut prx,
+        |_| {},
+    )
+    .await
+    .unwrap();
+
+    client_task.await.unwrap();
+
+    assert_eq!(tok.email().as_deref(), Some("phone@x.com"));
+    assert_eq!(
+        agy_auth::validate_credential(&cref, "Mobile Account")
+            .unwrap()
+            .label,
+        "Mobile Account"
+    );
+
+    let sent = captured.lock().unwrap().clone();
+    assert!(sent.contains("code=4%2F0MOBILE"));
+}

@@ -3,8 +3,6 @@
 use ratatui::{backend::TestBackend, Terminal};
 use serde_json::json;
 
-use std::path::PathBuf;
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ac_core::types::{
     Account, AgentEvent, AgentSession, EventKind, Id, Interaction, InteractionState, Project,
     SessionState, WorkspacePolicy,
@@ -14,6 +12,8 @@ use ac_tui::{
     client::ApiClient,
     event, ui,
 };
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use std::path::PathBuf;
 
 fn create_sample_app() -> App {
     let mut app = App::new();
@@ -842,10 +842,18 @@ async fn test_settings_change_keybinding_modal_and_remap() {
 
     assert_eq!(app.active_modal, None);
     assert_eq!(app.user_settings.keybindings.detach_session, "Ctrl+D");
-    assert!(ac_tui::keybinding::matches_action(&ctrl_d, "detach_session", &app.user_settings));
+    assert!(ac_tui::keybinding::matches_action(
+        &ctrl_d,
+        "detach_session",
+        &app.user_settings
+    ));
 
     let ctrl_q = KeyEvent::new(KeyCode::Char('q'), KeyModifiers::CONTROL);
-    assert!(!ac_tui::keybinding::matches_action(&ctrl_q, "detach_session", &app.user_settings));
+    assert!(!ac_tui::keybinding::matches_action(
+        &ctrl_q,
+        "detach_session",
+        &app.user_settings
+    ));
 
     // Open modal again and reset with Backspace
     app.active_modal = Some(Modal::ChangeKeybind {
@@ -854,11 +862,15 @@ async fn test_settings_change_keybinding_modal_and_remap() {
         current_key: "Ctrl+D".to_string(),
     });
     let backspace = KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE);
-    event::handle_key(&mut app, &client, backspace).await.unwrap();
+    event::handle_key(&mut app, &client, backspace)
+        .await
+        .unwrap();
 
     assert_eq!(app.active_modal, None);
     assert_eq!(app.user_settings.keybindings.detach_session, "Ctrl+Q");
-    assert!(ac_tui::keybinding::matches_action(&ctrl_q, "detach_session", &app.user_settings));
+    assert!(ac_tui::keybinding::matches_action(
+        &ctrl_q,
+        "detach_session",
+        &app.user_settings
+    ));
 }
-
-

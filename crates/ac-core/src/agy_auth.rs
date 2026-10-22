@@ -1028,9 +1028,13 @@ pub struct BrowserLogin {
 }
 
 impl BrowserLogin {
-    /// Bind the callback listener on an ephemeral loopback port.
+    /// Bind the callback listener. Attempts binding on all interfaces (0.0.0.0:0) so mobile
+    /// devices on the local network can access the sign-in helper portal, falling back to loopback.
     pub async fn start(client: OAuthClient) -> AuthResult<Self> {
-        Self::start_with(client, "127.0.0.1:0", GOOGLE_TOKEN_URL).await
+        match Self::start_with(client.clone(), "0.0.0.0:0", GOOGLE_TOKEN_URL).await {
+            Ok(l) => Ok(l),
+            Err(_) => Self::start_with(client, "127.0.0.1:0", GOOGLE_TOKEN_URL).await,
+        }
     }
 
     /// Same as [`start`](Self::start) with an explicit bind address / token endpoint (tests).
@@ -1077,7 +1081,23 @@ impl BrowserLogin {
         &self.redirect_uri
     }
 
-    /// Wait for the browser redirect and return the authorization code.
+    pub fn port(&self) -> u16 {
+        self.listener.local_addr().map(|a| a.port()).unwrap_or(0)
+    }
+
+    /// URL for the cross-device sign-in portal on LAN or remote host, if reachable.
+    pub fn portal_url(&self) -> Option<String> {
+        let host = portal_host()?;
+        Some(format!("http://{}:{}/", host, self.port()))
+    }
+
+    /// URL for the mobile/cross-device sign-in portal on LAN.
+    pub fn phone_url(&self) -> Option<String> {
+        let host = portal_host()?;
+        Some(format!("http://{}:{}/phone", host, self.port()))
+    }
+
+    /// Wait for the browser redirect or cross-device submission and return the authorization code.
     pub async fn wait_for_callback(&self, timeout: Duration) -> AuthResult<String> {
         tokio::time::timeout(timeout, async {
             loop {
@@ -1090,7 +1110,93 @@ impl BrowserLogin {
                     .unwrap_or(Ok(0))
                     .unwrap_or(0);
                 let req = String::from_utf8_lossy(&buf[..n]).to_string();
+                let method = req.split_whitespace().next().unwrap_or("");
                 let target = req.split_whitespace().nth(1).unwrap_or("");
+
+                // Serve cross-device sign-in portal (phone, tablet, laptop, PC)
+                if (method == "GET" || method == "HEAD")
+                    && (target == "/"
+                        || target == "/phone"
+                        || target == "/device"
+                        || target == "/portal"
+                        || target == "/login")
+                {
+                    let html = phone_portal_html(&self.auth_url);
+                    let resp = format!(
+                        "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n{html}",
+                        html.len()
+                    );
+                    let _ = sock.write_all(resp.as_bytes()).await;
+                    let _ = sock.shutdown().await;
+                    continue;
+                }
+
+                // Handle mobile submission (/submit)
+                if target == "/submit" || target.starts_with("/submit?") {
+                    let mut submitted_url = String::new();
+                    if method == "POST" {
+                        let mut body_str = req
+                            .split_once("\r\n\r\n")
+                            .or_else(|| req.split_once("\n\n"))
+                            .map(|(_, b)| b.to_string())
+                            .unwrap_or_default();
+                        let content_len = req
+                            .lines()
+                            .find(|l| l.to_ascii_lowercase().starts_with("content-length:"))
+                            .and_then(|l| l.split_once(':'))
+                            .and_then(|(_, v)| v.trim().parse::<usize>().ok())
+                            .unwrap_or(body_str.len());
+                        if body_str.len() < content_len {
+                            let needed = content_len - body_str.len();
+                            let mut extra = vec![0u8; needed];
+                            if let Ok(Ok(m)) = tokio::time::timeout(Duration::from_secs(3), sock.read(&mut extra)).await {
+                                body_str.push_str(&String::from_utf8_lossy(&extra[..m]));
+                            }
+                        }
+                        for (k, v) in form_urlencoded::parse(body_str.as_bytes()) {
+                            if k == "url" {
+                                submitted_url = v.into_owned();
+                                break;
+                            }
+                        }
+                    } else {
+                        let query = target.split_once('?').map(|(_, q)| q).unwrap_or("");
+                        for (k, v) in form_urlencoded::parse(query.as_bytes()) {
+                            if k == "url" {
+                                submitted_url = v.into_owned();
+                                break;
+                            }
+                        }
+                    }
+
+                    match self.code_from_pasted(&submitted_url) {
+                        Ok(code) => {
+                            let html = phone_success_html();
+                            let resp = format!(
+                                "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n{html}",
+                                html.len()
+                            );
+                            let _ = sock.write_all(resp.as_bytes()).await;
+                            let _ = sock.shutdown().await;
+                            return Ok(code);
+                        }
+                        Err(e) => {
+                            let err_msg = e.to_string();
+                            let reason = err_msg
+                                .replace("Antigravity login failed.\n\nThe account was not added.\n\nReason:\n", "")
+                                .replace('\n', " ");
+                            let html = phone_error_html(&sanitize(&reason));
+                            let resp = format!(
+                                "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n{html}",
+                                html.len()
+                            );
+                            let _ = sock.write_all(resp.as_bytes()).await;
+                            let _ = sock.shutdown().await;
+                            continue;
+                        }
+                    }
+                }
+
                 if !target.starts_with("/oauth2callback") {
                     let _ = sock.write_all(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").await;
                     continue;
@@ -1228,6 +1334,175 @@ fn sanitize(s: &str) -> String {
         .filter(|c| c.is_ascii_graphic() || *c == ' ')
         .take(200)
         .collect()
+}
+
+pub fn phone_portal_html(auth_url: &str) -> String {
+    let auth_url_escaped = auth_url.replace('&', "&amp;").replace('"', "&quot;");
+    format!(
+        r#"<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Agent Control - Cross-Device Sign In</title>
+  <style>
+    * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+    body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 520px; margin: 24px auto; padding: 16px; color: #202124; background: #f8f9fa; line-height: 1.5; }}
+    .card {{ background: #fff; border: 1px solid #dadce0; border-radius: 12px; padding: 20px; margin-bottom: 16px; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }}
+    h1 {{ font-size: 20px; margin-bottom: 6px; color: #1a73e8; }}
+    p {{ margin-bottom: 10px; color: #5f6368; font-size: 14px; }}
+    .btn {{ display: block; width: 100%; text-align: center; background: #1a73e8; color: white; padding: 14px; border-radius: 8px; text-decoration: none; font-weight: 600; font-size: 15px; border: none; cursor: pointer; }}
+    .btn:active {{ background: #1557b0; }}
+    .btn-submit {{ background: #1e8e3e; margin-top: 10px; }}
+    .btn-submit:active {{ background: #137333; }}
+    .btn-paste {{ background: #e8f0fe; color: #1a73e8; padding: 8px 14px; border: 1px solid #d2e3fc; border-radius: 6px; font-size: 13px; font-weight: 500; cursor: pointer; margin-bottom: 8px; display: inline-block; }}
+    input[type=text] {{ width: 100%; padding: 12px; border: 1.5px solid #dadce0; border-radius: 8px; font-size: 14px; outline: none; margin-top: 6px; }}
+    input[type=text]:focus {{ border-color: #1a73e8; }}
+    .step {{ display: flex; align-items: center; font-weight: 600; font-size: 15px; margin-bottom: 8px; }}
+    .badge {{ display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; background: #1a73e8; color: white; border-radius: 50%; font-size: 12px; margin-right: 8px; }}
+    .notice {{ background: #fef7e0; border-left: 4px solid #f9ab00; padding: 10px 12px; border-radius: 4px; font-size: 13px; color: #5f6368; margin: 10px 0; }}
+    code {{ font-family: monospace; background: #f1f3f4; padding: 2px 4px; border-radius: 3px; font-size: 12px; word-break: break-all; }}
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Antigravity Sign-in (Cross-Device)</h1>
+    <p>Sign in from this device (laptop, desktop, tablet, or phone) to authenticate Agent Control.</p>
+  </div>
+
+  <div class="card">
+    <div class="step"><span class="badge">1</span> Sign in with Google</div>
+    <p>Opens Google sign-in in a new tab. Approve Antigravity access.</p>
+    <a href="{auth_url_escaped}" target="_blank" class="btn">Sign in with Google &rarr;</a>
+  </div>
+
+  <div class="card">
+    <div class="step"><span class="badge">2</span> Complete Sign-in</div>
+    <div class="notice">
+      <strong>Next step:</strong> After signing in, this browser will land on an unreachable <code>127.0.0.1</code> page. Copy that full address from your browser's address bar and paste it below:
+    </div>
+    <button type="button" class="btn-paste" onclick="navigator.clipboard.readText().then(t=>{{document.getElementById('pastedUrl').value=t;}}).catch(()=>{{}})">📋 Paste from Clipboard</button>
+    <form method="POST" action="/submit">
+      <input type="text" id="pastedUrl" name="url" placeholder="http://127.0.0.1:.../oauth2callback?code=..." required autofocus>
+      <button type="submit" class="btn btn-submit">Submit &amp; Complete Sign-in &rarr;</button>
+    </form>
+  </div>
+</body>
+</html>"#
+    )
+}
+
+fn phone_success_html() -> &'static str {
+    r#"<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Signed In</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; text-align: center; margin: 15vh auto; max-width: 420px; padding: 20px; color: #202124; }
+    h2 { color: #1e8e3e; font-size: 24px; margin-bottom: 10px; }
+    p { color: #5f6368; font-size: 15px; line-height: 1.5; }
+    .check { font-size: 48px; margin-bottom: 12px; color: #1e8e3e; }
+  </style>
+</head>
+<body>
+  <div class="check">✓</div>
+  <h2>Sign-in Complete!</h2>
+  <p>Antigravity login received by Agent Control.</p>
+  <p>You can close this tab and return to your primary device/terminal.</p>
+</body>
+</html>"#
+}
+
+fn phone_error_html(reason: &str) -> String {
+    format!(
+        r#"<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Verification Failed</title>
+  <style>
+    body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; text-align: center; margin: 15vh auto; max-width: 420px; padding: 20px; color: #202124; }}
+    h2 {{ color: #d93025; font-size: 22px; margin-bottom: 10px; }}
+    p {{ color: #5f6368; font-size: 14px; line-height: 1.5; }}
+    .btn {{ display: inline-block; background: #1a73e8; color: white; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: 500; margin-top: 16px; }}
+  </style>
+</head>
+<body>
+  <h2>Verification Failed</h2>
+  <p>{reason}</p>
+  <a href="/" class="btn">Try Again</a>
+</body>
+</html>"#
+    )
+}
+
+/// Resolve the external host / IP for the cross-device portal.
+/// Checks `AGENTCONTROL_AUTH_HOST` or `AC_AUTH_HOST` first (which can be an IP or a hostname),
+/// then falls back to the auto-detected local LAN IP.
+pub fn portal_host() -> Option<String> {
+    for var in ["AGENTCONTROL_AUTH_HOST", "AC_AUTH_HOST"] {
+        if let Ok(host) = std::env::var(var) {
+            let trimmed = host.trim();
+            if !trimmed.is_empty() {
+                return Some(trimmed.to_string());
+            }
+        }
+    }
+    local_ip().map(|ip| ip.to_string())
+}
+
+/// Detect primary local outbound IPv4 address (e.g. 192.168.x.x, 10.x.x.x).
+pub fn local_ip() -> Option<std::net::IpAddr> {
+    for var in ["AGENTCONTROL_AUTH_HOST", "AC_AUTH_HOST"] {
+        if let Ok(host) = std::env::var(var) {
+            if let Ok(ip) = host.trim().parse() {
+                return Some(ip);
+            }
+        }
+    }
+    let socket = std::net::UdpSocket::bind("0.0.0.0:0").ok()?;
+    socket.connect("8.8.8.8:80").ok()?;
+    let addr = socket.local_addr().ok()?;
+    let ip = addr.ip();
+    if ip.is_loopback() || ip.is_unspecified() {
+        None
+    } else {
+        Some(ip)
+    }
+}
+
+/// Generate a 2D matrix of QR code modules (including 2-module quiet zone).
+/// `true` represents dark module, `false` represents light module.
+pub fn qr_matrix(url: &str) -> Option<Vec<Vec<bool>>> {
+    let code = qrcode::QrCode::new(url.as_bytes()).ok()?;
+    let w = code.width();
+    let qz = 2;
+    let total = w + qz * 2;
+    let mut matrix = vec![vec![false; total]; total];
+    for y in 0..w {
+        for x in 0..w {
+            if code[(x, y)] == qrcode::Color::Dark {
+                matrix[y + qz][x + qz] = true;
+            }
+        }
+    }
+    Some(matrix)
+}
+
+/// Render a QR code as a UTF-8 string using Unicode half-block characters (`▀`, `▄`, `█`, ` `)
+/// optimized for terminal display.
+pub fn qr_code_for(url: &str) -> Option<String> {
+    let code = qrcode::QrCode::new(url.as_bytes()).ok()?;
+    Some(
+        code.render::<qrcode::render::unicode::Dense1x2>()
+            .dark_color(qrcode::render::unicode::Dense1x2::Light)
+            .light_color(qrcode::render::unicode::Dense1x2::Dark)
+            .quiet_zone(true)
+            .build(),
+    )
 }
 
 // ── Small shared helpers ──────────────────────────────────────────────────────
@@ -1417,5 +1692,46 @@ mod tests {
             login.state
         );
         assert_eq!(login.code_from_pasted(&ok).unwrap(), "4/0Ab");
+    }
+
+    #[test]
+    fn qr_matrix_and_string_generation() {
+        let sample = "http://192.168.1.100:12345/phone";
+        let matrix = qr_matrix(sample).unwrap();
+        assert!(matrix.len() > 25);
+        assert_eq!(matrix.len(), matrix[0].len());
+        assert!(!matrix[0][0]);
+        assert!(!matrix[0][matrix.len() - 1]);
+
+        let qr_str = qr_code_for(sample).unwrap();
+        assert!(!qr_str.is_empty());
+        assert!(qr_str.contains('█') || qr_str.contains('▀') || qr_str.contains('▄'));
+    }
+
+    #[test]
+    fn phone_portal_html_contains_required_elements() {
+        let auth = "https://accounts.google.com/o/oauth2/v2/auth?client_id=123&state=abc";
+        let html = phone_portal_html(auth);
+        assert!(html.contains("Sign in with Google"));
+        assert!(html.contains("client_id=123"));
+        assert!(html.contains("action=\"/submit\""));
+        assert!(html.contains("Paste from Clipboard"));
+    }
+
+    #[tokio::test]
+    async fn phone_url_returns_expected_format() {
+        let login =
+            BrowserLogin::start_with(OAuthClient::new("c", "s"), "127.0.0.1:0", GOOGLE_TOKEN_URL)
+                .await
+                .unwrap();
+        assert!(login.port() > 0);
+        if let Some(url) = login.phone_url() {
+            assert!(url.starts_with("http://"));
+            assert!(url.ends_with(&format!(":{}/phone", login.port())));
+        }
+        if let Some(url) = login.portal_url() {
+            assert!(url.starts_with("http://"));
+            assert!(url.ends_with(&format!(":{}/", login.port())));
+        }
     }
 }

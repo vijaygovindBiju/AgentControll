@@ -25,6 +25,132 @@ use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 use crate::app::{App, StatusType, Tab};
 use ac_core::types::{AccountState, SessionState};
 
+/// Convert ac_core theme Color to ratatui Color.
+pub(crate) fn theme_color_to_ratatui(color: &ac_core::theme::Color) -> ratatui::style::Color {
+    match color {
+        ac_core::theme::Color::Named(named) => match named {
+            ac_core::theme::NamedColor::Black => ratatui::style::Color::Black,
+            ac_core::theme::NamedColor::Red => ratatui::style::Color::Red,
+            ac_core::theme::NamedColor::Green => ratatui::style::Color::Green,
+            ac_core::theme::NamedColor::Yellow => ratatui::style::Color::Yellow,
+            ac_core::theme::NamedColor::Blue => ratatui::style::Color::Blue,
+            ac_core::theme::NamedColor::Magenta => ratatui::style::Color::Magenta,
+            ac_core::theme::NamedColor::Cyan => ratatui::style::Color::Cyan,
+            ac_core::theme::NamedColor::White => ratatui::style::Color::White,
+            ac_core::theme::NamedColor::LightBlack => ratatui::style::Color::DarkGray,
+            ac_core::theme::NamedColor::LightRed => ratatui::style::Color::LightRed,
+            ac_core::theme::NamedColor::LightGreen => ratatui::style::Color::LightGreen,
+            ac_core::theme::NamedColor::LightYellow => ratatui::style::Color::LightYellow,
+            ac_core::theme::NamedColor::LightBlue => ratatui::style::Color::LightBlue,
+            ac_core::theme::NamedColor::LightMagenta => ratatui::style::Color::LightMagenta,
+            ac_core::theme::NamedColor::LightCyan => ratatui::style::Color::LightCyan,
+            ac_core::theme::NamedColor::LightWhite => ratatui::style::Color::White,
+            ac_core::theme::NamedColor::DarkGray => ratatui::style::Color::DarkGray,
+            ac_core::theme::NamedColor::Gray => ratatui::style::Color::Gray,
+            ac_core::theme::NamedColor::Purple => ratatui::style::Color::Magenta,
+        },
+        ac_core::theme::Color::Rgb { r, g, b } => ratatui::style::Color::Rgb(*r, *g, *b),
+    }
+}
+
+/// Get theme colors from the app.
+pub fn get_theme_colors(app: &App) -> ThemeColors {
+    let theme = &app.user_settings.terminal_theme;
+    ThemeColors {
+        border: theme_color_to_ratatui(&theme.border),
+        border_focused: theme_color_to_ratatui(&theme.border_focused),
+        title: theme_color_to_ratatui(&theme.title),
+        title_focused: theme_color_to_ratatui(&theme.title_focused),
+        text: theme_color_to_ratatui(&theme.text),
+        text_dim: theme_color_to_ratatui(&theme.text_dim),
+        text_highlight: theme_color_to_ratatui(&theme.text_highlight),
+        text_muted: theme_color_to_ratatui(&theme.text_muted),
+        accent: theme_color_to_ratatui(&theme.accent),
+        accent_secondary: theme_color_to_ratatui(&theme.accent_secondary),
+        success: theme_color_to_ratatui(&theme.success),
+        warning: theme_color_to_ratatui(&theme.warning),
+        error: theme_color_to_ratatui(&theme.error),
+        info: theme_color_to_ratatui(&theme.info),
+        background: theme.background.as_ref().map(theme_color_to_ratatui),
+        selected_bg: theme.selected_bg.as_ref().map(theme_color_to_ratatui),
+    }
+}
+
+/// Theme colors extracted from the theme struct.
+pub struct ThemeColors {
+    pub border: ratatui::style::Color,
+    pub border_focused: ratatui::style::Color,
+    pub title: ratatui::style::Color,
+    pub title_focused: ratatui::style::Color,
+    pub text: ratatui::style::Color,
+    pub text_dim: ratatui::style::Color,
+    pub text_highlight: ratatui::style::Color,
+    pub text_muted: ratatui::style::Color,
+    pub accent: ratatui::style::Color,
+    pub accent_secondary: ratatui::style::Color,
+    pub success: ratatui::style::Color,
+    pub warning: ratatui::style::Color,
+    pub error: ratatui::style::Color,
+    pub info: ratatui::style::Color,
+    pub background: Option<ratatui::style::Color>,
+    pub selected_bg: Option<ratatui::style::Color>,
+}
+
+/// Apply the selected palette to legacy view colors after every widget has rendered.
+/// This keeps tabs that still use named Ratatui colors in sync with the theme.
+pub fn apply_theme_to_frame(f: &mut Frame, app: &App) {
+    let theme = get_theme_colors(app);
+    for cell in f.buffer_mut().content.iter_mut() {
+        // Views that already use theme colors (Settings, Dashboard, header/footer)
+        // must keep their semantic colors as-is. Only translate legacy named colors.
+        let already_themed = [
+            theme.border,
+            theme.border_focused,
+            theme.title,
+            theme.title_focused,
+            theme.text,
+            theme.text_dim,
+            theme.text_highlight,
+            theme.text_muted,
+            theme.accent,
+            theme.accent_secondary,
+            theme.success,
+            theme.warning,
+            theme.error,
+            theme.info,
+        ]
+        .contains(&cell.fg);
+        let fg = if already_themed {
+            None
+        } else {
+            match cell.fg {
+                Color::Cyan | Color::LightCyan => Some(theme.accent),
+                Color::Magenta | Color::LightMagenta => Some(theme.accent_secondary),
+                Color::White => Some(theme.text),
+                Color::Gray | Color::DarkGray => Some(theme.text_dim),
+                Color::Yellow | Color::LightYellow => Some(theme.warning),
+                Color::Green | Color::LightGreen => Some(theme.success),
+                Color::Red | Color::LightRed => Some(theme.error),
+                Color::Blue | Color::LightBlue => Some(theme.info),
+                Color::Black => Some(theme.text),
+                _ => None,
+            }
+        };
+        if let Some(fg) = fg {
+            cell.set_fg(fg);
+        }
+
+        let bg = match cell.bg {
+            Color::Rgb(40, 45, 60) => theme.selected_bg,
+            Color::Reset => theme.background,
+            _ => None,
+        };
+        if let Some(bg) = bg {
+            cell.set_bg(bg);
+        }
+    }
+}
+
 /// Truncate `s` so its display width does not exceed `max_width`.
 /// If truncated, appends `...` such that the total display width <= max_width.
 pub fn truncate_display_width(s: &str, max_width: usize) -> String {
@@ -179,6 +305,7 @@ pub fn render_header(f: &mut Frame, app: &App, area: Rect) {
         return;
     }
 
+    let theme = get_theme_colors(app);
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Length(1), Constraint::Length(1)])
@@ -188,13 +315,15 @@ pub fn render_header(f: &mut Frame, app: &App, area: Rect) {
         Span::styled(
             "● Daemon: Running",
             Style::default()
-                .fg(Color::Green)
+                .fg(theme.success)
                 .add_modifier(Modifier::BOLD),
         )
     } else {
         Span::styled(
             "○ Daemon: Disconnected",
-            Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(theme.error)
+                .add_modifier(Modifier::BOLD),
         )
     };
 
@@ -215,17 +344,17 @@ pub fn render_header(f: &mut Frame, app: &App, area: Rect) {
             let left_title = Paragraph::new(Span::styled(
                 concat!(" AGENT CONTROL v", env!("CARGO_PKG_VERSION")),
                 Style::default()
-                    .fg(Color::Cyan)
+                    .fg(theme.title)
                     .add_modifier(Modifier::BOLD),
             ));
             let center_desc = Paragraph::new(Span::styled(
                 "Coding Agents • Multiple Accounts • Full Control",
-                Style::default().fg(Color::Rgb(140, 150, 165)),
+                Style::default().fg(theme.text_dim),
             ))
             .alignment(ratatui::layout::Alignment::Center);
             let right_time = Paragraph::new(Span::styled(
                 format!("{now_str} "),
-                Style::default().fg(Color::DarkGray),
+                Style::default().fg(theme.text_dim),
             ))
             .alignment(ratatui::layout::Alignment::Right);
 
@@ -241,12 +370,12 @@ pub fn render_header(f: &mut Frame, app: &App, area: Rect) {
             let left_title = Paragraph::new(Span::styled(
                 " AGENT CONTROL",
                 Style::default()
-                    .fg(Color::Cyan)
+                    .fg(theme.title)
                     .add_modifier(Modifier::BOLD),
             ));
             let right_time = Paragraph::new(Span::styled(
                 format!("{now_str} "),
-                Style::default().fg(Color::DarkGray),
+                Style::default().fg(theme.text_dim),
             ))
             .alignment(ratatui::layout::Alignment::Right);
 
@@ -256,7 +385,7 @@ pub fn render_header(f: &mut Frame, app: &App, area: Rect) {
             let left_title = Paragraph::new(Span::styled(
                 " AGENT CONTROL",
                 Style::default()
-                    .fg(Color::Cyan)
+                    .fg(theme.title)
                     .add_modifier(Modifier::BOLD),
             ));
             f.render_widget(left_title, chunks[0]);
@@ -298,10 +427,10 @@ pub fn render_header(f: &mut Frame, app: &App, area: Rect) {
 
             let tabs = Tabs::new(titles)
                 .select(selected_index)
-                .style(Style::default().fg(Color::DarkGray))
+                .style(Style::default().fg(theme.text_dim))
                 .highlight_style(
                     Style::default()
-                        .fg(Color::Cyan)
+                        .fg(theme.title_focused)
                         .add_modifier(Modifier::BOLD | Modifier::UNDERLINED),
                 )
                 .divider(Span::raw(" | "));
@@ -314,10 +443,10 @@ pub fn render_header(f: &mut Frame, app: &App, area: Rect) {
         } else {
             let tabs = Tabs::new(titles)
                 .select(selected_index)
-                .style(Style::default().fg(Color::DarkGray))
+                .style(Style::default().fg(theme.text_dim))
                 .highlight_style(
                     Style::default()
-                        .fg(Color::Cyan)
+                        .fg(theme.title_focused)
                         .add_modifier(Modifier::BOLD | Modifier::UNDERLINED),
                 )
                 .divider(Span::raw("|"));
@@ -329,6 +458,7 @@ pub fn render_header(f: &mut Frame, app: &App, area: Rect) {
 
 /// Render the btop-style left sidebar menu and quick-launch panel.
 pub fn render_sidebar(f: &mut Frame, app: &App, area: Rect) {
+    let theme = get_theme_colors(app);
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -340,11 +470,11 @@ pub fn render_sidebar(f: &mut Frame, app: &App, area: Rect) {
     // 1. Menu block
     let menu_block = Block::default()
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(Color::Cyan))
+        .border_style(Style::default().fg(theme.border))
         .title(Span::styled(
             " ▸ Menu ",
             Style::default()
-                .fg(Color::Cyan)
+                .fg(theme.title)
                 .add_modifier(Modifier::BOLD),
         ));
 
@@ -366,7 +496,7 @@ pub fn render_sidebar(f: &mut Frame, app: &App, area: Rect) {
         if *idx == 5 || *idx == 7 {
             lines.push(Line::from(Span::styled(
                 " ─────────────",
-                Style::default().fg(Color::DarkGray),
+                Style::default().fg(theme.text_dim),
             )));
         }
 
@@ -387,23 +517,18 @@ pub fn render_sidebar(f: &mut Frame, app: &App, area: Rect) {
                 Span::styled(
                     " ▶ ",
                     Style::default()
-                        .fg(Color::Cyan)
+                        .fg(theme.accent)
                         .add_modifier(Modifier::BOLD),
                 ),
                 Span::styled(
                     format!("{:<11}", name),
-                    Style::default()
-                        .fg(Color::White)
-                        .add_modifier(Modifier::BOLD),
+                    Style::default().fg(theme.text).add_modifier(Modifier::BOLD),
                 ),
             ])
         } else {
             Line::from(vec![
                 Span::raw("   "),
-                Span::styled(
-                    format!("{:<11}", name),
-                    Style::default().fg(Color::Rgb(160, 170, 185)),
-                ),
+                Span::styled(format!("{:<11}", name), Style::default().fg(theme.text_dim)),
             ])
         };
         lines.push(line);
@@ -415,11 +540,11 @@ pub fn render_sidebar(f: &mut Frame, app: &App, area: Rect) {
     // 2. Quick Launch block
     let ql_block = Block::default()
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(Color::DarkGray))
+        .border_style(Style::default().fg(theme.border))
         .title(Span::styled(
             " Quick Launch ",
             Style::default()
-                .fg(Color::Yellow)
+                .fg(theme.text_highlight)
                 .add_modifier(Modifier::BOLD),
         ));
 
@@ -428,28 +553,28 @@ pub fn render_sidebar(f: &mut Frame, app: &App, area: Rect) {
             Span::styled(
                 " [g] ",
                 Style::default()
-                    .fg(Color::Cyan)
+                    .fg(theme.accent)
                     .add_modifier(Modifier::BOLD),
             ),
-            Span::styled("Antigravity", Style::default().fg(Color::White)),
+            Span::styled("Antigravity", Style::default().fg(theme.text)),
         ]),
         Line::from(vec![
             Span::styled(
                 " [c] ",
                 Style::default()
-                    .fg(Color::Cyan)
+                    .fg(theme.accent)
                     .add_modifier(Modifier::BOLD),
             ),
-            Span::styled("Claude Code", Style::default().fg(Color::White)),
+            Span::styled("Claude Code", Style::default().fg(theme.text)),
         ]),
         Line::from(vec![
             Span::styled(
                 " [x] ",
                 Style::default()
-                    .fg(Color::Cyan)
+                    .fg(theme.accent)
                     .add_modifier(Modifier::BOLD),
             ),
-            Span::styled("Codex / PTY", Style::default().fg(Color::White)),
+            Span::styled("Codex / PTY", Style::default().fg(theme.text)),
         ]),
     ];
 
@@ -463,6 +588,7 @@ pub fn render_footer(f: &mut Frame, app: &App, area: Rect) {
         return;
     }
 
+    let theme = get_theme_colors(app);
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Length(1), Constraint::Length(1)])
@@ -472,10 +598,10 @@ pub fn render_footer(f: &mut Frame, app: &App, area: Rect) {
     if chunks[0].height > 0 {
         if let Some((msg, status_type, _)) = &app.status_message {
             let (color, prefix) = match status_type {
-                StatusType::Info => (Color::Cyan, "[INFO]"),
-                StatusType::Success => (Color::Green, "[OK]"),
-                StatusType::Warning => (Color::Yellow, "[WARN]"),
-                StatusType::Error => (Color::Red, "[ERR]"),
+                StatusType::Info => (theme.info, "[INFO]"),
+                StatusType::Success => (theme.success, "[OK]"),
+                StatusType::Warning => (theme.warning, "[WARN]"),
+                StatusType::Error => (theme.error, "[ERR]"),
             };
             let max_msg_w = (area.width as usize).saturating_sub(prefix.len() + 4);
             let display_msg = truncate_display_width(msg, max_msg_w);
@@ -514,8 +640,8 @@ pub fn render_footer(f: &mut Frame, app: &App, area: Rect) {
             } else {
                 " Daemon ready (idle)".to_string()
             };
-            let left_span = Span::styled(session_info, Style::default().fg(Color::DarkGray));
-            let right_span = Span::styled("● Connected ", Style::default().fg(Color::Green));
+            let left_span = Span::styled(session_info, Style::default().fg(theme.text_dim));
+            let right_span = Span::styled("● Connected ", Style::default().fg(theme.success));
             let pad = area
                 .width
                 .saturating_sub(left_span.width() as u16 + right_span.width() as u16);
@@ -541,7 +667,10 @@ pub fn render_footer(f: &mut Frame, app: &App, area: Rect) {
             (Tab::Dashboard, false) => vec![
                 tag_pill("↑↓", "Select"),
                 tag_pill("Enter", "Open"),
-                tag_pill(app.user_settings.keybindings.get("new_session"), "New Agent"),
+                tag_pill(
+                    app.user_settings.keybindings.get("new_session"),
+                    "New Agent",
+                ),
                 tag_pill("s", "Sessions"),
                 tag_pill(app.user_settings.keybindings.get("quit"), "Quit"),
             ],
@@ -587,8 +716,5 @@ pub fn render_footer(f: &mut Frame, app: &App, area: Rect) {
 fn tag_pill(key: impl AsRef<str>, action: impl AsRef<str>) -> Span<'static> {
     let k = key.as_ref();
     let a = action.as_ref();
-    Span::styled(
-        format!(" [{k}] {a} "),
-        Style::default().fg(Color::Yellow),
-    )
+    Span::styled(format!(" [{k}] {a} "), Style::default().fg(Color::Yellow))
 }

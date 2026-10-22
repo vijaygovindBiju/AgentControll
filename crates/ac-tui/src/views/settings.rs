@@ -14,6 +14,34 @@ use crate::{
     views::{account_state_badge, truncate_chars, truncate_display_width},
 };
 
+/// Convert ac_core theme Color to ratatui Color.
+fn theme_color_to_ratatui(color: &ac_core::theme::Color) -> ratatui::style::Color {
+    match color {
+        ac_core::theme::Color::Named(named) => match named {
+            ac_core::theme::NamedColor::Black => ratatui::style::Color::Black,
+            ac_core::theme::NamedColor::Red => ratatui::style::Color::Red,
+            ac_core::theme::NamedColor::Green => ratatui::style::Color::Green,
+            ac_core::theme::NamedColor::Yellow => ratatui::style::Color::Yellow,
+            ac_core::theme::NamedColor::Blue => ratatui::style::Color::Blue,
+            ac_core::theme::NamedColor::Magenta => ratatui::style::Color::Magenta,
+            ac_core::theme::NamedColor::Cyan => ratatui::style::Color::Cyan,
+            ac_core::theme::NamedColor::White => ratatui::style::Color::White,
+            ac_core::theme::NamedColor::LightBlack => ratatui::style::Color::DarkGray,
+            ac_core::theme::NamedColor::LightRed => ratatui::style::Color::LightRed,
+            ac_core::theme::NamedColor::LightGreen => ratatui::style::Color::LightGreen,
+            ac_core::theme::NamedColor::LightYellow => ratatui::style::Color::LightYellow,
+            ac_core::theme::NamedColor::LightBlue => ratatui::style::Color::LightBlue,
+            ac_core::theme::NamedColor::LightMagenta => ratatui::style::Color::LightMagenta,
+            ac_core::theme::NamedColor::LightCyan => ratatui::style::Color::LightCyan,
+            ac_core::theme::NamedColor::LightWhite => ratatui::style::Color::White,
+            ac_core::theme::NamedColor::DarkGray => ratatui::style::Color::DarkGray,
+            ac_core::theme::NamedColor::Gray => ratatui::style::Color::Gray,
+            ac_core::theme::NamedColor::Purple => ratatui::style::Color::Magenta,
+        },
+        ac_core::theme::Color::Rgb { r, g, b } => ratatui::style::Color::Rgb(*r, *g, *b),
+    }
+}
+
 pub fn render(f: &mut Frame, app: &App, area: Rect) {
     if area.width == 0 || area.height == 0 {
         return;
@@ -30,10 +58,11 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
 
 fn render_sections_list(f: &mut Frame, app: &App, area: Rect) {
     let is_focused = !app.settings_focus_panel;
+    let theme = crate::views::get_theme_colors(app);
     let border_color = if is_focused {
-        Color::Cyan
+        theme.border_focused
     } else {
-        Color::DarkGray
+        theme.border
     };
 
     let block = Block::default()
@@ -47,9 +76,9 @@ fn render_sections_list(f: &mut Frame, app: &App, area: Rect) {
             },
             Style::default()
                 .fg(if is_focused {
-                    Color::Cyan
+                    theme.title_focused
                 } else {
-                    Color::White
+                    theme.title
                 })
                 .add_modifier(Modifier::BOLD),
         ));
@@ -61,15 +90,15 @@ fn render_sections_list(f: &mut Frame, app: &App, area: Rect) {
         let style = if is_selected {
             if is_focused {
                 Style::default()
-                    .fg(Color::Cyan)
+                    .fg(theme.text_highlight)
                     .add_modifier(Modifier::BOLD | Modifier::REVERSED)
             } else {
                 Style::default()
-                    .fg(Color::Yellow)
+                    .fg(theme.text_highlight)
                     .add_modifier(Modifier::BOLD)
             }
         } else {
-            Style::default().fg(Color::White)
+            Style::default().fg(theme.text)
         };
 
         lines.push(Line::from(vec![
@@ -82,12 +111,12 @@ fn render_sections_list(f: &mut Frame, app: &App, area: Rect) {
     let hint = if is_focused {
         Line::from(Span::styled(
             " ↑↓/jk select\n Enter/→ focus",
-            Style::default().fg(Color::DarkGray),
+            Style::default().fg(theme.text_dim),
         ))
     } else {
         Line::from(Span::styled(
             " Esc/← return",
-            Style::default().fg(Color::DarkGray),
+            Style::default().fg(theme.text_dim),
         ))
     };
     lines.push(Line::from(""));
@@ -116,45 +145,44 @@ fn render_section_content(f: &mut Frame, app: &App, area: Rect) {
 
 fn render_general_section(f: &mut Frame, app: &App, area: Rect) {
     let is_focused = app.settings_focus_panel;
+    let theme = crate::views::get_theme_colors(app);
     let block = Block::default()
         .borders(Borders::ALL)
         .border_style(Style::default().fg(if is_focused {
-            Color::Cyan
+            theme.border_focused
         } else {
-            Color::DarkGray
+            theme.border
         }))
         .title(Span::styled(
             " ⚙ General Settings & Global Defaults ",
             Style::default()
-                .fg(Color::Cyan)
+                .fg(theme.title)
                 .add_modifier(Modifier::BOLD),
         ));
 
-    let dim = Style::default().fg(Color::DarkGray);
-    let item = |idx: usize, label: &'static str, val: String, desc: &'static str| {
+    let dim = Style::default().fg(theme.text_dim);
+    let item = |idx: usize, label: &'static str, val: String, desc: String| {
         let focused = is_focused && app.settings_general_item == idx;
         vec![
             Line::from(vec![
                 Span::styled(
                     if focused { " > " } else { "   " },
                     Style::default()
-                        .fg(Color::Cyan)
+                        .fg(theme.accent)
                         .add_modifier(Modifier::BOLD),
                 ),
                 Span::styled(
                     label,
                     if focused {
                         Style::default()
-                            .fg(Color::Yellow)
+                            .fg(theme.text_highlight)
                             .add_modifier(Modifier::BOLD)
                     } else {
-                        Style::default()
-                            .fg(Color::White)
-                            .add_modifier(Modifier::BOLD)
+                        Style::default().fg(theme.text).add_modifier(Modifier::BOLD)
                     },
                 ),
                 Span::styled(" : ", dim),
-                Span::styled(val, Style::default().fg(Color::Cyan)),
+                Span::styled(val, Style::default().fg(theme.accent)),
                 Span::styled(if focused { "   [←/→ change]" } else { "" }, dim),
             ]),
             Line::from(vec![Span::raw("     "), Span::styled(desc, dim)]),
@@ -177,7 +205,7 @@ fn render_general_section(f: &mut Frame, app: &App, area: Rect) {
         Line::from(""),
         Line::from(Span::styled(
             " Global defaults applied when starting new agent sessions:",
-            Style::default().fg(Color::White),
+            Style::default().fg(theme.text),
         )),
         Line::from(""),
     ];
@@ -186,25 +214,25 @@ fn render_general_section(f: &mut Frame, app: &App, area: Rect) {
         0,
         "Default Agent",
         app.user_settings.default_agent.clone(),
-        "Agent engine selected when creating a new session",
+        "Agent engine selected when creating a new session".to_string(),
     ));
     lines.extend(item(
         1,
         "Default Account",
         default_acc_label.to_string(),
-        "Pre-selected account on the launch screen",
+        "Pre-selected account on the launch screen".to_string(),
     ));
     lines.extend(item(
         2,
         "Default Working Dir",
         default_dir_label.to_string(),
-        "Pre-filled working directory for sessions (press 'w' to edit)",
+        "Pre-filled working directory for sessions (press 'w' to edit)".to_string(),
     ));
     lines.extend(item(
         3,
         "Default Execution Mode",
         app.user_settings.default_execution_mode.label().to_string(),
-        "Standard AGY execution mode (Default, Accept Edits, Plan)",
+        "Standard AGY execution mode (Default, Accept Edits, Plan)".to_string(),
     ));
     lines.extend(item(
         4,
@@ -213,19 +241,28 @@ fn render_general_section(f: &mut Frame, app: &App, area: Rect) {
             .default_permission_mode
             .label()
             .to_string(),
-        "Normal AGY permissions or Dangerously Skip Permissions",
+        "Normal AGY permissions or Dangerously Skip Permissions".to_string(),
     ));
+    // Get all available themes
+    let all_themes = ac_core::theme::Theme::all_presets();
+    let current_theme_name = &app.user_settings.terminal_theme.name;
+    let theme_list = all_themes
+        .iter()
+        .map(|t| t.name.as_str())
+        .collect::<Vec<_>>()
+        .join(", ");
+
     lines.extend(item(
         5,
         "Terminal Theme",
-        app.user_settings.terminal_theme.clone(),
-        "Interface color palette and accent style",
+        current_theme_name.clone(),
+        format!("Available: {}", theme_list),
     ));
 
     lines.push(Line::from(""));
     lines.push(Line::from(Span::styled(
         " [Persisted to ~/.config/agentcontrol/settings.json]",
-        Style::default().fg(Color::Green),
+        Style::default().fg(theme.success),
     )));
     lines.push(Line::from(Span::styled(
         " Hotkeys: ↑↓ select item  ←/→ cycle option  w change working dir  Esc return",
@@ -1028,46 +1065,87 @@ fn render_authentication_section(f: &mut Frame, _app: &App, area: Rect) {
 // ── 8. Terminal Section ───────────────────────────────────────────────────────
 
 fn render_terminal_section(f: &mut Frame, app: &App, area: Rect) {
+    let is_focused = app.settings_focus_panel;
+    let theme = crate::views::get_theme_colors(app);
     let block = Block::default()
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(Color::Cyan))
+        .border_style(Style::default().fg(if is_focused {
+            theme.border_focused
+        } else {
+            theme.border
+        }))
         .title(Span::styled(
             " Terminal Emulation & Display Settings ",
             Style::default()
-                .fg(Color::Cyan)
+                .fg(theme.title)
                 .add_modifier(Modifier::BOLD),
         ));
+
+    let app_theme = &app.user_settings.terminal_theme;
+    let dim = Style::default().fg(theme.text_dim);
 
     let lines = vec![
         Line::from(""),
         Line::from(vec![
-            Span::styled(" Theme:               ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-            Span::styled(app.user_settings.terminal_theme.clone(), Style::default().fg(Color::White)),
-            Span::styled("   [Default / Dark / High-Contrast]", Style::default().fg(Color::DarkGray)),
-        ]),
-        Line::from(vec![
-            Span::styled(" Scrollback Limit:    ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-            Span::styled(format!("{} lines", app.user_settings.terminal_scrollback), Style::default().fg(Color::White)),
-            Span::styled("   [Fixed memory bounded ring buffer]", Style::default().fg(Color::DarkGray)),
-        ]),
-        Line::from(vec![
-            Span::styled(" Cursor Style:        ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-            Span::styled(app.user_settings.terminal_cursor.clone(), Style::default().fg(Color::White)),
-            Span::styled("   [Block / Bar / Underline]", Style::default().fg(Color::DarkGray)),
+            Span::styled(" Theme:               ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
+            Span::styled(app_theme.name.clone(), Style::default().fg(theme.text)),
+            Span::styled(if is_focused { "   [←/→ cycle]" } else { "" }, dim),
         ]),
         Line::from(""),
-        Line::from(Span::styled(" PTY & Virtual Screen Emulation:", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))),
+        Line::from(Span::styled(" Color Palette Preview:", Style::default().fg(theme.text_highlight).add_modifier(Modifier::BOLD))),
+        Line::from(""),
         Line::from(vec![
-            Span::styled(" • UTF-8 Stream:      ", Style::default().fg(Color::Cyan)),
-            Span::styled("decode_utf8_stream decodes split bytes; multi-byte glyphs are never replaced with U+FFFD", Style::default().fg(Color::Green)),
+            Span::styled(" ● Border/Focus: ", dim),
+            Span::styled("█", Style::default().fg(theme_color_to_ratatui(&app_theme.border))),
+            Span::styled(" / ", dim),
+            Span::styled("█", Style::default().fg(theme_color_to_ratatui(&app_theme.border_focused))),
         ]),
         Line::from(vec![
-            Span::styled(" • Alternate Screen:  ", Style::default().fg(Color::Cyan)),
-            Span::styled("Preserves full-screen interactive grids (btop, vim, agy interactive panels)", Style::default().fg(Color::Green)),
+            Span::styled(" ● Text: ", dim),
+            Span::styled("█", Style::default().fg(theme_color_to_ratatui(&app_theme.text))),
+            Span::styled(" Dim: ", dim),
+            Span::styled("█", Style::default().fg(theme_color_to_ratatui(&app_theme.text_dim))),
+            Span::styled(" Highlight: ", dim),
+            Span::styled("█", Style::default().fg(theme_color_to_ratatui(&app_theme.text_highlight))),
         ]),
         Line::from(vec![
-            Span::styled(" • Dynamic Resize:    ", Style::default().fg(Color::Cyan)),
-            Span::styled("Clamps cursor and synchronizes grid with host terminal viewport", Style::default().fg(Color::Green)),
+            Span::styled(" ● Accent: ", dim),
+            Span::styled("█", Style::default().fg(theme_color_to_ratatui(&app_theme.accent))),
+            Span::styled(" Secondary: ", dim),
+            Span::styled("█", Style::default().fg(theme_color_to_ratatui(&app_theme.accent_secondary))),
+        ]),
+        Line::from(vec![
+            Span::styled(" ● Success: ", dim),
+            Span::styled("█", Style::default().fg(theme_color_to_ratatui(&app_theme.success))),
+            Span::styled(" Warning: ", dim),
+            Span::styled("█", Style::default().fg(theme_color_to_ratatui(&app_theme.warning))),
+            Span::styled(" Error: ", dim),
+            Span::styled("█", Style::default().fg(theme_color_to_ratatui(&app_theme.error))),
+        ]),
+        Line::from(""),
+        Line::from(vec![
+            Span::styled(" Scrollback Limit:    ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
+            Span::styled(format!("{} lines", app.user_settings.terminal_scrollback), Style::default().fg(theme.text)),
+            Span::styled("   [Fixed memory bounded ring buffer]", dim),
+        ]),
+        Line::from(vec![
+            Span::styled(" Cursor Style:        ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
+            Span::styled(app.user_settings.terminal_cursor.clone(), Style::default().fg(theme.text)),
+            Span::styled("   [Block / Bar / Underline]", dim),
+        ]),
+        Line::from(""),
+        Line::from(Span::styled(" PTY & Virtual Screen Emulation:", Style::default().fg(theme.text_highlight).add_modifier(Modifier::BOLD))),
+        Line::from(vec![
+            Span::styled(" • UTF-8 Stream:      ", Style::default().fg(theme.accent)),
+            Span::styled("decode_utf8_stream decodes split bytes; multi-byte glyphs are never replaced with U+FFFD", Style::default().fg(theme.success)),
+        ]),
+        Line::from(vec![
+            Span::styled(" • Alternate Screen:  ", Style::default().fg(theme.accent)),
+            Span::styled("Preserves full-screen interactive grids (btop, vim, agy interactive panels)", Style::default().fg(theme.success)),
+        ]),
+        Line::from(vec![
+            Span::styled(" • Dynamic Resize:    ", Style::default().fg(theme.accent)),
+            Span::styled("Clamps cursor and synchronizes grid with host terminal viewport", Style::default().fg(theme.success)),
         ]),
     ];
 
@@ -1188,18 +1266,16 @@ fn render_keybindings_section(f: &mut Frame, app: &App, area: Rect) {
         ])
         .split(inner);
 
-    let header_text = vec![
-        Line::from(vec![
-            Span::styled(
-                "Configure and remap global shortcuts & session hotkeys. ",
-                Style::default().fg(Color::DarkGray),
-            ),
-            Span::styled(
-                "Changes are persisted to ~/.config/agentcontrol/settings.json",
-                Style::default().fg(Color::Cyan),
-            ),
-        ]),
-    ];
+    let header_text = vec![Line::from(vec![
+        Span::styled(
+            "Configure and remap global shortcuts & session hotkeys. ",
+            Style::default().fg(Color::DarkGray),
+        ),
+        Span::styled(
+            "Changes are persisted to ~/.config/agentcontrol/settings.json",
+            Style::default().fg(Color::Cyan),
+        ),
+    ])];
     f.render_widget(Paragraph::new(header_text), chunks[0]);
 
     let rows: Vec<Row> = ac_core::settings::KeybindingsConfig::ACTION_LIST
@@ -1208,8 +1284,7 @@ fn render_keybindings_section(f: &mut Frame, app: &App, area: Rect) {
         .map(|(idx, &(action_name, action_label, action_desc))| {
             let is_selected = is_focused && app.settings_keybind_selected == idx;
             let current_key = app.user_settings.keybindings.get(action_name);
-            let default_key =
-                ac_core::settings::KeybindingsConfig::default_for_action(action_name);
+            let default_key = ac_core::settings::KeybindingsConfig::default_for_action(action_name);
             let is_custom = app.user_settings.keybindings.is_custom(action_name);
 
             let prefix = if is_selected { " ▸ " } else { "   " };
@@ -1236,10 +1311,7 @@ fn render_keybindings_section(f: &mut Frame, app: &App, area: Rect) {
             };
 
             Row::new(vec![
-                Cell::from(Span::styled(
-                    format!("{prefix}{action_label}"),
-                    row_style,
-                )),
+                Cell::from(Span::styled(format!("{prefix}{action_label}"), row_style)),
                 Cell::from(Span::styled(
                     format!(" [{current_key}] "),
                     if is_selected {
@@ -1323,10 +1395,7 @@ fn render_keybindings_section(f: &mut Frame, app: &App, area: Rect) {
                     .fg(Color::White)
                     .add_modifier(Modifier::BOLD),
             ),
-            Span::styled(
-                " Reset to Default  ",
-                Style::default().fg(Color::DarkGray),
-            ),
+            Span::styled(" Reset to Default  ", Style::default().fg(Color::DarkGray)),
             Span::styled(
                 "R",
                 Style::default()
@@ -1395,9 +1464,7 @@ fn render_about_section(f: &mut Frame, app: &App, area: Rect) {
     } else {
         Span::styled(
             "○ Disconnected",
-            Style::default()
-                .fg(Color::Red)
-                .add_modifier(Modifier::BOLD),
+            Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
         )
     };
 

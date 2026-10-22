@@ -4,6 +4,17 @@ All notable changes to AgentControll are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.10] - 2026-10-22
+
+### Added
+- **Cross-device Antigravity sign-in**: Added a QR-enabled browser portal, support for completing sign-in from another device, and a pasted OAuth redirect fallback in the CLI and TUI.
+- **Antigravity conversation discovery and resume**: Discover local conversations from host and isolated account profiles, display them in the Sessions view, and resume a selected conversation with its account and workspace context.
+- **Terminal themes**: Added 13 color palettes and applied selected theme colors throughout TUI tabs and dialogs.
+
+### Changed
+- Improved Antigravity account login guidance and documented cross-device and headless login flows.
+- Updated release and install examples to version 1.0.10.
+
 ## [1.0.9] - 2026-10-10
 
 ### Added

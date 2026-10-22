@@ -38,19 +38,34 @@ Methods:
 
 1. **Sign in with Google in the browser.** The loopback callback, the
    authorization URL and the token exchange all use the same dynamically chosen
-   `127.0.0.1` port, protected by `state` and PKCE (S256). The account is saved
+   port, protected by `state` and PKCE (S256). The account is saved
    only after Google returns a real access **and** refresh token.
-2. **Generate Login Link** (TUI). Nothing is opened locally. The TUI shows the
-   Google sign-in link, which you can copy or send. If the link is opened on
-   this computer, login finishes automatically. If it is opened on another
-   device, the browser ends on an unreachable `http://127.0.0.1:<port>/oauth2callback?...`
-   page. Copy that page's full address and paste it into the TUI. This is the
-   handoff Google supports for installed-app clients. The link carries only
-   `client_id`, `state` and the PKCE challenge. The PKCE verifier never leaves
-   Agent Control, so an intercepted code is useless. `state` must match. The
-   first valid code ends the login (single use). The login is discarded on
-   success, on cancel (Esc) and after 5 minutes. The pasted address is masked
-   in the UI and never logged.
+2. **Cross-Device Sign-in & Shareable Link (Any Device: Laptop, PC, Tablet, Phone).**
+   When adding an account from the CLI (option 2) or TUI (Link step), Agent Control
+   enables seamless cross-device login so you can authenticate from another device
+   (e.g., your primary laptop, desktop, tablet, or phone):
+   * **Mode A: Cross-Device Web Portal (LAN / Wi-Fi / Host)**:
+     Agent Control binds the local callback server on all interfaces and provides a
+     helper portal (`http://<HOST_IP>:<port>/` or `/phone`, `/device`, `/portal`) alongside a QR code.
+     * Open the portal URL on any other device with a browser (laptop, iPad, phone, etc.).
+     * Click **"Sign in with Google"** on that device.
+     * When Google finishes and redirects to the unreachable `127.0.0.1` page, copy the address bar URL.
+     * Click **"📋 Paste from Clipboard"** and **"Submit to Agent Control"** on the portal page.
+     * Agent Control receives the authorization code immediately over the network and completes PKCE exchange with zero manual typing or terminal handoffs.
+   * **Mode B: Remote / Cross-Network / SSH (Any Device Worldwide)**:
+     If the other device is on a different network (e.g. mobile 5G data, remote VPS, SSH session)
+     where the local portal cannot be reached directly:
+     * Copy the **Direct Google Sign-in Link** (press `c` / `Ctrl+Y` in TUI or copy from CLI).
+     * Open that Google URL in *any* browser on *any* computer anywhere in the world.
+     * After logging in, copy the final `http://127.0.0.1:<port>/oauth2callback?...` address from that browser.
+     * Paste it directly into the Agent Control prompt (`> █` in TUI or `>` in CLI).
+   * **Host Overrides:** Set `AGENTCONTROL_AUTH_HOST` or `AC_AUTH_HOST` (e.g., `my-laptop.local` or a Tailscale IP)
+     to customize the portal host address.
+   * **Security:** The link carries only `client_id`, `state` and the PKCE challenge. The PKCE verifier never leaves
+     Agent Control, so an intercepted code is useless. `state` must match. The
+     first valid code ends the login (single use). The login is discarded on
+     success, on cancel (Esc/Ctrl+C) and after 5 minutes. The pasted address is masked
+     in the UI and never logged.
 3. **Import the existing local agy login** (only offered if
    `~/.gemini/antigravity-cli/antigravity-oauth-token` exists).
 

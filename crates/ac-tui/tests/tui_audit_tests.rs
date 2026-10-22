@@ -1658,7 +1658,11 @@ async fn test_mouse_cursor_autoscroll_at_top_boundary() {
     .await
     .unwrap();
 
-    let initial_offset = app.session_terminal_buffers.get(&sid.0).unwrap().scroll_offset;
+    let initial_offset = app
+        .session_terminal_buffers
+        .get(&sid.0)
+        .unwrap()
+        .scroll_offset;
     assert_eq!(initial_offset, 0);
 
     // 2. Drag cursor to row 0 (top header boundary)
@@ -1677,7 +1681,10 @@ async fn test_mouse_cursor_autoscroll_at_top_boundary() {
 
     let tb = app.session_terminal_buffers.get(&sid.0).unwrap();
     assert!(tb.is_selecting());
-    assert!(tb.scroll_offset > 0, "Expected immediate scroll up on drag to top");
+    assert!(
+        tb.scroll_offset > 0,
+        "Expected immediate scroll up on drag to top"
+    );
     let first_scroll_offset = tb.scroll_offset;
 
     // 3. User holds cursor at the top: simulate periodic tick autoscrolling
@@ -1685,14 +1692,20 @@ async fn test_mouse_cursor_autoscroll_at_top_boundary() {
     event::handle_mouse_autoscroll(&mut app);
 
     let tb = app.session_terminal_buffers.get(&sid.0).unwrap();
-    assert!(tb.scroll_offset > first_scroll_offset, "Expected continuous autoscroll up on tick");
+    assert!(
+        tb.scroll_offset > first_scroll_offset,
+        "Expected continuous autoscroll up on tick"
+    );
     let second_scroll_offset = tb.scroll_offset;
 
     // Further ticks continue moving the terminal automatically upwards
     app.mouse_selection.last_autoscroll_time = None;
     event::handle_mouse_autoscroll(&mut app);
     let tb = app.session_terminal_buffers.get(&sid.0).unwrap();
-    assert!(tb.scroll_offset > second_scroll_offset, "Expected terminal to keep moving upwards");
+    assert!(
+        tb.scroll_offset > second_scroll_offset,
+        "Expected terminal to keep moving upwards"
+    );
 }
 
 #[tokio::test]
@@ -1817,5 +1830,3 @@ fn test_backspace_with_styled_trailing_spaces_cleans_prompt_buffer_completely() 
     let (vis, _, _) = buf.get_visible_lines_wrapped(5, 80);
     assert_eq!(vis[0].spans[0].content, ">");
 }
-
-

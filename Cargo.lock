@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "ac-cli"
-version = "1.0.9"
+version = "1.0.10"
 dependencies = [
  "ac-core",
  "ac-tui",
@@ -27,7 +27,7 @@ dependencies = [
 
 [[package]]
 name = "ac-core"
-version = "1.0.9"
+version = "1.0.10"
 dependencies = [
  "anyhow",
  "base64",
@@ -36,6 +36,7 @@ dependencies = [
  "futures-util",
  "libc",
  "portable-pty",
+ "qrcode",
  "regex",
  "reqwest",
  "rusqlite",
@@ -56,7 +57,7 @@ dependencies = [
 
 [[package]]
 name = "ac-tui"
-version = "1.0.9"
+version = "1.0.10"
 dependencies = [
  "ac-core",
  "anyhow",
@@ -1230,6 +1231,12 @@ checksum = "985e7ec9bb745e6ce6535b544d84d6cd6f7ad8bd711c398938ae983b91a766d9"
 dependencies = [
  "unicode-ident",
 ]
+
+[[package]]
+name = "qrcode"
+version = "0.14.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d68782463e408eb1e668cf6152704bd856c78c5b6417adaee3203d8f4c1fc9ec"
 
 [[package]]
 name = "quinn"

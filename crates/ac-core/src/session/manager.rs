@@ -61,6 +61,10 @@ pub enum SessionCmd {
     List {
         reply: tokio::sync::oneshot::Sender<Vec<AgentSession>>,
     },
+    /// Discover conversations from Antigravity storage (host and profiles).
+    Discover {
+        reply: tokio::sync::oneshot::Sender<Result<Vec<AgentSession>>>,
+    },
     Get {
         session_id: Id,
         reply: tokio::sync::oneshot::Sender<Option<AgentSession>>,
@@ -161,6 +165,10 @@ pub struct SessionManager {
     project_registry: Option<ProjectRegistryHandle>,
     /// Phase 3: optional interaction hub.
     interaction_hub: Option<InteractionHubHandle>,
+    /// Optional custom host gemini directory for conversation discovery.
+    host_gemini_dir: Option<std::path::PathBuf>,
+    /// Optional custom profiles directory for conversation discovery.
+    profiles_dir: Option<std::path::PathBuf>,
 }
 
 impl SessionManager {
@@ -185,7 +193,20 @@ impl SessionManager {
             account_mgr: None,
             project_registry: None,
             interaction_hub: None,
+            host_gemini_dir: None,
+            profiles_dir: None,
         }
+    }
+
+    /// Set custom Antigravity storage directories for conversation discovery.
+    pub fn with_gemini_dirs(
+        mut self,
+        host_gemini: Option<std::path::PathBuf>,
+        profiles_base: Option<std::path::PathBuf>,
+    ) -> Self {
+        self.host_gemini_dir = host_gemini;
+        self.profiles_dir = profiles_base;
+        self
     }
 
     /// Attach a Phase 2 Account Manager.
@@ -273,6 +294,74 @@ impl SessionManager {
                 }
             }
             let _ = h.0.lock().unwrap().reconcile_active_counts(&counts);
+        }
+    }
+
+    /// Discover Antigravity conversations from profile and host storage,
+    /// indexing them into `self.sessions` without modifying original Antigravity data.
+    pub fn discover_conversations(&mut self) -> Result<Vec<AgentSession>> {
+        let discovered = crate::agy_discovery::discover_all_conversations(
+            self.host_gemini_dir.as_deref(),
+            self.profiles_dir.as_deref(),
+        )?;
+        self.index_discovered_conversations(&discovered);
+        Ok(self.sessions.values().cloned().collect())
+    }
+
+    /// Index discovered conversations into memory.
+    pub fn index_discovered_conversations(
+        &mut self,
+        convos: &[crate::agy_discovery::DiscoveredConversation],
+    ) {
+        for c in convos {
+            if let Some(existing) = self.sessions.get_mut(&c.conversation_id) {
+                // If it's already in memory and Idle, update metadata in case title/workspace changed
+                if existing.state == SessionState::Idle && existing.is_external {
+                    if !c.title.is_empty() {
+                        existing.task_description = c.title.clone();
+                    }
+                    if let Some(ws) = &c.workspace_path {
+                        if let Some(launch) = existing.launch.as_mut() {
+                            launch.working_dir = Some(ws.clone());
+                        }
+                    }
+                }
+                continue;
+            }
+
+            // Create indexed session
+            let task_desc = if !c.title.is_empty() {
+                c.title.clone()
+            } else if !c.preview.is_empty() {
+                c.preview.lines().next().unwrap_or("").trim().to_string()
+            } else {
+                "[interactive] Antigravity conversation".to_string()
+            };
+
+            let mut session =
+                AgentSession::new(Id(c.conversation_id.clone()), task_desc, "agy".to_string());
+            session.is_external = c.is_external;
+            session.state = SessionState::Idle;
+            session.account_id = c.account_id.clone();
+
+            let ts = chrono::DateTime::parse_from_rfc3339(&c.last_modified_time)
+                .or_else(|_| {
+                    chrono::DateTime::parse_from_str(
+                        &c.last_modified_time,
+                        "%Y-%m-%d %H:%M:%S%.f%:z",
+                    )
+                })
+                .map(|dt| dt.with_timezone(&chrono::Utc))
+                .unwrap_or_else(|_| chrono::Utc::now());
+            session.created_at = ts;
+            session.updated_at = ts;
+
+            let mut launch = crate::agy_launch::AgyLaunchOptions::default();
+            launch.conversation_id = Some(c.conversation_id.clone());
+            launch.working_dir = c.workspace_path.clone();
+            session.launch = Some(launch);
+
+            self.sessions.insert(c.conversation_id.clone(), session);
         }
     }
 
@@ -390,7 +479,7 @@ impl SessionManager {
                 let _ = reply.send(result);
             }
             SessionCmd::Resume { session_id, reply } => {
-                let result = self.cmd_resume(session_id);
+                let result = self.cmd_resume(session_id).await;
                 let _ = reply.send(result);
             }
             SessionCmd::Stop {
@@ -406,8 +495,16 @@ impl SessionManager {
                 let _ = reply.send(result);
             }
             SessionCmd::List { reply } => {
-                let sessions: Vec<AgentSession> = self.sessions.values().cloned().collect();
+                let mut sessions: Vec<AgentSession> = self.sessions.values().cloned().collect();
+                sessions.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
                 let _ = reply.send(sessions);
+            }
+            SessionCmd::Discover { reply } => {
+                let result = self.discover_conversations().map(|mut sessions| {
+                    sessions.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+                    sessions
+                });
+                let _ = reply.send(result);
             }
             SessionCmd::Get { session_id, reply } => {
                 let session = self.sessions.get(&session_id.0).cloned();
@@ -533,7 +630,10 @@ impl SessionManager {
                 );
                 acct.id.clone()
             } else {
-                tracing::info!("Session creation: explicit account (no account mgr): {}", aid.0);
+                tracing::info!(
+                    "Session creation: explicit account (no account mgr): {}",
+                    aid.0
+                );
                 aid.clone()
             };
             Some(actual_id)
@@ -644,17 +744,41 @@ impl SessionManager {
             }
         }
 
-        self.emit(AgentEvent::new(
-            EventKind::SessionStartRequested,
-            Some(session_id.clone()),
-            json!({}),
-            "human",
-        ))?;
+        // Auto-select account for agy/antigravity if not yet selected
+        {
+            let session = self.sessions.get_mut(&session_id.0).unwrap();
+            if session.account_id.is_none()
+                && matches!(session.agent_type.as_str(), "agy" | "antigravity")
+            {
+                if let Some(h) = &self.account_mgr {
+                    if let Ok(aid) = h.0.lock().unwrap().select(&session.agent_type, &[]) {
+                        session.account_id = Some(aid);
+                    }
+                }
+            }
+        }
 
-        self.do_transition(&session_id, SessionState::Starting, "human")?;
-
-        // Spawn the adapter
         let session = self.sessions.get(&session_id.0).unwrap();
+
+        // Validate conversation exists if conversation_id is specified
+        if let Some(cid) = session
+            .launch
+            .as_ref()
+            .and_then(|l| l.conversation_id.as_ref())
+        {
+            if crate::agy_discovery::find_conversation_file(
+                cid,
+                self.host_gemini_dir.as_deref(),
+                self.profiles_dir.as_deref(),
+            )
+            .is_none()
+            {
+                bail!(
+                    "Cannot resume conversation '{cid}': conversation file is missing or corrupted"
+                );
+            }
+        }
+
         let task = session.task_description.clone();
         let agent_type = session.agent_type.clone();
         let workspace_path = if let Some(wid) = &session.workspace_id {
@@ -675,12 +799,30 @@ impl SessionManager {
         let launch = session.launch.clone();
         let workspace_path =
             workspace_path.or_else(|| launch.as_ref().and_then(|l| l.working_dir.clone()));
+
+        // Enforce workspace directory validation for agy sessions and conversation resumes
+        if matches!(agent_type.as_str(), "agy" | "antigravity")
+            || session
+                .launch
+                .as_ref()
+                .and_then(|l| l.conversation_id.as_ref())
+                .is_some()
+        {
+            if let Some(ref ws) = workspace_path {
+                let p = std::path::Path::new(ws);
+                if !p.exists() || !p.is_dir() {
+                    bail!("Workspace path does not exist or is not a directory: {ws}");
+                }
+            }
+        }
+
         let credential_ref = if let Some(aid) = &session.account_id {
             if let Some(h) = &self.account_mgr {
-                let cref = h.0.lock()
-                    .unwrap()
-                    .get(aid)
-                    .map(|a| a.credential_ref.clone());
+                let cref =
+                    h.0.lock()
+                        .unwrap()
+                        .get(aid)
+                        .map(|a| a.credential_ref.clone());
                 tracing::info!(
                     "Session start: account_id={}, credential_ref={:?}",
                     aid,
@@ -708,6 +850,18 @@ impl SessionManager {
             context_snapshot: None,
             agent_config: launch.and_then(|l| serde_json::to_value(l).ok()),
         };
+
+        // Run adapter preflight check before mutating session state
+        self.adapter_factory.preflight(&ctx)?;
+
+        self.emit(AgentEvent::new(
+            EventKind::SessionStartRequested,
+            Some(session_id.clone()),
+            json!({}),
+            "human",
+        ))?;
+
+        self.do_transition(&session_id, SessionState::Starting, "human")?;
 
         let (adapter_event_tx, adapter_event_rx) = mpsc::channel(512);
         let handle = self.adapter_factory.create(ctx, adapter_event_tx)?;
@@ -810,16 +964,16 @@ impl SessionManager {
         Ok(())
     }
 
-    fn cmd_resume(&mut self, session_id: Id) -> Result<()> {
-        {
+    async fn cmd_resume(&mut self, session_id: Id) -> Result<()> {
+        let state = {
             let session = self.get_session_or_err(&session_id)?;
-            if session.state != SessionState::Paused {
-                bail!(
-                    "Session {} is not Paused (state={})",
-                    session_id,
-                    session.state
-                );
-            }
+            session.state.clone()
+        };
+        if state == SessionState::Idle {
+            return self.cmd_start(session_id).await;
+        }
+        if state != SessionState::Paused {
+            bail!("Session {} is not Paused (state={})", session_id, state);
         }
         self.do_transition(&session_id, SessionState::Working, "human")?;
         self.emit(AgentEvent::new(
@@ -2221,6 +2375,18 @@ impl SessionManagerHandle {
         reply_rx
             .await
             .map_err(|_| anyhow::anyhow!("Session manager dropped reply"))
+    }
+
+    /// Discover Antigravity conversations and refresh indexed sessions.
+    pub async fn discover(&self) -> Result<Vec<AgentSession>> {
+        let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
+        self.tx
+            .send(SessionCmd::Discover { reply: reply_tx })
+            .await
+            .map_err(|_| anyhow::anyhow!("Session manager is not running"))?;
+        reply_rx
+            .await
+            .map_err(|_| anyhow::anyhow!("Session manager dropped reply"))?
     }
 
     pub async fn get(&self, session_id: Id) -> Result<Option<AgentSession>> {

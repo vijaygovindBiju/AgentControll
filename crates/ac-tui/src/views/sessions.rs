@@ -64,6 +64,20 @@ fn render_sessions_table(f: &mut Frame, app: &App, area: Rect) {
         let acct = truncate_display_width(&acct_label, 14);
         let task = truncate_display_width(&s.task_description, 36);
 
+        let agent_spans = if s.is_external {
+            vec![
+                Span::raw(format!("{} ", s.agent_type)),
+                Span::styled(
+                    "[EXT]",
+                    Style::default()
+                        .fg(Color::Magenta)
+                        .add_modifier(Modifier::BOLD),
+                ),
+            ]
+        } else {
+            vec![Span::raw(s.agent_type.clone())]
+        };
+
         let row_cells = vec![
             Cell::from(sid).style(if is_selected {
                 Style::default()
@@ -72,7 +86,7 @@ fn render_sessions_table(f: &mut Frame, app: &App, area: Rect) {
             } else {
                 Style::default().fg(Color::White)
             }),
-            Cell::from(s.agent_type.clone()),
+            Cell::from(Line::from(agent_spans)),
             Cell::from(Line::from(vec![session_state_badge(&s.state)])),
             Cell::from(proj),
             Cell::from(acct),
@@ -124,30 +138,41 @@ fn render_session_quick_info(f: &mut Frame, app: &App, area: Rect) {
         ));
 
     if let Some(s) = app.selected_session() {
+        let mut id_spans = vec![
+            Span::styled("ID: ", Style::default().fg(Color::DarkGray)),
+            Span::styled(
+                &s.id.0,
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            ),
+        ];
+        if s.is_external {
+            id_spans.push(Span::styled(
+                " [EXT]",
+                Style::default()
+                    .fg(Color::Magenta)
+                    .add_modifier(Modifier::BOLD),
+            ));
+        }
+        id_spans.extend(vec![
+            Span::raw("   "),
+            Span::styled("State: ", Style::default().fg(Color::DarkGray)),
+            session_state_badge(&s.state),
+            Span::raw("   "),
+            Span::styled("Agent: ", Style::default().fg(Color::DarkGray)),
+            Span::styled(&s.agent_type, Style::default().fg(Color::White)),
+            Span::raw("   "),
+            Span::styled("Account: ", Style::default().fg(Color::DarkGray)),
+            Span::styled(
+                app.account_label(s.account_id.as_ref()),
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            ),
+        ]);
         let lines = vec![
-            Line::from(vec![
-                Span::styled("ID: ", Style::default().fg(Color::DarkGray)),
-                Span::styled(
-                    &s.id.0,
-                    Style::default()
-                        .fg(Color::Cyan)
-                        .add_modifier(Modifier::BOLD),
-                ),
-                Span::raw("   "),
-                Span::styled("State: ", Style::default().fg(Color::DarkGray)),
-                session_state_badge(&s.state),
-                Span::raw("   "),
-                Span::styled("Agent: ", Style::default().fg(Color::DarkGray)),
-                Span::styled(&s.agent_type, Style::default().fg(Color::White)),
-                Span::raw("   "),
-                Span::styled("Account: ", Style::default().fg(Color::DarkGray)),
-                Span::styled(
-                    app.account_label(s.account_id.as_ref()),
-                    Style::default()
-                        .fg(Color::Yellow)
-                        .add_modifier(Modifier::BOLD),
-                ),
-            ]),
+            Line::from(id_spans),
             Line::from(vec![
                 Span::styled("Task: ", Style::default().fg(Color::DarkGray)),
                 Span::styled(&s.task_description, Style::default().fg(Color::White)),

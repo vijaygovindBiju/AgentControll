@@ -92,7 +92,8 @@ pub async fn run_tui(socket_path: PathBuf) -> Result<()> {
     let client = ApiClient::new(socket_path);
     let mut app = App::new();
 
-    // Initial data load
+    // Initial data load & Antigravity conversation discovery
+    let _ = client.discover_sessions().await;
     event::refresh_data(&mut app, &client).await;
 
     // Detect the installed agy's permission modes off the UI thread so the

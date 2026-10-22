@@ -296,6 +296,8 @@ pub fn render(f: &mut Frame, app: &App) {
                 }
                 AgyAddStep::Link {
                     url,
+                    phone_url,
+                    show_qr,
                     deadline,
                     paste,
                     notice,
@@ -306,42 +308,134 @@ pub fn render(f: &mut Frame, app: &App) {
                     let mut l = vec![
                         Line::from(""),
                         Line::from(Span::styled(format!(" Account: {label}"), bold)),
-                        Line::from(""),
-                        Line::from(Span::styled(" Login Link", bold)),
-                        Line::from(Span::styled(url.as_str(), Style::default().fg(Color::Cyan))),
-                        Line::from(""),
-                        Line::from(vec![Span::raw(" "), key(" [ Copy Link ] "), Span::styled("  c / Ctrl+Y", dim)]),
-                        Line::from(""),
-                        Line::from(Span::styled(" Waiting for authentication...", bold)),
-                        Line::from(Span::styled(" • Opened on this computer: completes automatically.", dim)),
-                        Line::from(Span::styled(" • Opened on another device: after signing in, the browser shows an", dim)),
-                        Line::from(Span::styled("   error page at 127.0.0.1 — copy that page's full address and paste it here:", dim)),
                     ];
-                    // The pasted address contains a one-time code: never shown in clear.
-                    let shown = if paste.is_empty() {
-                        String::new()
-                    } else {
-                        format!("•••••••• ({} chars)", paste.chars().count())
-                    };
-                    l.push(Line::from(vec![
-                        Span::styled(" > ", Style::default().fg(Color::Cyan)),
-                        Span::styled(shown, bold),
-                        Span::styled("█", Style::default().fg(Color::Cyan)),
-                    ]));
-                    if let Some(n) = notice {
-                        let color = if n.starts_with("Not accepted")
-                            || n.starts_with("Could not")
-                            || n.contains("no longer")
-                        {
-                            Color::Yellow
-                        } else {
-                            Color::Green
-                        };
+
+                    let qr_target = phone_url.as_deref().unwrap_or(url.as_str());
+
+                    if *show_qr {
+                        if let Some(matrix) = ac_core::agy_auth::qr_matrix(qr_target) {
+                            l.push(Line::from(""));
+                            l.push(Line::from(Span::styled(
+                                " Scan with your phone camera to sign in:",
+                                bold,
+                            )));
+                            l.push(Line::from(""));
+                            let total_cols = matrix.len();
+                            for y in (0..total_cols).step_by(2) {
+                                let mut spans = vec![Span::raw("   ")];
+                                for x in 0..total_cols {
+                                    let top = matrix[y][x];
+                                    let bottom = if y + 1 < total_cols {
+                                        matrix[y + 1][x]
+                                    } else {
+                                        false
+                                    };
+                                    let (fg, bg) = match (top, bottom) {
+                                        (true, true) => (Color::Black, Color::Black),
+                                        (true, false) => (Color::Black, Color::White),
+                                        (false, true) => (Color::White, Color::Black),
+                                        (false, false) => (Color::White, Color::White),
+                                    };
+                                    spans.push(Span::styled("▀", Style::default().fg(fg).bg(bg)));
+                                }
+                                l.push(Line::from(spans));
+                            }
+                        }
+
+                        if let Some(phone) = phone_url {
+                            l.push(Line::from(""));
+                            l.push(Line::from(vec![
+                                Span::styled(" Cross-Device / Phone Portal: ", bold),
+                                Span::styled(phone.as_str(), Style::default().fg(Color::Yellow)),
+                            ]));
+                        }
+
+                        l.push(Line::from(""));
+                        l.push(Line::from(vec![
+                            Span::raw(" "),
+                            key(" [ Show Details & Paste ] "),
+                            Span::styled(" Tab / q   ", dim),
+                            key(" [ Copy Link ] "),
+                            Span::styled(" c", dim),
+                        ]));
+                        l.push(Line::from(""));
                         l.push(Line::from(Span::styled(
-                            format!(" {n}"),
-                            Style::default().fg(color),
+                            " Waiting for authentication... (completes automatically from device)",
+                            bold,
                         )));
+                    } else {
+                        if let Some(phone) = phone_url {
+                            l.push(Line::from(""));
+                            l.push(Line::from(vec![
+                                Span::styled(" Cross-Device / Phone Sign-in Portal: ", bold),
+                                Span::styled(phone.as_str(), Style::default().fg(Color::Yellow)),
+                            ]));
+                            l.push(Line::from(Span::styled(" • Open on any device (laptop, tablet, phone) to sign in directly; Agent Control completes automatically.", dim)));
+                        }
+
+                        l.push(Line::from(""));
+                        l.push(Line::from(Span::styled(" Login Link", bold)));
+                        l.push(Line::from(Span::styled(
+                            url.as_str(),
+                            Style::default().fg(Color::Cyan),
+                        )));
+                        l.push(Line::from(""));
+
+                        let mut buttons = vec![
+                            Span::raw(" "),
+                            key(" [ Copy Link ] "),
+                            Span::styled(" c / Ctrl+Y   ", dim),
+                            key(" [ Show QR Code ] "),
+                            Span::styled(" Tab / q", dim),
+                        ];
+                        if phone_url.is_some() {
+                            buttons.push(Span::raw("   "));
+                            buttons.push(key(" [ Copy Portal URL ] "));
+                            buttons.push(Span::styled(" p", dim));
+                        }
+                        l.push(Line::from(buttons));
+                        l.push(Line::from(""));
+                        l.push(Line::from(Span::styled(
+                            " Waiting for authentication...",
+                            bold,
+                        )));
+                        l.push(Line::from(Span::styled(
+                            " • Opened on this computer: completes automatically.",
+                            dim,
+                        )));
+                        l.push(Line::from(Span::styled(
+                            " • Opened on another device: after signing in, the browser shows an",
+                            dim,
+                        )));
+                        l.push(Line::from(Span::styled("   error page at 127.0.0.1 — copy that page's full address and paste it here:", dim)));
+
+                        // The pasted address contains a one-time code: never shown in clear.
+                        let shown = if paste.is_empty() {
+                            String::new()
+                        } else {
+                            format!("•••••••• ({} chars)", paste.chars().count())
+                        };
+                        l.push(Line::from(vec![
+                            Span::styled(" > ", Style::default().fg(Color::Cyan)),
+                            Span::styled(shown, bold),
+                            Span::styled("█", Style::default().fg(Color::Cyan)),
+                        ]));
+                        if let Some(n) = notice {
+                            let color = if n.starts_with("Not accepted")
+                                || n.starts_with("Could not")
+                                || n.contains("no longer")
+                            {
+                                Color::Yellow
+                            } else {
+                                Color::Green
+                            };
+                            l.push(Line::from(Span::styled(
+                                format!(" {n}"),
+                                Style::default().fg(color),
+                            )));
+                        }
                     }
+
                     l.push(Line::from(""));
                     l.push(Line::from(format!(
                         " Link expires in: {:02}:{:02}  (single use)",
@@ -452,7 +546,7 @@ pub fn render(f: &mut Frame, app: &App) {
                 ),
             };
             let area = if matches!(step, AgyAddStep::Link { .. }) {
-                centered_rect(84, 80, f.area())
+                centered_rect_min(86, 90, 60, 28, f.area())
             } else {
                 centered_rect(64, 45, f.area())
             };
@@ -737,7 +831,9 @@ pub fn render(f: &mut Frame, app: &App) {
                 Line::from(Span::styled("Press Esc or Enter to close this help window.", Style::default().fg(Color::DarkGray))),
             ];
 
-            let p = Paragraph::new(lines).block(block).wrap(Wrap { trim: false });
+            let p = Paragraph::new(lines)
+                .block(block)
+                .wrap(Wrap { trim: false });
             f.render_widget(p, area);
         }
 
@@ -1948,19 +2044,35 @@ pub fn render(f: &mut Frame, app: &App) {
             let lines = vec![
                 Line::from(vec![
                     Span::styled("Action: ", Style::default().fg(Color::DarkGray)),
-                    Span::styled(action_label, Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
-                    Span::styled(format!(" ({action_name})"), Style::default().fg(Color::DarkGray)),
+                    Span::styled(
+                        action_label,
+                        Style::default()
+                            .fg(Color::White)
+                            .add_modifier(Modifier::BOLD),
+                    ),
+                    Span::styled(
+                        format!(" ({action_name})"),
+                        Style::default().fg(Color::DarkGray),
+                    ),
                 ]),
                 Line::from(vec![
                     Span::styled("Current Key: ", Style::default().fg(Color::DarkGray)),
-                    Span::styled(format!(" [{current_key}] "), Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                    Span::styled(
+                        format!(" [{current_key}] "),
+                        Style::default()
+                            .fg(Color::Black)
+                            .bg(Color::Cyan)
+                            .add_modifier(Modifier::BOLD),
+                    ),
                     Span::styled("  Default: ", Style::default().fg(Color::DarkGray)),
                     Span::styled(format!("[{def}]"), Style::default().fg(Color::White)),
                 ]),
                 Line::from(""),
                 Line::from(Span::styled(
                     "▶ Press any key or key combination now (e.g. Ctrl+K, Alt+X, F3, etc.)",
-                    Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD),
                 )),
                 Line::from(""),
                 Line::from(Span::styled(
@@ -1968,12 +2080,28 @@ pub fn render(f: &mut Frame, app: &App) {
                     Style::default().fg(Color::DarkGray),
                 )),
                 Line::from(vec![
-                    Span::styled("  • Esc            ", Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
-                    Span::styled("Cancel and keep current keybind", Style::default().fg(Color::DarkGray)),
+                    Span::styled(
+                        "  • Esc            ",
+                        Style::default()
+                            .fg(Color::White)
+                            .add_modifier(Modifier::BOLD),
+                    ),
+                    Span::styled(
+                        "Cancel and keep current keybind",
+                        Style::default().fg(Color::DarkGray),
+                    ),
                 ]),
                 Line::from(vec![
-                    Span::styled("  • Backspace/Del  ", Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
-                    Span::styled(format!("Reset to default ({def})"), Style::default().fg(Color::DarkGray)),
+                    Span::styled(
+                        "  • Backspace/Del  ",
+                        Style::default()
+                            .fg(Color::White)
+                            .add_modifier(Modifier::BOLD),
+                    ),
+                    Span::styled(
+                        format!("Reset to default ({def})"),
+                        Style::default().fg(Color::DarkGray),
+                    ),
                 ]),
             ];
 

@@ -158,6 +158,17 @@ impl ApiClient {
         Ok(sessions)
     }
 
+    pub async fn discover_sessions(&self) -> Result<Vec<AgentSession>, ClientError> {
+        let resp = self.send_request("session.discover", json!({})).await?;
+        let sessions = resp
+            .result
+            .and_then(|r| r.get("sessions").cloned())
+            .map(serde_json::from_value::<Vec<AgentSession>>)
+            .transpose()?
+            .unwrap_or_default();
+        Ok(sessions)
+    }
+
     pub async fn get_session(&self, id: &Id) -> Result<Option<AgentSession>, ClientError> {
         let resp = self
             .send_request("session.get", json!({ "session_id": id }))

@@ -678,6 +678,7 @@ pub fn launch_options(app: &App, form: &StartSessionForm) -> Result<AgyLaunchOpt
         sandbox: false,
         model: models.get(form.model_index).and_then(|(id, _)| id.clone()),
         working_dir: Some(dir.display().to_string()),
+        conversation_id: None,
         initial_rows,
         initial_cols,
     })

@@ -99,6 +99,7 @@ pub fn start_agy_login(app: &mut App, client: ApiClient, label: String, link: bo
             let (cref, token) = if link {
                 push(AgyLoginUpdate::LinkReady {
                     url: login.authorization_url().to_string(),
+                    phone_url: login.phone_url(),
                 });
                 let rejected = |reason: String| {
                     push(AgyLoginUpdate::PasteRejected {
@@ -198,8 +199,10 @@ pub async fn poll_agy_login(app: &mut App, client: &ApiClient) {
                 browser_opened,
                 deadline: std::time::Instant::now() + ac_core::agy_auth::LOGIN_TIMEOUT,
             },
-            AgyLoginUpdate::LinkReady { url } => AgyAddStep::Link {
+            AgyLoginUpdate::LinkReady { url, phone_url } => AgyAddStep::Link {
                 url,
+                phone_url,
+                show_qr: false,
                 deadline: std::time::Instant::now() + ac_core::agy_auth::LOGIN_TIMEOUT,
                 paste: String::new(),
                 notice: None,
@@ -209,6 +212,8 @@ pub async fn poll_agy_login(app: &mut App, client: &ApiClient) {
                     step:
                         AgyAddStep::Link {
                             url,
+                            phone_url,
+                            show_qr,
                             deadline,
                             paste,
                             ..
@@ -216,6 +221,8 @@ pub async fn poll_agy_login(app: &mut App, client: &ApiClient) {
                     ..
                 }) => AgyAddStep::Link {
                     url: url.clone(),
+                    phone_url: phone_url.clone(),
+                    show_qr: *show_qr,
                     deadline: *deadline,
                     paste: paste.clone(),
                     notice: Some(format!("Not accepted: {reason}")),
@@ -300,9 +307,7 @@ pub async fn launch_session_and_open(
                     let p_rows = rows.saturating_sub(2).max(1);
                     let p_cols = cols.max(1);
                     app.resize_session_terminals(p_rows, p_cols);
-                    let _ = client
-                        .resize_session(&new_id, p_rows, p_cols)
-                        .await;
+                    let _ = client.resize_session(&new_id, p_rows, p_cols).await;
                 }
             }
             Err(e) => app.set_status(
@@ -444,7 +449,11 @@ pub async fn handle_mouse(
                         let delta = if mouse.row < header_h { 2 } else { 1 };
                         app.scroll_session_terminal_up(&detail_id.0, delta);
                     } else if mouse.row + 1 >= header_h + term_inner_h as u16 {
-                        let delta = if mouse.row >= header_h + term_inner_h as u16 { 2 } else { 1 };
+                        let delta = if mouse.row >= header_h + term_inner_h as u16 {
+                            2
+                        } else {
+                            1
+                        };
                         app.scroll_session_terminal_down(&detail_id.0, delta);
                     }
 
@@ -453,12 +462,8 @@ pub async fn handle_mouse(
                     let rel_col = (mouse.column as usize).min(term_inner_w.saturating_sub(1));
 
                     if let Some(buf) = app.session_terminal_buffers.get_mut(&detail_id.0) {
-                        let buf_pos = buf.screen_to_buffer_pos(
-                            rel_col,
-                            rel_row,
-                            term_inner_h,
-                            term_inner_w,
-                        );
+                        let buf_pos =
+                            buf.screen_to_buffer_pos(rel_col, rel_row, term_inner_h, term_inner_w);
                         buf.update_selection_cursor(buf_pos);
                     }
                 }
@@ -469,19 +474,20 @@ pub async fn handle_mouse(
                 app.mouse_selection.is_dragging = false;
                 app.mouse_selection.drag_pos = None;
                 if let Some(ref detail_id) = app.session_detail_id.clone() {
-                    let copied_text = if let Some(buf) = app.session_terminal_buffers.get_mut(&detail_id.0) {
-                        let should_extract = buf.selection.as_ref().map_or(false, |sel| {
-                            !sel.is_empty() || app.mouse_selection.click_count > 1
-                        });
-                        if should_extract {
-                            buf.extract_selected_text()
+                    let copied_text =
+                        if let Some(buf) = app.session_terminal_buffers.get_mut(&detail_id.0) {
+                            let should_extract = buf.selection.as_ref().map_or(false, |sel| {
+                                !sel.is_empty() || app.mouse_selection.click_count > 1
+                            });
+                            if should_extract {
+                                buf.extract_selected_text()
+                            } else {
+                                buf.clear_selection();
+                                None
+                            }
                         } else {
-                            buf.clear_selection();
                             None
-                        }
-                    } else {
-                        None
-                    };
+                        };
 
                     if let Some(text) = copied_text {
                         if !text.is_empty() {
@@ -509,13 +515,14 @@ pub async fn handle_mouse(
                         .unwrap_or(false);
 
                     if has_selection {
-                        let copied_text = if let Some(buf) = app.session_terminal_buffers.get_mut(&detail_id.0) {
-                            let text = buf.extract_selected_text();
-                            buf.clear_selection();
-                            text
-                        } else {
-                            None
-                        };
+                        let copied_text =
+                            if let Some(buf) = app.session_terminal_buffers.get_mut(&detail_id.0) {
+                                let text = buf.extract_selected_text();
+                                buf.clear_selection();
+                                text
+                            } else {
+                                None
+                            };
 
                         if let Some(text) = copied_text {
                             if !text.is_empty() {
@@ -592,7 +599,11 @@ pub fn handle_mouse_autoscroll(app: &mut App) {
             buf.update_selection_cursor(buf_pos);
         }
     } else if is_bottom {
-        let delta = if row >= header_h + term_inner_h as u16 { 2 } else { 1 };
+        let delta = if row >= header_h + term_inner_h as u16 {
+            2
+        } else {
+            1
+        };
         app.scroll_session_terminal_down(&detail_id.0, delta);
         if let Some(buf) = app.session_terminal_buffers.get_mut(&detail_id.0) {
             let buf_pos = buf.screen_to_buffer_pos(
@@ -647,6 +658,8 @@ pub async fn handle_paste(app: &mut App, client: &ApiClient, text: &str) -> Resu
                 }
                 AgyAddStep::Link {
                     url,
+                    phone_url,
+                    show_qr,
                     deadline,
                     paste: _,
                     notice: _,
@@ -665,6 +678,8 @@ pub async fn handle_paste(app: &mut App, client: &ApiClient, text: &str) -> Resu
                         label,
                         step: AgyAddStep::Link {
                             url,
+                            phone_url,
+                            show_qr,
                             deadline,
                             paste,
                             notice,
@@ -775,10 +790,7 @@ pub async fn handle_paste(app: &mut App, client: &ApiClient, text: &str) -> Resu
         if !app.session_in_alt_screen(&detail_id.0) {
             let session_key = detail_id.0.clone();
             app.set_session_completion_dismissed(&session_key, false);
-            let buf = app
-                .session_prompt_buffers
-                .entry(session_key)
-                .or_default();
+            let buf = app.session_prompt_buffers.entry(session_key).or_default();
             buf.push_str(text);
         }
 
@@ -1065,6 +1077,8 @@ pub async fn handle_key(app: &mut App, client: &ApiClient, key: KeyEvent) -> Res
                 }
                 AgyAddStep::Link {
                     url,
+                    phone_url,
+                    mut show_qr,
                     deadline,
                     mut paste,
                     notice,
@@ -1072,11 +1086,22 @@ pub async fn handle_key(app: &mut App, client: &ApiClient, key: KeyEvent) -> Res
                     let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
                     let mut notice = notice;
                     match key.code {
+                        KeyCode::Tab => {
+                            show_qr = !show_qr;
+                        }
+                        KeyCode::Char('q') | KeyCode::Char('Q') if paste.is_empty() && !ctrl => {
+                            show_qr = !show_qr;
+                        }
                         KeyCode::Char('y') | KeyCode::Char('Y') if ctrl => {
-                            notice = Some(copy_notice(&url))
+                            notice = Some(copy_notice(&url));
                         }
                         KeyCode::Char('c') | KeyCode::Char('C') if paste.is_empty() && !ctrl => {
-                            notice = Some(copy_notice(&url))
+                            notice = Some(copy_notice(&url));
+                        }
+                        KeyCode::Char('p') | KeyCode::Char('P') if paste.is_empty() && !ctrl => {
+                            if let Some(p) = &phone_url {
+                                notice = Some(copy_notice(p));
+                            }
                         }
                         KeyCode::Char(c) if !ctrl => paste.push(c),
                         KeyCode::Backspace => {
@@ -1099,6 +1124,8 @@ pub async fn handle_key(app: &mut App, client: &ApiClient, key: KeyEvent) -> Res
                         label,
                         step: AgyAddStep::Link {
                             url,
+                            phone_url,
+                            show_qr,
                             deadline,
                             paste,
                             notice,
@@ -2277,7 +2304,11 @@ pub async fn handle_key(app: &mut App, client: &ApiClient, key: KeyEvent) -> Res
         if crate::keybinding::matches_action(&key, "switch_split_focus", &app.user_settings) {
             if app.split_session_id.is_some() {
                 app.switch_split_focus();
-                let pane_name = if app.split_focus_right { "right" } else { "left" };
+                let pane_name = if app.split_focus_right {
+                    "right"
+                } else {
+                    "left"
+                };
                 app.set_status(format!("Focused {pane_name} split pane"), StatusType::Info);
                 return Ok(());
             }
@@ -2349,7 +2380,9 @@ pub async fn handle_key(app: &mut App, client: &ApiClient, key: KeyEvent) -> Res
                         let line_count = text.lines().count();
                         let char_count = text.len();
                         app.set_status(
-                            format!("Copied {line_count} line(s), {char_count} char(s) to clipboard"),
+                            format!(
+                                "Copied {line_count} line(s), {char_count} char(s) to clipboard"
+                            ),
                             StatusType::Success,
                         );
                         return Ok(());
@@ -2965,8 +2998,12 @@ pub async fn handle_key(app: &mut App, client: &ApiClient, key: KeyEvent) -> Res
         return Ok(());
     }
     if crate::keybinding::matches_action(&key, "refresh", &app.user_settings) {
+        let _ = client.discover_sessions().await;
         refresh_data(app, client).await;
-        app.set_status("Refreshed state from daemon", StatusType::Info);
+        app.set_status(
+            "Refreshed state and discovered conversations",
+            StatusType::Info,
+        );
         return Ok(());
     }
 
@@ -3092,9 +3129,7 @@ pub async fn handle_key(app: &mut App, client: &ApiClient, key: KeyEvent) -> Res
                             let p_rows = rows.saturating_sub(2).max(1);
                             let p_cols = cols.max(1);
                             app.resize_session_terminals(p_rows, p_cols);
-                            let _ = client
-                                .resize_session(sid, p_rows, p_cols)
-                                .await;
+                            let _ = client.resize_session(sid, p_rows, p_cols).await;
                         }
                     }
                 }
@@ -3184,9 +3219,7 @@ pub async fn handle_key(app: &mut App, client: &ApiClient, key: KeyEvent) -> Res
                             let p_rows = rows.saturating_sub(2).max(1);
                             let p_cols = cols.max(1);
                             app.resize_session_terminals(p_rows, p_cols);
-                            let _ = client
-                                .resize_session(sid, p_rows, p_cols)
-                                .await;
+                            let _ = client.resize_session(sid, p_rows, p_cols).await;
                         }
                     }
                 }
@@ -3382,22 +3415,23 @@ pub async fn handle_key(app: &mut App, client: &ApiClient, key: KeyEvent) -> Res
                                         );
                                     }
                                     5 => {
-                                        let themes = ["Default", "Dark", "High-Contrast"];
-                                        let cur = themes
+                                        let all_themes = ac_core::theme::Theme::all_presets();
+                                        let current_name = &app.user_settings.terminal_theme.name;
+                                        let cur = all_themes
                                             .iter()
-                                            .position(|t| *t == app.user_settings.terminal_theme)
+                                            .position(|t| &t.name == current_name)
                                             .unwrap_or(0);
                                         let next = if fwd {
-                                            (cur + 1) % themes.len()
+                                            (cur + 1) % all_themes.len()
                                         } else {
-                                            (cur + themes.len() - 1) % themes.len()
+                                            (cur + all_themes.len() - 1) % all_themes.len()
                                         };
-                                        app.user_settings.terminal_theme = themes[next].to_string();
+                                        app.user_settings.terminal_theme = all_themes[next].clone();
                                         let _ = app.user_settings.save();
                                         app.set_status(
                                             format!(
                                                 "Theme set to {}",
-                                                app.user_settings.terminal_theme
+                                                app.user_settings.terminal_theme.name
                                             ),
                                             StatusType::Success,
                                         );
@@ -3569,16 +3603,20 @@ pub async fn handle_key(app: &mut App, client: &ApiClient, key: KeyEvent) -> Res
                             | KeyCode::Right
                             | KeyCode::Char(' ')
                             | KeyCode::Enter => {
-                                let themes = ["Default", "Dark", "High-Contrast"];
-                                let cur = themes
+                                let all_themes = ac_core::theme::Theme::all_presets();
+                                let current_name = &app.user_settings.terminal_theme.name;
+                                let cur = all_themes
                                     .iter()
-                                    .position(|t| *t == app.user_settings.terminal_theme)
+                                    .position(|t| &t.name == current_name)
                                     .unwrap_or(0);
                                 app.user_settings.terminal_theme =
-                                    themes[(cur + 1) % themes.len()].to_string();
+                                    all_themes[(cur + 1) % all_themes.len()].clone();
                                 let _ = app.user_settings.save();
                                 app.set_status(
-                                    format!("Theme set to {}", app.user_settings.terminal_theme),
+                                    format!(
+                                        "Theme set to {}",
+                                        app.user_settings.terminal_theme.name
+                                    ),
                                     StatusType::Success,
                                 );
                             }
@@ -3611,7 +3649,9 @@ pub async fn handle_key(app: &mut App, client: &ApiClient, key: KeyEvent) -> Res
                                     .set(action_name, def.to_string());
                                 let _ = app.user_settings.save();
                                 app.set_status(
-                                    format!("Reset keybind for '{action_label}' to default ({def})"),
+                                    format!(
+                                        "Reset keybind for '{action_label}' to default ({def})"
+                                    ),
                                     StatusType::Success,
                                 );
                             }
@@ -3755,11 +3795,12 @@ async fn handle_session_resume_or_run(
         },
         SessionState::Stopped | SessionState::Failed | SessionState::Crashed => {
             match client
-                .create_session(
+                .create_session_with_launch(
                     &s.task_description,
                     &s.agent_type,
                     s.project_id.as_ref(),
                     s.account_id.as_ref(),
+                    s.launch.as_ref(),
                 )
                 .await
             {
