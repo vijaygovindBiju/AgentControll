@@ -15,7 +15,7 @@ use std::{
 };
 
 use anyhow::{bail, Context, Result};
-use rusqlite::{Connection, OpenFlags};
+use rusqlite::{types::Value, Connection, OpenFlags};
 use serde::{Deserialize, Serialize};
 
 use crate::types::Id;
@@ -361,6 +361,109 @@ pub fn find_conversation_file(
     None
 }
 
+/// Copy the selected conversation's summary row into the isolated profile.
+/// Antigravity resolves `--conversation` through this index as well as the
+/// trajectory database, so linking only `<id>.db` is insufficient.
+fn sync_conversation_summary(
+    source_db: &Path,
+    target_db: &Path,
+    conversation_id: &str,
+) -> Result<()> {
+    if !source_db.is_file() {
+        bail!(
+            "Conversation summary database does not exist: {}",
+            source_db.display()
+        );
+    }
+    if let Some(parent) = target_db.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let source = Connection::open_with_flags(
+        source_db,
+        OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_URI,
+    )?;
+    let create_sql: String = source
+        .query_row(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='conversation_summaries'",
+            [],
+            |row| row.get(0),
+        )
+        .context("Host conversation summary table is missing")?;
+    let source_columns = table_columns(&source, "conversation_summaries")?;
+    if !source_columns
+        .iter()
+        .any(|column| column == "conversation_id")
+    {
+        bail!("Conversation summary table has no conversation_id column");
+    }
+    let source_values: Vec<Value> = {
+        let sql = format!("SELECT * FROM conversation_summaries WHERE conversation_id = ?1");
+        let mut statement = source.prepare(&sql)?;
+        let count = statement.column_count();
+        let mut rows = statement.query([conversation_id])?;
+        let Some(row) = rows.next()? else {
+            bail!("Conversation {conversation_id} is missing from host summary index");
+        };
+        (0..count)
+            .map(|index| row.get(index))
+            .collect::<rusqlite::Result<_>>()?
+    };
+
+    let target = Connection::open(target_db)?;
+    let target_table_exists: bool = target.query_row(
+        "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='conversation_summaries')",
+        [],
+        |row| row.get(0),
+    )?;
+    if !target_table_exists {
+        target.execute_batch(&create_sql)?;
+    }
+    let target_columns = table_columns(&target, "conversation_summaries")?;
+    let columns: Vec<String> = source_columns
+        .iter()
+        .filter(|column| target_columns.contains(column))
+        .cloned()
+        .collect();
+    if !columns.iter().any(|column| column == "conversation_id") {
+        bail!("Profile conversation summary table has no conversation_id column");
+    }
+    let indexes: Vec<usize> = columns
+        .iter()
+        .map(|column| {
+            source_columns
+                .iter()
+                .position(|source| source == column)
+                .unwrap()
+        })
+        .collect();
+    let quoted = columns
+        .iter()
+        .map(|column| format!("\"{}\"", column.replace('"', "\"\"")))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let placeholders = (1..=columns.len())
+        .map(|index| format!("?{index}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let sql =
+        format!("INSERT OR IGNORE INTO conversation_summaries ({quoted}) VALUES ({placeholders})");
+    let values: Vec<Value> = indexes
+        .iter()
+        .map(|index| source_values[*index].clone())
+        .collect();
+    target.execute(&sql, rusqlite::params_from_iter(values))?;
+    Ok(())
+}
+
+fn table_columns(connection: &Connection, table: &str) -> Result<Vec<String>> {
+    let mut statement = connection.prepare(&format!(
+        "PRAGMA table_info(\"{}\")",
+        table.replace('"', "\"\"")
+    ))?;
+    let rows = statement.query_map([], |row| row.get(1))?;
+    Ok(rows.collect::<rusqlite::Result<Vec<String>>>()?)
+}
+
 /// Ensure a conversation file is accessible inside the given account profile.
 ///
 /// If the file is not already in the profile's `.gemini/antigravity-cli/conversations/`
@@ -384,22 +487,29 @@ pub fn link_conversation_to_profile(
         .with_context(|| format!("Creating conversations dir at {}", target_dir.display()))?;
 
     let target_file = target_dir.join(format!("{conversation_id}.db"));
+    let host_base = host_gemini
+        .map(PathBuf::from)
+        .unwrap_or_else(default_host_gemini_dir);
+    let host_agy_dir = host_base.join("antigravity-cli");
+    let host_file = host_agy_dir
+        .join("conversations")
+        .join(format!("{conversation_id}.db"));
+    let profile_agy_dir = home.join(".gemini").join("antigravity-cli");
     if target_file.is_file() {
         validate_conversation_db(&target_file)?;
+        if host_file.is_file() {
+            sync_conversation_summary(
+                &host_agy_dir.join("conversation_summaries.db"),
+                &profile_agy_dir.join("conversation_summaries.db"),
+                conversation_id,
+            )?;
+        }
         return Ok(target_file);
     }
 
     // 1. Check external host storage
-    let host_base = host_gemini
-        .map(PathBuf::from)
-        .unwrap_or_else(default_host_gemini_dir);
-    let host_file = host_base
-        .join("antigravity-cli")
-        .join("conversations")
-        .join(format!("{conversation_id}.db"));
-
     let source_file = if host_file.is_file() && validate_conversation_db(&host_file).is_ok() {
-        host_file
+        host_file.clone()
     } else {
         // Check if it belongs to another account profile (account isolation violation)
         let prof_base = crate::agy_auth::profiles_dir();
@@ -447,6 +557,17 @@ pub fn link_conversation_to_profile(
             target_file.display()
         )
     })?;
+
+    if source_file == host_file {
+        if let Err(error) = sync_conversation_summary(
+            &host_agy_dir.join("conversation_summaries.db"),
+            &profile_agy_dir.join("conversation_summaries.db"),
+            conversation_id,
+        ) {
+            let _ = fs::remove_file(&target_file);
+            return Err(error).context("Importing external conversation into profile index");
+        }
+    }
 
     tracing::info!(
         "Linked external conversation {} into profile {}",
@@ -501,6 +622,14 @@ pub fn link_conversation_to_profile(
             target_file.display()
         )
     })?;
+
+    let host_agy_dir = host_base.join("antigravity-cli");
+    let profile_agy_dir = home.join(".gemini").join("antigravity-cli");
+    sync_conversation_summary(
+        &host_agy_dir.join("conversation_summaries.db"),
+        &profile_agy_dir.join("conversation_summaries.db"),
+        conversation_id,
+    )?;
 
     Ok(target_file)
 }

@@ -188,6 +188,14 @@ fn test_3_resume_externally_created_conversation_linking_and_flags() {
     let conv_id = "cccccccc-dddd-eeee-ffff-000000000000";
     let source_file = conv_dir.join(format!("{conv_id}.db"));
     create_valid_conv_db(&source_file);
+    let host_summaries = agy_dir.join("conversation_summaries.db");
+    create_mock_summaries(
+        &host_summaries,
+        conv_id,
+        "Outside conversation",
+        "Existing work from host agy",
+        None,
+    );
 
     // Set custom config dir so link_conversation_to_profile knows where profile dir lives
     let cfg_dir = tmp.path().join("agentcontrol_config");
@@ -201,6 +209,30 @@ fn test_3_resume_externally_created_conversation_linking_and_flags() {
 
     // Verify original external db was NOT modified
     validate_conversation_db(&source_file).unwrap();
+
+    // Antigravity needs the summary index entry under the isolated HOME too.
+    let profile_summaries = linked
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .join("conversation_summaries.db");
+    let profile_conn = Connection::open(&profile_summaries).unwrap();
+    let imported_title: String = profile_conn
+        .query_row(
+            "SELECT title FROM conversation_summaries WHERE conversation_id = ?1",
+            [conv_id],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(imported_title, "Outside conversation");
+    let host_conn = Connection::open(&host_summaries).unwrap();
+    let host_count: i64 = host_conn
+        .query_row("SELECT COUNT(*) FROM conversation_summaries", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    assert_eq!(host_count, 1, "host summary index remains intact");
 
     // Verify launch options CLI builder emits --conversation flag
     let mut opts = AgyLaunchOptions::default();
