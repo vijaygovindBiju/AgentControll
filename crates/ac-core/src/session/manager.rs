@@ -670,13 +670,7 @@ impl SessionManager {
             .as_ref()
             .and_then(|l| l.conversation_id.as_ref())
         {
-            if crate::agy_discovery::find_conversation_file(
-                cid,
-                None,
-                None,
-            )
-            .is_none()
-            {
+            if crate::agy_discovery::find_conversation_file(cid, None, None).is_none() {
                 bail!(
                     "Cannot resume conversation '{cid}': conversation file is missing or corrupted"
                 );
