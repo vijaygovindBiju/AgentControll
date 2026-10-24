@@ -2,7 +2,7 @@
 
 A local-first control plane for coding agents.
 
-> **Status:** Version 1.0.11. See the [release notes](CHANGELOG.md#111---2026-10-22) for this update.
+> **Status:** Version 1.0.12. See the [release notes](CHANGELOG.md#112---2026-10-24) for this update.
 
 ---
 
@@ -104,8 +104,6 @@ AgentControll solves this by operating as a unified local supervisor: it pools a
   - Shell-style `Tab` completion for arbitrary filesystem paths with live filtering in the session launcher.
 - **Cross-Device Antigravity Sign-In:**
   - Complete Google OAuth login from the local browser, a shareable sign-in portal on another device, or a pasted redirect URL. The TUI can display a QR code for opening the portal on a phone or tablet.
-- **Antigravity Conversation Discovery & Resume:**
-  - Discover conversations in host Antigravity storage and AgentControll account profiles, inspect them in the Sessions tab, and resume outside conversations with their associated account and workspace when available.
 - **Selectable Terminal Themes:**
   - Choose from 13 built-in color palettes. The selected theme is applied throughout navigation, session views, settings, dialogs, and terminal UI panels.
 - **Profile & Credential Isolation:**
@@ -135,7 +133,7 @@ AgentControll solves this by operating as a unified local supervisor: it pools a
 
 ### npm / NPX — Recommended
 
-The official npm package [`agentcontroll`](https://www.npmjs.com/package/agentcontroll) (v1.0.11) is the recommended distribution method for Linux and macOS. It requires Node.js (>= 18) and automatically fetches the prebuilt, SHA256-verified binary for your platform.
+The official npm package [`agentcontroll`](https://www.npmjs.com/package/agentcontroll) (v1.0.12) is the recommended distribution method for Linux and macOS. It requires Node.js (>= 18) and automatically fetches the prebuilt, SHA256-verified binary for your platform.
 
 **Run immediately without global installation:**
 ```bash
@@ -181,7 +179,7 @@ You can customize the installation using environment variables:
 curl -fsSL https://raw.githubusercontent.com/vijaygovindBiju/AgentControll/main/install.sh | BIN_DIR=/usr/local/bin sh
 
 # Install a specific release version
-curl -fsSL https://raw.githubusercontent.com/vijaygovindBiju/AgentControll/main/install.sh | AGENTCONTROL_VERSION=1.0.11 sh
+curl -fsSL https://raw.githubusercontent.com/vijaygovindBiju/AgentControll/main/install.sh | AGENTCONTROL_VERSION=1.0.12 sh
 ```
 
 ---
@@ -193,8 +191,8 @@ Download precompiled tarballs and checksums directly from [GitHub Releases](http
 1. Download the archive and checksum for your platform:
    ```bash
 # Example: Linux x86_64
-curl -LO https://github.com/vijaygovindBiju/AgentControll/releases/download/v1.0.11/agentcontroll-v1.0.11-x86_64-unknown-linux-gnu.tar.gz
-curl -LO https://github.com/vijaygovindBiju/AgentControll/releases/download/v1.0.11/SHA256SUMS
+curl -LO https://github.com/vijaygovindBiju/AgentControll/releases/download/v1.0.12/agentcontroll-v1.0.12-x86_64-unknown-linux-gnu.tar.gz
+curl -LO https://github.com/vijaygovindBiju/AgentControll/releases/download/v1.0.12/SHA256SUMS
    ```
 
 2. Verify integrity:
@@ -204,13 +202,13 @@ curl -LO https://github.com/vijaygovindBiju/AgentControll/releases/download/v1.0
 
 3. Extract binaries:
    ```bash
-tar -xzf agentcontroll-v1.0.11-x86_64-unknown-linux-gnu.tar.gz -C ~/.local/bin/
+tar -xzf agentcontroll-v1.0.12-x86_64-unknown-linux-gnu.tar.gz -C ~/.local/bin/
    ```
 
 Available release archives:
-- `agentcontroll-v1.0.11-x86_64-unknown-linux-gnu.tar.gz` (Linux x86_64)
-- `agentcontroll-v1.0.11-x86_64-apple-darwin.tar.gz` (macOS Intel)
-- `agentcontroll-v1.0.11-aarch64-apple-darwin.tar.gz` (macOS Apple Silicon)
+- `agentcontroll-v1.0.12-x86_64-unknown-linux-gnu.tar.gz` (Linux x86_64)
+- `agentcontroll-v1.0.12-x86_64-apple-darwin.tar.gz` (macOS Intel)
+- `agentcontroll-v1.0.12-aarch64-apple-darwin.tar.gz` (macOS Apple Silicon)
 
 ---
 

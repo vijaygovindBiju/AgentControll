@@ -4,6 +4,12 @@ All notable changes to AgentControll are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.12] - 2026-10-24
+
+### Changed
+- Removed automatic Antigravity conversation discovery from daemon startup and TUI refresh. Existing Antigravity conversations are no longer imported into the Sessions list.
+- Removed the session discovery command from IPC and the CLI.
+
 ## [1.0.11] - 2026-10-22
 
 ### Fixed

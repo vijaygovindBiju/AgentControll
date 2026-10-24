@@ -61,10 +61,6 @@ pub enum SessionCmd {
     List {
         reply: tokio::sync::oneshot::Sender<Vec<AgentSession>>,
     },
-    /// Discover conversations from Antigravity storage (host and profiles).
-    Discover {
-        reply: tokio::sync::oneshot::Sender<Result<Vec<AgentSession>>>,
-    },
     Get {
         session_id: Id,
         reply: tokio::sync::oneshot::Sender<Option<AgentSession>>,
@@ -165,10 +161,6 @@ pub struct SessionManager {
     project_registry: Option<ProjectRegistryHandle>,
     /// Phase 3: optional interaction hub.
     interaction_hub: Option<InteractionHubHandle>,
-    /// Optional custom host gemini directory for conversation discovery.
-    host_gemini_dir: Option<std::path::PathBuf>,
-    /// Optional custom profiles directory for conversation discovery.
-    profiles_dir: Option<std::path::PathBuf>,
 }
 
 impl SessionManager {
@@ -193,20 +185,7 @@ impl SessionManager {
             account_mgr: None,
             project_registry: None,
             interaction_hub: None,
-            host_gemini_dir: None,
-            profiles_dir: None,
         }
-    }
-
-    /// Set custom Antigravity storage directories for conversation discovery.
-    pub fn with_gemini_dirs(
-        mut self,
-        host_gemini: Option<std::path::PathBuf>,
-        profiles_base: Option<std::path::PathBuf>,
-    ) -> Self {
-        self.host_gemini_dir = host_gemini;
-        self.profiles_dir = profiles_base;
-        self
     }
 
     /// Attach a Phase 2 Account Manager.
@@ -294,74 +273,6 @@ impl SessionManager {
                 }
             }
             let _ = h.0.lock().unwrap().reconcile_active_counts(&counts);
-        }
-    }
-
-    /// Discover Antigravity conversations from profile and host storage,
-    /// indexing them into `self.sessions` without modifying original Antigravity data.
-    pub fn discover_conversations(&mut self) -> Result<Vec<AgentSession>> {
-        let discovered = crate::agy_discovery::discover_all_conversations(
-            self.host_gemini_dir.as_deref(),
-            self.profiles_dir.as_deref(),
-        )?;
-        self.index_discovered_conversations(&discovered);
-        Ok(self.sessions.values().cloned().collect())
-    }
-
-    /// Index discovered conversations into memory.
-    pub fn index_discovered_conversations(
-        &mut self,
-        convos: &[crate::agy_discovery::DiscoveredConversation],
-    ) {
-        for c in convos {
-            if let Some(existing) = self.sessions.get_mut(&c.conversation_id) {
-                // If it's already in memory and Idle, update metadata in case title/workspace changed
-                if existing.state == SessionState::Idle && existing.is_external {
-                    if !c.title.is_empty() {
-                        existing.task_description = c.title.clone();
-                    }
-                    if let Some(ws) = &c.workspace_path {
-                        if let Some(launch) = existing.launch.as_mut() {
-                            launch.working_dir = Some(ws.clone());
-                        }
-                    }
-                }
-                continue;
-            }
-
-            // Create indexed session
-            let task_desc = if !c.title.is_empty() {
-                c.title.clone()
-            } else if !c.preview.is_empty() {
-                c.preview.lines().next().unwrap_or("").trim().to_string()
-            } else {
-                "[interactive] Antigravity conversation".to_string()
-            };
-
-            let mut session =
-                AgentSession::new(Id(c.conversation_id.clone()), task_desc, "agy".to_string());
-            session.is_external = c.is_external;
-            session.state = SessionState::Idle;
-            session.account_id = c.account_id.clone();
-
-            let ts = chrono::DateTime::parse_from_rfc3339(&c.last_modified_time)
-                .or_else(|_| {
-                    chrono::DateTime::parse_from_str(
-                        &c.last_modified_time,
-                        "%Y-%m-%d %H:%M:%S%.f%:z",
-                    )
-                })
-                .map(|dt| dt.with_timezone(&chrono::Utc))
-                .unwrap_or_else(|_| chrono::Utc::now());
-            session.created_at = ts;
-            session.updated_at = ts;
-
-            let mut launch = crate::agy_launch::AgyLaunchOptions::default();
-            launch.conversation_id = Some(c.conversation_id.clone());
-            launch.working_dir = c.workspace_path.clone();
-            session.launch = Some(launch);
-
-            self.sessions.insert(c.conversation_id.clone(), session);
         }
     }
 
@@ -498,13 +409,6 @@ impl SessionManager {
                 let mut sessions: Vec<AgentSession> = self.sessions.values().cloned().collect();
                 sessions.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
                 let _ = reply.send(sessions);
-            }
-            SessionCmd::Discover { reply } => {
-                let result = self.discover_conversations().map(|mut sessions| {
-                    sessions.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
-                    sessions
-                });
-                let _ = reply.send(result);
             }
             SessionCmd::Get { session_id, reply } => {
                 let session = self.sessions.get(&session_id.0).cloned();
@@ -768,8 +672,8 @@ impl SessionManager {
         {
             if crate::agy_discovery::find_conversation_file(
                 cid,
-                self.host_gemini_dir.as_deref(),
-                self.profiles_dir.as_deref(),
+                None,
+                None,
             )
             .is_none()
             {
@@ -2375,18 +2279,6 @@ impl SessionManagerHandle {
         reply_rx
             .await
             .map_err(|_| anyhow::anyhow!("Session manager dropped reply"))
-    }
-
-    /// Discover Antigravity conversations and refresh indexed sessions.
-    pub async fn discover(&self) -> Result<Vec<AgentSession>> {
-        let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
-        self.tx
-            .send(SessionCmd::Discover { reply: reply_tx })
-            .await
-            .map_err(|_| anyhow::anyhow!("Session manager is not running"))?;
-        reply_rx
-            .await
-            .map_err(|_| anyhow::anyhow!("Session manager dropped reply"))?
     }
 
     pub async fn get(&self, session_id: Id) -> Result<Option<AgentSession>> {

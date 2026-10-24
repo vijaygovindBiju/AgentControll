@@ -2998,12 +2998,8 @@ pub async fn handle_key(app: &mut App, client: &ApiClient, key: KeyEvent) -> Res
         return Ok(());
     }
     if crate::keybinding::matches_action(&key, "refresh", &app.user_settings) {
-        let _ = client.discover_sessions().await;
         refresh_data(app, client).await;
-        app.set_status(
-            "Refreshed state and discovered conversations",
-            StatusType::Info,
-        );
+        app.set_status("Refreshed state", StatusType::Info);
         return Ok(());
     }
 

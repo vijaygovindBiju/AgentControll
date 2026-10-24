@@ -275,11 +275,9 @@ pub fn discover_profile_conversations(
         let summaries_db = agy_dir.join("conversation_summaries.db");
         let conv_dir = agy_dir.join("conversations");
 
-        if let Ok(convos) =
-            read_conversations_from_db(&summaries_db, &conv_dir, false, Some(account_id))
-        {
-            all.extend(convos);
-        }
+        let convos = read_conversations_from_db(&summaries_db, &conv_dir, false, Some(account_id))
+            .with_context(|| format!("Reading conversation index for profile {}", dir_name))?;
+        all.extend(convos);
     }
 
     Ok(all)
@@ -294,20 +292,20 @@ pub fn discover_all_conversations(
     let mut combined = Vec::new();
 
     // 1. Profile conversations take priority (already associated with specific accounts)
-    if let Ok(profile_convos) = discover_profile_conversations(profiles_base) {
-        for c in profile_convos {
-            if seen.insert(c.conversation_id.clone()) {
-                combined.push(c);
-            }
+    let profile_convos = discover_profile_conversations(profiles_base)
+        .context("Discovering conversations in Agent Control profiles")?;
+    for c in profile_convos {
+        if seen.insert(c.conversation_id.clone()) {
+            combined.push(c);
         }
     }
 
     // 2. External conversations
-    if let Ok(ext_convos) = discover_external_conversations(host_gemini) {
-        for c in ext_convos {
-            if seen.insert(c.conversation_id.clone()) {
-                combined.push(c);
-            }
+    let ext_convos = discover_external_conversations(host_gemini)
+        .context("Discovering external Antigravity conversations")?;
+    for c in ext_convos {
+        if seen.insert(c.conversation_id.clone()) {
+            combined.push(c);
         }
     }
 

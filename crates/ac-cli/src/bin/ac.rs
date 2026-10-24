@@ -157,8 +157,6 @@ enum SessionCmd {
     },
     /// List all sessions.
     List,
-    /// Discover and index Antigravity conversations from host and account profiles.
-    Discover,
     /// Get details for a specific session.
     Get {
         /// Session ID.
@@ -668,7 +666,6 @@ fn build_request(commands: &Commands) -> Result<(String, serde_json::Value)> {
                 json!({ "session_id": session_id }),
             ),
             SessionCmd::List => ("session.list".to_owned(), json!({})),
-            SessionCmd::Discover => ("session.discover".to_owned(), json!({})),
             SessionCmd::Get { session_id } => (
                 "session.get".to_owned(),
                 json!({ "session_id": session_id }),

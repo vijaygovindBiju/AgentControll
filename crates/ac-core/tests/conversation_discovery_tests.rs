@@ -20,8 +20,9 @@ use std::{
 use ac_core::{
     adapter::CompositeAdapterFactory,
     agy_discovery::{
-        discover_external_conversations, discover_profile_conversations, find_conversation_file,
-        link_conversation_to_profile, parse_workspace_uri, validate_conversation_db,
+        discover_all_conversations, discover_external_conversations,
+        discover_profile_conversations, find_conversation_file, link_conversation_to_profile,
+        parse_workspace_uri, validate_conversation_db,
     },
     agy_launch::AgyLaunchOptions,
     event_store::EventStore,
@@ -33,6 +34,27 @@ use ac_core::{
 };
 use rusqlite::Connection;
 use tempfile::TempDir;
+
+#[test]
+fn discovery_reports_invalid_summary_schema_instead_of_returning_empty_results() {
+    let tmp = TempDir::new().unwrap();
+    let host_gemini = tmp.path().join(".gemini");
+    let agy_dir = host_gemini.join("antigravity-cli");
+    fs::create_dir_all(&agy_dir).unwrap();
+    let conn = Connection::open(agy_dir.join("conversation_summaries.db")).unwrap();
+    conn.execute(
+        "CREATE TABLE conversation_summaries (conversation_id TEXT PRIMARY KEY)",
+        [],
+    )
+    .unwrap();
+    drop(conn);
+
+    let error = discover_all_conversations(Some(&host_gemini), Some(&tmp.path().join("profiles")))
+        .expect_err("invalid summary schema must be reported");
+    assert!(error
+        .to_string()
+        .contains("external Antigravity conversations"));
+}
 
 /// Helper to create a valid SQLite conversation database file.
 fn create_valid_conv_db(path: &Path) {
@@ -95,17 +117,13 @@ fn create_mock_summaries(
 
 fn create_spawned_manager(
     store: EventStore,
-    host_gemini: Option<PathBuf>,
-    profiles_base: Option<PathBuf>,
+    _host_gemini: Option<PathBuf>,
+    _profiles_base: Option<PathBuf>,
 ) -> SessionManagerHandle {
     let (cmd_tx, cmd_rx) = tokio::sync::mpsc::channel(64);
     let (event_tx, _event_rx) = tokio::sync::broadcast::channel(128);
     let factory = Box::new(CompositeAdapterFactory::new());
-    let mut manager = SessionManager::new(store, cmd_rx, event_tx, 3, factory)
-        .with_gemini_dirs(host_gemini, profiles_base);
-
-    // Initial discovery
-    let _ = manager.discover_conversations();
+    let manager = SessionManager::new(store, cmd_rx, event_tx, 3, factory);
 
     tokio::spawn(async move {
         manager.run().await;
@@ -244,7 +262,7 @@ fn test_3_resume_externally_created_conversation_linking_and_flags() {
 }
 
 #[tokio::test]
-async fn test_4_restart_and_rediscover() {
+async fn test_4_restart_does_not_import_host_conversations() {
     let tmp = TempDir::new().unwrap();
     let host_gemini = tmp.path().join("host_gemini");
     let agy_dir = host_gemini.join("antigravity-cli");
@@ -274,19 +292,13 @@ async fn test_4_restart_and_rediscover() {
         Some(empty_profiles.clone()),
     );
     let sessions1 = handle1.list().await.unwrap();
-    assert_eq!(sessions1.len(), 1);
-    assert_eq!(sessions1[0].id.0, conv_id);
-    assert_eq!(sessions1[0].is_external, true);
-    assert_eq!(sessions1[0].state, SessionState::Idle);
+    assert!(sessions1.is_empty());
 
     // Simulate daemon restart: 2nd session manager run with same event_store & gemini dir
     let event_store2 = EventStore::open(&db_path).unwrap();
     let handle2 = create_spawned_manager(event_store2, Some(host_gemini), Some(empty_profiles));
     let sessions2 = handle2.list().await.unwrap();
-    assert_eq!(sessions2.len(), 1);
-    assert_eq!(sessions2[0].id.0, conv_id);
-    assert_eq!(sessions2[0].is_external, true);
-    assert_eq!(sessions2[0].state, SessionState::Idle);
+    assert!(sessions2.is_empty());
 }
 
 #[tokio::test]
@@ -306,16 +318,13 @@ async fn test_5_prevent_duplicate_entries() {
     let empty_profiles = tmp.path().join("empty_profiles");
     let handle = create_spawned_manager(event_store, Some(host_gemini), Some(empty_profiles));
 
-    // Run discovery multiple times via handle
-    handle.discover().await.unwrap();
-    handle.discover().await.unwrap();
     let sessions = handle.list().await.unwrap();
 
     let matching: Vec<_> = sessions.into_iter().filter(|s| s.id.0 == conv_id).collect();
     assert_eq!(
         matching.len(),
-        1,
-        "Must not create duplicate session entries"
+        0,
+        "Host conversations must not be imported as sessions"
     );
 }
 
@@ -541,46 +550,6 @@ fn test_10_session_lifecycle_compatibility() {
 }
 
 #[tokio::test]
-async fn test_11_resume_idle_conversation_via_resume_cmd() {
-    let tmp = TempDir::new().unwrap();
-    let host_gemini = tmp.path().join("host_gemini");
-    let agy_dir = host_gemini.join("antigravity-cli");
-    let conv_dir = agy_dir.join("conversations");
-
-    let conv_id = "11223344-5566-7788-99aa-bbccddeeff00";
-    let conv_file = conv_dir.join(format!("{conv_id}.db"));
-    create_valid_conv_db(&conv_file);
-
-    let db_path = tmp.path().join("events.db");
-    let event_store = EventStore::open(&db_path).unwrap();
-    let empty_profiles = tmp.path().join("empty_profiles");
-    let handle = create_spawned_manager(event_store, Some(host_gemini), Some(empty_profiles));
-
-    // Create a mock session targeting this conversation (starts in Idle)
-    let mut launch = AgyLaunchOptions::default();
-    launch.conversation_id = Some(conv_id.to_string());
-    let session_id = handle
-        .create_with_launch(
-            "Resume idle task".to_string(),
-            "mock".to_string(),
-            None,
-            None,
-            Some(launch),
-        )
-        .await
-        .unwrap();
-
-    let s_before = handle.get(session_id.clone()).await.unwrap().unwrap();
-    assert_eq!(s_before.state, SessionState::Idle);
-
-    // Calling resume on an Idle session transitions it to Working via cmd_start
-    handle.resume(session_id.clone()).await.unwrap();
-
-    let s_after = handle.get(session_id).await.unwrap().unwrap();
-    assert_eq!(s_after.state, SessionState::Working);
-}
-
-#[tokio::test]
 async fn test_12_inaccessible_workspace_fails_start() {
     let tmp = TempDir::new().unwrap();
     let host_gemini = tmp.path().join("host_gemini");
@@ -606,26 +575,9 @@ async fn test_12_inaccessible_workspace_fails_start() {
     let empty_profiles = tmp.path().join("empty_profiles");
     let handle = create_spawned_manager(event_store, Some(host_gemini), Some(empty_profiles));
 
-    // Session is discovered with the missing workspace path
+    // Host conversations are not imported as sessions.
     let session_id = Id(conv_id.to_string());
-    let s = handle
-        .get(session_id.clone())
-        .await
-        .unwrap()
-        .expect("session must be discovered");
-    assert_eq!(s.state, SessionState::Idle);
-
-    // Starting must fail cleanly because the workspace directory was deleted / does not exist
-    let res = handle.start(session_id.clone()).await;
-    assert!(
-        res.is_err(),
-        "Starting with nonexistent workspace must fail"
-    );
-    let err = res.unwrap_err().to_string();
-    assert!(err.contains("Workspace path does not exist"), "Got: {err}");
-
-    let s = handle.get(session_id).await.unwrap().unwrap();
-    assert_eq!(s.state, SessionState::Idle);
+    assert!(handle.get(session_id).await.unwrap().is_none());
 }
 
 #[test]

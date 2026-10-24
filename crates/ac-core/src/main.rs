@@ -118,10 +118,6 @@ async fn main() -> Result<()> {
     .with_interaction_hub(hub_handle.clone());
 
     manager.recover_from_store()?;
-    if let Err(e) = manager.discover_conversations() {
-        warn!("External conversation discovery encountered warning: {e}");
-    }
-
     let mgr_handle = SessionManagerHandle::new(cmd_tx);
     tokio::spawn(async move { manager.run().await });
 
@@ -170,16 +166,26 @@ async fn main() -> Result<()> {
             token_registry,
         )
         .await
-        .context("binding WebSocket server")?
-        .with_account_manager(acct_handle)
-        .with_project_registry(proj_handle)
-        .with_interaction_hub(hub_handle);
+        .map(|server| {
+            server
+                .with_account_manager(acct_handle)
+                .with_project_registry(proj_handle)
+                .with_interaction_hub(hub_handle)
+        });
 
-        tokio::spawn(async move { ws_server.run().await });
-        info!(
-            "WebSocket Control API v1 listening on ws://{}",
-            cfg.ws_bind_addr
-        );
+        match ws_server {
+            Ok(ws_server) => {
+                tokio::spawn(async move { ws_server.run().await });
+                info!(
+                    "WebSocket Control API v1 listening on ws://{}",
+                    cfg.ws_bind_addr
+                );
+            }
+            Err(e) => warn!(
+                "WebSocket Control API unavailable at ws://{}: {e}; continuing with Unix socket IPC",
+                cfg.ws_bind_addr
+            ),
+        }
     }
 
     info!("Daemon ready. Listening on {}", cfg.socket_path.display());

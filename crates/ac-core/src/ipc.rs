@@ -3,7 +3,7 @@
 //! Phase 7 additions: shared `dispatch_request`, `is_mutating_cmd`,
 //! `SubscriptionFilter` filtering, and `since_seq` catch-up replay.
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use serde_json::json;
 use std::path::Path;
 use tokio::{
@@ -28,6 +28,8 @@ use crate::{
 
 pub struct IpcServer {
     listener: UnixListener,
+    socket_path: std::path::PathBuf,
+    socket_identity: (u64, u64),
     session_mgr: SessionManagerHandle,
     account_mgr: Option<AccountManagerHandle>,
     project_registry: Option<ProjectRegistryHandle>,
@@ -43,12 +45,25 @@ impl IpcServer {
         event_tx: broadcast::Sender<AgentEvent>,
     ) -> Result<Self> {
         if socket_path.exists() {
-            std::fs::remove_file(socket_path)?;
+            // Never unlink a live daemon's socket. Doing so lets a second
+            // daemon steal the pathname while the first still owns the bound
+            // listener, leaving clients unable to reach either instance.
+            if std::os::unix::net::UnixStream::connect(socket_path).is_ok() {
+                anyhow::bail!(
+                    "AgentControll daemon is already listening on {}",
+                    socket_path.display()
+                );
+            }
+            std::fs::remove_file(socket_path)
+                .with_context(|| format!("removing stale IPC socket {}", socket_path.display()))?;
         }
         if let Some(parent) = socket_path.parent() {
             std::fs::create_dir_all(parent)?;
         }
         let listener = UnixListener::bind(socket_path)?;
+        use std::os::unix::fs::MetadataExt;
+        let metadata = std::fs::metadata(socket_path)?;
+        let socket_identity = (metadata.dev(), metadata.ino());
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
@@ -57,6 +72,8 @@ impl IpcServer {
         info!("IPC server listening on {}", socket_path.display());
         Ok(Self {
             listener,
+            socket_path: socket_path.to_path_buf(),
+            socket_identity,
             session_mgr,
             account_mgr: None,
             project_registry: None,
@@ -111,6 +128,20 @@ impl IpcServer {
                     break;
                 }
             }
+        }
+    }
+}
+
+impl Drop for IpcServer {
+    fn drop(&mut self) {
+        use std::os::unix::fs::MetadataExt;
+        // Remove only the socket path this listener created. A different
+        // daemon may have replaced it after this listener shut down.
+        if std::fs::metadata(&self.socket_path)
+            .map(|metadata| (metadata.dev(), metadata.ino()) == self.socket_identity)
+            .unwrap_or(false)
+        {
+            let _ = std::fs::remove_file(&self.socket_path);
         }
     }
 }
@@ -459,10 +490,6 @@ pub async fn handle_session_cmd(req: &ApiRequest, mgr: &SessionManagerHandle) ->
             }
         }
         "session.list" => match mgr.list().await {
-            Ok(sessions) => ApiResponse::ok(&req.id, json!({"sessions": sessions})),
-            Err(e) => ApiResponse::err(&req.id, "InternalError", e.to_string()),
-        },
-        "session.discover" | "conversation.discover" => match mgr.discover().await {
             Ok(sessions) => ApiResponse::ok(&req.id, json!({"sessions": sessions})),
             Err(e) => ApiResponse::err(&req.id, "InternalError", e.to_string()),
         },
