@@ -1,6 +1,12 @@
-# AgentControll
+# AgentControll 🎛️
 
-A local-first control plane for coding agents.
+> **A local-first supervisor daemon, PTY terminal multiplexer, and control plane for coding agents.**
+
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Rust](https://img.shields.io/badge/Rust-1.80%2B-orange.svg)](https://www.rust-lang.org)
+[![NPM](https://img.shields.io/npm/v/agentcontroll.svg?style=flat&logo=npm)](https://www.npmjs.com/package/agentcontroll)
+[![Platform](https://img.shields.io/badge/Platform-Linux%20%7C%20macOS-brightgreen.svg)]()
+[![Status](https://img.shields.io/badge/Release-v1.0.12-success.svg)](CHANGELOG.md)
 
 > **Status:** Version 1.0.12. See the [release notes](CHANGELOG.md#112---2026-10-24) for this update.
 
